@@ -115,22 +115,27 @@ export default function People() {
     }
   }, []);
 
-  const fetchContacts = useCallback(async () => {
-    setLoading(true);
-    setLoadError(false);
-    try {
-      const data = await api.get<ContactsResponse>(
-        `/contacts?${buildParams()}`
-      );
-      setContacts(data.contacts);
-      setTotal(data.total);
-      setHasMore(data.hasMore);
-    } catch {
-      setLoadError(true);
-    } finally {
-      setLoading(false);
-    }
-  }, [buildParams]);
+  const fetchContacts = useCallback(
+    async (signal?: AbortSignal) => {
+      setLoading(true);
+      setLoadError(false);
+      try {
+        const data = await api.get<ContactsResponse>(
+          `/contacts?${buildParams()}`,
+          { signal }
+        );
+        setContacts(data.contacts);
+        setTotal(data.total);
+        setHasMore(data.hasMore);
+      } catch (err) {
+        if (err instanceof DOMException && err.name === "AbortError") return;
+        setLoadError(true);
+      } finally {
+        setLoading(false);
+      }
+    },
+    [buildParams]
+  );
 
   const loadMore = useCallback(async () => {
     if (loadingMore || !hasMore) return;
@@ -149,8 +154,10 @@ export default function People() {
   }, [loadingMore, hasMore, buildParams, contacts.length]);
 
   useEffect(() => {
-    fetchContacts();
+    const ac = new AbortController();
+    fetchContacts(ac.signal);
     fetchCounts();
+    return () => ac.abort();
   }, [fetchContacts, fetchCounts]);
 
   // Infinite scroll
