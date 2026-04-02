@@ -11,6 +11,7 @@ import challengesRoutes from "./routes/challenges";
 import followupsRoutes from "./routes/followups";
 import userRoutes from "./routes/user";
 import methodologiesRoutes from "./routes/methodologies";
+import { startCron, runDailyJob } from "./services/cron";
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -43,6 +44,16 @@ app.use("/api/followups", authMiddleware, followupsRoutes);
 app.use("/api/user", authMiddleware, userRoutes);
 app.use("/api/methodologies", authMiddleware, methodologiesRoutes);
 
+// Manual cron trigger (dev-mode)
+app.post("/api/cron/run-now", authMiddleware, async (_req, res, next) => {
+  try {
+    await runDailyJob();
+    res.json({ status: "completed" });
+  } catch (err) {
+    next(err);
+  }
+});
+
 // Serve static files in production
 if (process.env.NODE_ENV === "production") {
   const clientDist = path.join(__dirname, "../../client/dist");
@@ -57,4 +68,5 @@ app.use(errorHandler);
 
 app.listen(PORT, () => {
   console.log(`Server running on http://localhost:${PORT}`);
+  startCron();
 });
