@@ -8,6 +8,7 @@ import {
   useNavigate,
 } from "react-router-dom";
 import { AnimatePresence, motion } from "framer-motion";
+import { Home as HomeIcon, Users, Target, MessageCircle, Settings as SettingsIcon } from "lucide-react";
 import { ToastProvider } from "./components/Toast";
 import { SkeletonList } from "./components/Skeleton";
 
@@ -22,12 +23,20 @@ const Settings = lazy(() => import("./pages/Settings"));
 
 type Tab = "home" | "people" | "challenge" | "chat" | "settings";
 
-const tabs: { id: Tab; path: string; label: string; icon: string }[] = [
-  { id: "home", path: "/", label: "Home", icon: "\u{1F3E0}" },
-  { id: "people", path: "/people", label: "People", icon: "\u{1F465}" },
-  { id: "challenge", path: "/challenges", label: "Challenge", icon: "\u{1F3AF}" },
-  { id: "chat", path: "/chat", label: "Chat", icon: "\u{1F4AC}" },
-  { id: "settings", path: "/settings", label: "Settings", icon: "\u2699\uFE0F" },
+const TAB_ICONS = {
+  home: HomeIcon,
+  people: Users,
+  challenge: Target,
+  chat: MessageCircle,
+  settings: SettingsIcon,
+};
+
+const tabs: { id: Tab; path: string; label: string }[] = [
+  { id: "home", path: "/", label: "Home" },
+  { id: "people", path: "/people", label: "People" },
+  { id: "challenge", path: "/challenges", label: "Challenge" },
+  { id: "chat", path: "/chat", label: "Chat" },
+  { id: "settings", path: "/settings", label: "Settings" },
 ];
 
 function PageFallback() {
@@ -117,20 +126,37 @@ function BottomNav() {
     )?.id || "home";
 
   return (
-    <nav className="fixed bottom-0 left-1/2 z-40 flex w-full max-w-[430px] -translate-x-1/2 items-center justify-around border-t border-neutral-800 bg-bg/95 backdrop-blur-sm tab-bar-safe">
-      {tabs.map((t) => (
-        <motion.button
-          key={t.id}
-          onClick={() => navigate(t.path)}
-          whileTap={{ scale: 0.9 }}
-          className={`flex min-h-[44px] min-w-[44px] flex-col items-center justify-center gap-0.5 text-xs transition-colors ${
-            activeTab === t.id ? "text-accent" : "text-neutral-500"
-          }`}
-        >
-          <span className="text-lg">{t.icon}</span>
-          <span>{t.label}</span>
-        </motion.button>
-      ))}
+    <nav className="fixed bottom-0 left-1/2 z-40 flex w-full max-w-[430px] -translate-x-1/2 items-center justify-around border-t border-white/5 bg-bg/95 backdrop-blur-sm tab-bar-safe"
+      role="tablist"
+      aria-label="Main navigation"
+    >
+      {tabs.map((t) => {
+        const Icon = TAB_ICONS[t.id];
+        const isActive = activeTab === t.id;
+        return (
+          <motion.button
+            key={t.id}
+            onClick={() => navigate(t.path)}
+            whileTap={{ scale: 0.9 }}
+            role="tab"
+            aria-selected={isActive}
+            aria-label={t.label}
+            className={`relative flex min-h-[44px] min-w-[44px] flex-col items-center justify-center gap-0.5 text-[10px] transition-colors ${
+              isActive ? "text-accent" : "text-neutral-500"
+            }`}
+          >
+            {isActive && (
+              <motion.div
+                layoutId="tab-dot"
+                className="absolute -top-px h-0.5 w-6 rounded-full bg-accent"
+                transition={{ type: "spring", stiffness: 400, damping: 30 }}
+              />
+            )}
+            <Icon size={22} strokeWidth={isActive ? 2.2 : 1.8} />
+            <span>{t.label}</span>
+          </motion.button>
+        );
+      })}
     </nav>
   );
 }
