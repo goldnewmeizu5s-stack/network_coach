@@ -150,7 +150,7 @@ export default function Settings() {
   const downloadExport = async (path: string, filename: string) => {
     try {
       const res = await fetch(`/api${path}`, {
-        headers: { "x-auth-pin": sessionStorage.getItem("pin") || "" },
+        credentials: "same-origin",
       });
       const blob = await res.blob();
       const url = URL.createObjectURL(blob);
@@ -180,18 +180,21 @@ export default function Settings() {
       return;
     }
     try {
-      await fetch("/api/auth/change-pin", {
+      const res = await fetch("/api/auth/change-pin", {
         method: "PUT",
-        headers: {
-          "Content-Type": "application/json",
-          "x-auth-pin": currentPin,
-        },
+        headers: { "Content-Type": "application/json" },
+        credentials: "same-origin",
         body: JSON.stringify({ current_pin: currentPin, new_pin: newPin }),
       });
-      show("PIN обновлён");
-      setShowPinChange(false);
-      setCurrentPin("");
-      setNewPin("");
+      const data = await res.json();
+      if (res.ok && data.success) {
+        show("PIN обновлён");
+        setShowPinChange(false);
+        setCurrentPin("");
+        setNewPin("");
+      } else {
+        show(data.error || "Ошибка смены PIN");
+      }
     } catch {
       show("Ошибка смены PIN");
     }

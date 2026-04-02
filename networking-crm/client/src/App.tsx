@@ -63,14 +63,12 @@ function LoginScreen({ onLogin }: { onLogin: () => void }) {
     try {
       const res = await fetch("/api/auth/verify", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "x-auth-pin": pin,
-        },
+        headers: { "Content-Type": "application/json" },
+        credentials: "same-origin",
+        body: JSON.stringify({ pin }),
       });
       const data = await res.json();
       if (data.valid) {
-        sessionStorage.setItem("pin", pin);
         onLogin();
       } else {
         setError("Неверный PIN-код");
@@ -306,20 +304,40 @@ function AuthedLayout() {
 }
 
 function App() {
-  const [authed, setAuthed] = useState(() => !!sessionStorage.getItem("pin"));
+  const [authed, setAuthed] = useState(() => !!sessionStorage.getItem("authed"));
+  const [checking, setChecking] = useState(!sessionStorage.getItem("authed"));
 
+  // On mount, verify session cookie is still valid
   useEffect(() => {
-    const onStorage = () => {
-      if (!sessionStorage.getItem("pin")) setAuthed(false);
-    };
-    window.addEventListener("storage", onStorage);
-    return () => window.removeEventListener("storage", onStorage);
+    if (sessionStorage.getItem("authed")) return;
+    fetch("/api/auth/verify", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "same-origin",
+      body: JSON.stringify({}),
+    })
+      .then((res) => res.json())
+      .then((data) => {
+        if (data.valid) {
+          sessionStorage.setItem("authed", "1");
+          setAuthed(true);
+        }
+      })
+      .catch(() => {})
+      .finally(() => setChecking(false));
   }, []);
+
+  const handleLogin = () => {
+    sessionStorage.setItem("authed", "1");
+    setAuthed(true);
+  };
+
+  if (checking) return null;
 
   return (
     <ToastProvider>
       {!authed ? (
-        <LoginScreen onLogin={() => setAuthed(true)} />
+        <LoginScreen onLogin={handleLogin} />
       ) : (
         <BrowserRouter>
           <AuthedLayout />

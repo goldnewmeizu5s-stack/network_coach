@@ -3,8 +3,9 @@ import express from "express";
 import cors from "cors";
 import helmet from "helmet";
 import compression from "compression";
+import cookieParser from "cookie-parser";
 import rateLimit from "express-rate-limit";
-import { config } from "./config";
+import { config, initEnvPinHash } from "./config";
 import prisma from "./lib/prisma";
 import { logger } from "./lib/logger";
 import { aiLimiter } from "./lib/rate-limit";
@@ -39,7 +40,8 @@ app.use(
   })
 );
 app.use(compression());
-app.use(cors());
+app.use(cors({ origin: true, credentials: true }));
+app.use(cookieParser());
 app.use(express.json({ limit: "50mb" }));
 app.use(express.urlencoded({ extended: true, limit: "50mb" }));
 
@@ -49,6 +51,15 @@ const apiLimiter = rateLimit({
   max: 200,
   standardHeaders: true,
   legacyHeaders: false,
+});
+
+// Strict rate limit for auth routes (5 attempts per minute)
+const authLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 5,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Too many authentication attempts. Please wait a minute." },
 });
 
 // Request logging
@@ -79,8 +90,8 @@ app.get("/api/health", async (_req, res) => {
   });
 });
 
-// Auth routes (public)
-app.use("/api/auth", authRoutes);
+// Auth routes (public, with strict rate limit)
+app.use("/api/auth", authLimiter, authRoutes);
 
 // Protected routes
 app.use("/api/contacts", authMiddleware, apiLimiter, contactsRoutes);
@@ -116,25 +127,35 @@ if (config.isProd) {
 // Error handler (must be last)
 app.use(errorHandler);
 
-// Start server
-const server = app.listen(config.port, () => {
-  logger.info(`Server running on http://localhost:${config.port} [${config.nodeEnv}]`);
-  startCron();
-});
+// Start server (async to init PIN hash first)
+async function start() {
+  await initEnvPinHash();
+  logger.info("PIN hash initialized");
 
-// Graceful shutdown
-function shutdown() {
-  logger.info("Shutting down gracefully...");
-  server.close(async () => {
-    await prisma.$disconnect();
-    logger.info("Server closed");
-    process.exit(0);
+  const server = app.listen(config.port, () => {
+    logger.info(`Server running on http://localhost:${config.port} [${config.nodeEnv}]`);
+    startCron();
   });
-  setTimeout(() => {
-    logger.warn("Forced shutdown after timeout");
-    process.exit(1);
-  }, 10000);
+
+  // Graceful shutdown
+  function shutdown() {
+    logger.info("Shutting down gracefully...");
+    server.close(async () => {
+      await prisma.$disconnect();
+      logger.info("Server closed");
+      process.exit(0);
+    });
+    setTimeout(() => {
+      logger.warn("Forced shutdown after timeout");
+      process.exit(1);
+    }, 10000);
+  }
+
+  process.on("SIGTERM", shutdown);
+  process.on("SIGINT", shutdown);
 }
 
-process.on("SIGTERM", shutdown);
-process.on("SIGINT", shutdown);
+start().catch((err) => {
+  logger.error("Failed to start server:", err);
+  process.exit(1);
+});
