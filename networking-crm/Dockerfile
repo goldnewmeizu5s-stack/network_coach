@@ -29,6 +29,7 @@ COPY client/package.json ./client/
 COPY server/package.json ./server/
 COPY prisma/ ./prisma/
 RUN npm ci --omit=dev
+RUN npm install prisma
 RUN npx prisma generate --schema=prisma/schema.prisma
 
 # Stage 4: Production
