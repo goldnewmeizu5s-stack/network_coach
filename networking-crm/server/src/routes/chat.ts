@@ -1,4 +1,5 @@
 import path from "path";
+import fs from "fs";
 import { Router } from "express";
 import multer from "multer";
 import prisma from "../lib/prisma";
@@ -279,8 +280,9 @@ router.post("/voice", voiceUpload.single("audio"), async (req, res, next) => {
       return;
     }
 
-    // Transcribe
+    // Transcribe then delete file
     const transcript = await transcribeAudio(file.path);
+    fs.unlink(file.path, () => {});
 
     // Process as chat message
     const contactId = req.body.contact_id || null;

@@ -39,7 +39,7 @@ export async function runDailyJob(): Promise<void> {
       logger.info(`[cron] ${contact.full_name}: warm → cooling (decay)`);
     }
 
-    // b. Follow-up generation with AI personalization
+    // b. Follow-up generation — collect all drafts first, then personalize
     const activeContacts = await prisma.contact.findMany({
       where: { warmth_status: { not: "archived" } },
       select: {
@@ -50,24 +50,46 @@ export async function runDailyJob(): Promise<void> {
       },
     });
 
-    let generated = 0;
+    const allDrafts: {
+      draft: Awaited<ReturnType<typeof generateFollowUps>>[number];
+      contact: (typeof activeContacts)[number];
+    }[] = [];
+
     for (const contact of activeContacts) {
       const drafts = await generateFollowUps(contact.id);
       for (const draft of drafts) {
-        const personalizedAction = await personalizeFollowUpText(
-          contact.full_name,
-          draft.suggested_action,
-          contact.key_interests,
-          contact.where_met
-        );
-        await prisma.followUp.create({
-          data: { ...draft, suggested_action: personalizedAction },
-        });
-        generated++;
+        allDrafts.push({ draft, contact });
       }
     }
+
+    const AI_PERSONALIZE_LIMIT = 20;
+    let generated = 0;
+
+    for (let i = 0; i < allDrafts.length; i++) {
+      const { draft, contact } = allDrafts[i];
+      let action = draft.suggested_action;
+
+      if (i < AI_PERSONALIZE_LIMIT) {
+        try {
+          action = await personalizeFollowUpText(
+            contact.full_name,
+            draft.suggested_action,
+            contact.key_interests,
+            contact.where_met
+          );
+        } catch {
+          // Keep template text on AI failure
+        }
+      }
+
+      await prisma.followUp.create({
+        data: { ...draft, suggested_action: action },
+      });
+      generated++;
+    }
+
     if (generated > 0) {
-      logger.info(`[cron] Generated ${generated} new follow-ups`);
+      logger.info(`[cron] Generated ${generated} follow-ups (${Math.min(generated, AI_PERSONALIZE_LIMIT)} AI-personalized)`);
     }
 
     // c. Stale follow-ups: overdue by 7+ days → increase priority

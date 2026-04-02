@@ -1,3 +1,4 @@
+import fs from "fs";
 import prisma from "../lib/prisma";
 import { logger } from "../lib/logger";
 import { transcribeAudio } from "./transcription";
@@ -18,10 +19,15 @@ export async function processVoiceNote(
     // b. Transcribe
     const transcript = await transcribeAudio(filePath);
 
-    // c. Save transcript
+    // c. Save transcript + delete audio file
     await prisma.interaction.update({
       where: { id: interactionId },
       data: { transcript },
+    });
+    fs.unlink(filePath, () => {});
+    await prisma.audioFile.update({
+      where: { interaction_id: interactionId },
+      data: { file_path: "deleted" },
     });
 
     // d. Extract structured data
