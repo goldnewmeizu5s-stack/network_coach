@@ -129,7 +129,7 @@ export default function People() {
     }
   }, [buildParams]);
 
-  const loadMore = async () => {
+  const loadMore = useCallback(async () => {
     if (loadingMore || !hasMore) return;
     setLoadingMore(true);
     try {
@@ -143,7 +143,7 @@ export default function People() {
     } finally {
       setLoadingMore(false);
     }
-  };
+  }, [loadingMore, hasMore, buildParams, contacts.length]);
 
   useEffect(() => {
     fetchContacts();
@@ -154,16 +154,16 @@ export default function People() {
   const sentinelRef = useRef<HTMLDivElement | null>(null);
   useEffect(() => {
     const el = sentinelRef.current;
-    if (!el) return;
+    if (!el || !hasMore || loadingMore) return;
     const obs = new IntersectionObserver(
       ([entry]) => {
-        if (entry.isIntersecting && hasMore && !loadingMore) loadMore();
+        if (entry.isIntersecting) loadMore();
       },
       { rootMargin: "200px" }
     );
     obs.observe(el);
     return () => obs.disconnect();
-  });
+  }, [hasMore, loadingMore, loadMore]);
 
   const handleArchive = async (id: string) => {
     await api.del(`/contacts/${id}`);
