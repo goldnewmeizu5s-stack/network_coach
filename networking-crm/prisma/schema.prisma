@@ -1,0 +1,125 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id          String   @id @default(uuid())
+  name        String   @default("User")
+  goals       String?
+  fears       String?
+  strengths   String?
+  weaknesses  String?
+  preferences Json?
+  pin_hash    String?
+  created_at  DateTime @default(now())
+  updated_at  DateTime @updatedAt
+}
+
+model Contact {
+  id                  String    @id @default(uuid())
+  full_name           String
+  nickname            String?
+  photo_url           String?
+  where_met           String?
+  met_date            DateTime?
+  occupation          String?
+  company             String?
+  city                String?
+  country             String?
+  key_interests       String[]
+  what_impressed_me   String?
+  potential_synergies String?
+  personality_notes   String?
+  memory_summary      String?
+  relationship_category String?
+  social_links        Json?
+  personal_notes      String?
+  warmth_status       String   @default("new")
+  warmth_score        Float    @default(0)
+  urgency_score       Int      @default(5)
+  last_interaction_at DateTime?
+  created_at          DateTime @default(now())
+  updated_at          DateTime @updatedAt
+
+  interactions Interaction[]
+  follow_ups   FollowUp[]
+}
+
+model Interaction {
+  id         String   @id @default(uuid())
+  contact_id String
+  contact    Contact  @relation(fields: [contact_id], references: [id], onDelete: Cascade)
+  type       String
+  content    String?
+  transcript String?
+  ai_summary String?
+  created_at DateTime @default(now())
+
+  audio_file AudioFile?
+}
+
+model AudioFile {
+  id                   String      @id @default(uuid())
+  interaction_id       String      @unique
+  interaction          Interaction @relation(fields: [interaction_id], references: [id], onDelete: Cascade)
+  file_path            String
+  duration_seconds     Int?
+  transcription_status String      @default("pending")
+  created_at           DateTime    @default(now())
+}
+
+model FollowUp {
+  id               String    @id @default(uuid())
+  contact_id       String
+  contact          Contact   @relation(fields: [contact_id], references: [id], onDelete: Cascade)
+  suggested_action String
+  due_date         DateTime
+  status           String    @default("pending")
+  priority         Int       @default(5)
+  snoozed_until    DateTime?
+  completed_at     DateTime?
+  created_at       DateTime  @default(now())
+}
+
+model Challenge {
+  id             String       @id @default(uuid())
+  date           DateTime     @default(now())
+  title          String
+  description    String
+  category       String
+  difficulty     Int          @default(5)
+  methodology_id String?
+  methodology    Methodology? @relation(fields: [methodology_id], references: [id])
+  status         String       @default("pending")
+  reflection     String?
+  rating         Int?
+  created_at     DateTime     @default(now())
+  completed_at   DateTime?
+}
+
+model Methodology {
+  id                String   @id @default(uuid())
+  source            String
+  title             String
+  core_principle    String
+  full_text         String
+  application_steps String?
+  when_to_use       String?
+  tags              String[]
+  created_at        DateTime @default(now())
+
+  challenges Challenge[]
+}
+
+model ChatMessage {
+  id         String   @id @default(uuid())
+  role       String
+  content    String
+  metadata   Json?
+  created_at DateTime @default(now())
+}
