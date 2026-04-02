@@ -442,6 +442,8 @@ function MethodologyRow({
 }) {
   const [offset, setOffset] = useState(0);
   const startX = useRef(0);
+  const startY = useRef(0);
+  const direction = useRef<"none" | "horizontal" | "vertical">("none");
 
   return (
     <div className="relative overflow-hidden rounded-xl">
@@ -455,15 +457,24 @@ function MethodologyRow({
       </div>
       <div
         className="relative bg-neutral-800 px-3 py-2.5 transition-transform"
-        style={{ transform: `translateX(${offset}px)` }}
+        style={{ transform: `translateX(${offset}px)`, touchAction: "pan-y" }}
         onTouchStart={(e) => {
           startX.current = e.touches[0].clientX;
+          startY.current = e.touches[0].clientY;
+          direction.current = "none";
         }}
         onTouchMove={(e) => {
           const dx = e.touches[0].clientX - startX.current;
-          if (dx < -10) setOffset(Math.max(dx, -70));
+          const dy = e.touches[0].clientY - startY.current;
+          if (direction.current === "none" && (Math.abs(dx) > 10 || Math.abs(dy) > 10)) {
+            direction.current = Math.abs(dx) > Math.abs(dy) ? "horizontal" : "vertical";
+          }
+          if (direction.current === "horizontal" && dx < -10) {
+            setOffset(Math.max(dx, -70));
+          }
         }}
         onTouchEnd={() => {
+          direction.current = "none";
           setOffset(offset < -35 ? -70 : 0);
         }}
       >

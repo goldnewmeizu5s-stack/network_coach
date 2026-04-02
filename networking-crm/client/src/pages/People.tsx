@@ -475,11 +475,15 @@ function ContactCard({
 }) {
   const [offset, setOffset] = useState(0);
   const startX = useRef(0);
+  const startY = useRef(0);
+  const direction = useRef<"none" | "horizontal" | "vertical">("none");
   const swiping = useRef(false);
   const longTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const handleTouchStart = (e: React.TouchEvent) => {
     startX.current = e.touches[0].clientX;
+    startY.current = e.touches[0].clientY;
+    direction.current = "none";
     swiping.current = false;
     longTimer.current = setTimeout(() => {
       onLongPress();
@@ -493,6 +497,15 @@ function ContactCard({
       longTimer.current = null;
     }
     const dx = e.touches[0].clientX - startX.current;
+    const dy = e.touches[0].clientY - startY.current;
+
+    // Lock direction on first significant movement
+    if (direction.current === "none" && (Math.abs(dx) > 10 || Math.abs(dy) > 10)) {
+      direction.current = Math.abs(dx) > Math.abs(dy) ? "horizontal" : "vertical";
+    }
+
+    if (direction.current !== "horizontal") return;
+
     if (dx < -10) {
       swiping.current = true;
       setOffset(Math.max(dx, -140));
@@ -506,6 +519,7 @@ function ContactCard({
       clearTimeout(longTimer.current);
       longTimer.current = null;
     }
+    direction.current = "none";
     if (offset < -70) setOffset(-140);
     else setOffset(0);
   };
@@ -533,7 +547,7 @@ function ContactCard({
         className={`relative flex items-center gap-3 bg-card p-3 transition-transform ${
           selected ? "ring-2 ring-accent" : ""
         }`}
-        style={{ transform: `translateX(${offset}px)` }}
+        style={{ transform: `translateX(${offset}px)`, touchAction: "pan-y" }}
         onTouchStart={handleTouchStart}
         onTouchMove={handleTouchMove}
         onTouchEnd={handleTouchEnd}
