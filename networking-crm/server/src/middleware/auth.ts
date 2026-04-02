@@ -1,16 +1,11 @@
 import { Request, Response, NextFunction } from "express";
+import { config } from "../config";
 import prisma from "../lib/prisma";
 
 export function authMiddleware(req: Request, res: Response, next: NextFunction): void {
   const pin = req.headers["x-auth-pin"] as string | undefined;
-  const authPin = process.env.AUTH_PIN;
 
-  if (!authPin) {
-    res.status(500).json({ error: "AUTH_PIN not configured on server" });
-    return;
-  }
-
-  if (!pin || pin !== authPin) {
+  if (!pin || pin !== config.authPin) {
     res.status(401).json({ error: "Invalid or missing PIN" });
     return;
   }

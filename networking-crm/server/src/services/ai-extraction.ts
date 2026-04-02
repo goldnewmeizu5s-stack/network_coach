@@ -1,8 +1,6 @@
-import Anthropic from "@anthropic-ai/sdk";
+import { anthropic } from "../lib/ai";
 import { ExtractedContact } from "../types";
 import { logger } from "../lib/logger";
-
-const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
 const SYSTEM_PROMPT = `You are analyzing a voice note where the user describes someone they just met or wants to update information about an existing contact.
 

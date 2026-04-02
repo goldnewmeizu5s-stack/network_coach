@@ -1,7 +1,7 @@
-const isProd = process.env.NODE_ENV === "production";
+import { config } from "../config";
 
 function format(level: string, msg: string, meta?: Record<string, unknown>) {
-  if (isProd) {
+  if (config.isProd) {
     return JSON.stringify({ ts: new Date().toISOString(), level, msg, ...meta });
   }
   const metaStr = meta ? ` ${JSON.stringify(meta)}` : "";

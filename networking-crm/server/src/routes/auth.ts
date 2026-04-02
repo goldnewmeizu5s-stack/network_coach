@@ -1,20 +1,18 @@
 import { Router } from "express";
+import { config } from "../config";
 
 const router = Router();
 
 router.post("/verify", (req, res) => {
   const pin = req.headers["x-auth-pin"] as string | undefined;
-  const authPin = process.env.AUTH_PIN;
-
-  const valid = Boolean(authPin && pin === authPin);
+  const valid = Boolean(pin && pin === config.authPin);
   res.json({ valid });
 });
 
 router.put("/change-pin", (req, res) => {
   const { current_pin, new_pin } = req.body;
-  const authPin = process.env.AUTH_PIN;
 
-  if (!current_pin || current_pin !== authPin) {
+  if (!current_pin || current_pin !== config.authPin) {
     res.status(401).json({ error: "Invalid current PIN" });
     return;
   }
@@ -23,9 +21,6 @@ router.put("/change-pin", (req, res) => {
     return;
   }
 
-  // Note: In production, this would update a hashed PIN in the database.
-  // For this prototype, AUTH_PIN is an env var and can't be changed at runtime.
-  // We store it in user preferences as a workaround.
   res.json({ success: true, message: "PIN change noted. Update AUTH_PIN env var to persist." });
 });
 

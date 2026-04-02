@@ -1,8 +1,8 @@
 import path from "path";
 import { Router } from "express";
 import multer from "multer";
-import Anthropic from "@anthropic-ai/sdk";
 import prisma from "../lib/prisma";
+import { anthropic } from "../lib/ai";
 import { logger } from "../lib/logger";
 import { chatMessageSchema } from "../lib/validators";
 import { buildChatContext, buildContactContext } from "../services/context-builder";
@@ -11,8 +11,6 @@ import {
   formatMethodologiesForPrompt,
 } from "../services/methodology-retrieval";
 import { transcribeAudio } from "../services/transcription";
-
-const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
 const SYSTEM_PROMPT_TEMPLATE = `You are a sharp, supportive networking advisor — like a smart friend who's also an expert in relationship building and networking science. You have access to the user's complete networking CRM data.
 

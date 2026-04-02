@@ -1,12 +1,10 @@
-import Anthropic from "@anthropic-ai/sdk";
+import { anthropic } from "../lib/ai";
 import prisma from "../lib/prisma";
 import { logger } from "../lib/logger";
 import {
   getRelevantMethodologies,
   formatMethodologiesForPrompt,
 } from "./methodology-retrieval";
-
-const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
 const CATEGORIES = [
   "conversation",

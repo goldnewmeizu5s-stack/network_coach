@@ -1,8 +1,6 @@
 import fs from "fs";
-import OpenAI from "openai";
+import { openai } from "../lib/ai";
 import { logger } from "../lib/logger";
-
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
 function sleep(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));

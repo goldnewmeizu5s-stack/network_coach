@@ -1,8 +1,6 @@
-import Anthropic from "@anthropic-ai/sdk";
+import { anthropic } from "../lib/ai";
 import prisma from "../lib/prisma";
 import { logger } from "../lib/logger";
-
-const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
 const TONE_GUIDE: Record<string, string> = {
   new: 'Formal but friendly. Style: "Было приятно познакомиться на [event]...", "Рад(а) знакомству..."',
