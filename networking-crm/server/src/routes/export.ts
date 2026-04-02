@@ -30,7 +30,19 @@ router.get("/all", async (_req, res, next) => {
         prisma.methodology.findMany(),
         prisma.chatMessage.findMany(),
         prisma.followUp.findMany(),
-        prisma.user.findFirst(),
+        prisma.user.findFirst({
+          select: {
+            id: true,
+            name: true,
+            goals: true,
+            fears: true,
+            strengths: true,
+            weaknesses: true,
+            preferences: true,
+            created_at: true,
+            updated_at: true,
+          },
+        }),
       ]);
 
     res.setHeader("Content-Disposition", "attachment; filename=crm-export.json");

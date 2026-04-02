@@ -1,4 +1,5 @@
 import { Router, Request, Response } from "express";
+import crypto from "crypto";
 import { config, verifyPin, hashPin, getEnvPinHash } from "../config";
 import prisma from "../lib/prisma";
 
@@ -7,14 +8,21 @@ const router = Router();
 const COOKIE_NAME = "auth_session";
 const COOKIE_MAX_AGE = 7 * 24 * 60 * 60 * 1000; // 7 days
 
-function setAuthCookie(res: Response, pin: string): void {
-  res.cookie(COOKIE_NAME, pin, {
+function setAuthCookie(res: Response, token: string): void {
+  res.cookie(COOKIE_NAME, token, {
     httpOnly: true,
     secure: config.isProd,
     sameSite: "strict",
     maxAge: COOKIE_MAX_AGE,
     path: "/",
   });
+}
+
+async function createSession(): Promise<string> {
+  const token = crypto.randomUUID();
+  const expires_at = new Date(Date.now() + COOKIE_MAX_AGE);
+  await prisma.session.create({ data: { token, expires_at } });
+  return token;
 }
 
 /** Check PIN against DB hash first, fallback to env hash */
@@ -36,7 +44,8 @@ router.post("/verify", async (req: Request, res: Response) => {
 
     const valid = await checkPin(pin);
     if (valid) {
-      setAuthCookie(res, pin);
+      const token = await createSession();
+      setAuthCookie(res, token);
     }
     res.json({ valid });
   } catch {
@@ -76,8 +85,10 @@ router.put("/change-pin", async (req: Request, res: Response) => {
       await prisma.user.create({ data: { pin_hash: newHash } });
     }
 
-    // Set new auth cookie with the new PIN
-    setAuthCookie(res, new_pin);
+    // Delete all old sessions and create a new one
+    await prisma.session.deleteMany();
+    const token = await createSession();
+    setAuthCookie(res, token);
 
     res.json({ success: true, message: "PIN changed successfully" });
   } catch {
@@ -85,7 +96,11 @@ router.put("/change-pin", async (req: Request, res: Response) => {
   }
 });
 
-router.post("/logout", (_req: Request, res: Response) => {
+router.post("/logout", async (req: Request, res: Response) => {
+  const token = req.cookies?.[COOKIE_NAME];
+  if (token) {
+    await prisma.session.deleteMany({ where: { token } });
+  }
   res.clearCookie(COOKIE_NAME, { path: "/" });
   res.json({ success: true });
 });

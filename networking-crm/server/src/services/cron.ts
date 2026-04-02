@@ -24,6 +24,9 @@ export async function runDailyJob(): Promise<void> {
     // d. Daily challenge generation
     await ensureDailyChallenge();
 
+    // e. Cleanup expired sessions
+    await prisma.session.deleteMany({ where: { expires_at: { lt: new Date() } } });
+
     logger.info(`[cron] Daily job completed`);
   } catch (err) {
     logger.error("Daily job failed", { error: String(err) });

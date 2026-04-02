@@ -141,3 +141,13 @@ model ChatMessage {
 
   @@index([created_at])
 }
+
+model Session {
+  id         String   @id @default(uuid())
+  token      String   @unique
+  expires_at DateTime
+  created_at DateTime @default(now())
+
+  @@index([token])
+  @@index([expires_at])
+}
