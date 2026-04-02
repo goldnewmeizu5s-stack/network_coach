@@ -52,8 +52,8 @@ model Contact {
 
 model Interaction {
   id         String   @id @default(uuid())
-  contact_id String
-  contact    Contact  @relation(fields: [contact_id], references: [id], onDelete: Cascade)
+  contact_id String?
+  contact    Contact?  @relation(fields: [contact_id], references: [id], onDelete: Cascade)
   type       String
   content    String?
   transcript String?
