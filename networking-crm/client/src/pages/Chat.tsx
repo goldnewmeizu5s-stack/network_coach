@@ -6,8 +6,9 @@ import {
 } from "react";
 import { useNavigate } from "react-router-dom";
 import { api } from "../lib/api";
-import { renderMarkdown } from "../lib/markdown";
+import { renderMarkdown, sanitizeHtml } from "../lib/markdown";
 import { useToast } from "../components/Toast";
+import ErrorState from "../components/ErrorState";
 
 interface ChatMsg {
   id: string;
@@ -37,6 +38,7 @@ export default function Chat() {
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
   const [loadingHistory, setLoadingHistory] = useState(true);
+  const [historyError, setHistoryError] = useState(false);
 
   // Context selector
   const [contactCtx, setContactCtx] = useState<ContactOption | null>(null);
@@ -74,11 +76,12 @@ export default function Chat() {
   // Load history
   const loadHistory = useCallback(async () => {
     setLoadingHistory(true);
+    setHistoryError(false);
     try {
       const data = await api.get<ChatMsg[]>("/chat/history");
       setMessages(data);
     } catch {
-      /* ignore */
+      setHistoryError(true);
     } finally {
       setLoadingHistory(false);
     }
@@ -278,7 +281,7 @@ export default function Chat() {
       );
     });
 
-    return html;
+    return sanitizeHtml(html);
   };
 
   // Handle clicks on contact links in messages
@@ -331,6 +334,8 @@ export default function Chat() {
           <div className="flex flex-1 items-center justify-center">
             <div className="h-6 w-6 animate-spin rounded-full border-2 border-accent border-t-transparent" />
           </div>
+        ) : historyError ? (
+          <ErrorState message="Не удалось загрузить историю чата" onRetry={loadHistory} />
         ) : messages.length === 0 ? (
           <div className="flex flex-1 flex-col items-center justify-center gap-6">
             <div className="text-center">

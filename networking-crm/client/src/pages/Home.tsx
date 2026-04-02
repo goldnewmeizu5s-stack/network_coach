@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
 import VoiceRecorder from "../components/VoiceRecorder";
 import FollowUpCard from "../components/FollowUpCard";
+import ErrorState from "../components/ErrorState";
 import FAB from "../components/FAB";
 import { api } from "../lib/api";
 import { FollowUpItem } from "../lib/followups";
@@ -38,6 +39,7 @@ export default function Home() {
   const [showRecorder, setShowRecorder] = useState(false);
   const [followUps, setFollowUps] = useState<FollowUpItem[]>([]);
   const [loadingFu, setLoadingFu] = useState(true);
+  const [fuError, setFuError] = useState(false);
   const [insight, setInsight] = useState<string | null>(
     () => getCachedInsight()?.text ?? null
   );
@@ -52,11 +54,12 @@ export default function Home() {
 
   const fetchFollowUps = useCallback(async () => {
     setLoadingFu(true);
+    setFuError(false);
     try {
       const data = await api.get<FollowUpItem[]>("/followups?limit=3");
       setFollowUps(data);
     } catch {
-      // ignore
+      setFuError(true);
     } finally {
       setLoadingFu(false);
     }
@@ -222,6 +225,8 @@ export default function Home() {
           <div className="flex justify-center py-6">
             <div className="h-6 w-6 animate-spin rounded-full border-2 border-accent border-t-transparent" />
           </div>
+        ) : fuError ? (
+          <ErrorState message="Не удалось загрузить follow-ups" onRetry={fetchFollowUps} />
         ) : followUps.length === 0 ? (
           <div className="rounded-2xl bg-card p-4 text-center">
             <span className="text-2xl">{"\u{1F389}"}</span>

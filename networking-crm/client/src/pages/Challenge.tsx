@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { api } from "../lib/api";
 import { useToast } from "../components/Toast";
+import ErrorState from "../components/ErrorState";
 
 interface ChallengeItem {
   id: string;
@@ -54,6 +55,7 @@ export default function Challenge() {
   const [challenges, setChallenges] = useState<ChallengeItem[]>([]);
   const [activeIdx, setActiveIdx] = useState(0);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
   const [history, setHistory] = useState<ChallengeItem[]>([]);
   const [stats, setStats] = useState<HistoryStats | null>(null);
   const [showReflection, setShowReflection] = useState(false);
@@ -67,6 +69,7 @@ export default function Challenge() {
 
   const fetchToday = useCallback(async () => {
     setLoading(true);
+    setLoadError(false);
     try {
       const data = await api.get<{
         challenge: ChallengeItem;
@@ -75,7 +78,7 @@ export default function Challenge() {
       setChallenges([data.challenge, ...(data.alternatives || [])]);
       setActiveIdx(0);
     } catch {
-      /* ignore */
+      setLoadError(true);
     } finally {
       setLoading(false);
     }
@@ -164,6 +167,14 @@ export default function Challenge() {
             <div key={i} className="h-10 w-10 animate-pulse rounded-full bg-neutral-700" />
           ))}
         </div>
+      </div>
+    );
+  }
+
+  if (loadError) {
+    return (
+      <div className="flex flex-1 px-4 pt-6">
+        <ErrorState message="Не удалось загрузить челлендж" onRetry={fetchToday} />
       </div>
     );
   }

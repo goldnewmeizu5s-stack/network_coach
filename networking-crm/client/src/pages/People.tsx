@@ -5,6 +5,7 @@ import { api } from "../lib/api";
 import { getWarmthColor, getInitials, timeAgo } from "../lib/warmth";
 import { useDebounce } from "../lib/useDebounce";
 import { SkeletonList } from "../components/Skeleton";
+import ErrorState from "../components/ErrorState";
 import { useToast } from "../components/Toast";
 
 interface ContactListItem {
@@ -81,6 +82,7 @@ export default function People() {
   const [categoryFilter, setCategoryFilter] = useState("");
   const [dormantFilter, setDormantFilter] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
   const [showAddForm, setShowAddForm] = useState(false);
 
@@ -115,6 +117,7 @@ export default function People() {
 
   const fetchContacts = useCallback(async () => {
     setLoading(true);
+    setLoadError(false);
     try {
       const data = await api.get<ContactsResponse>(
         `/contacts?${buildParams()}`
@@ -123,7 +126,7 @@ export default function People() {
       setTotal(data.total);
       setHasMore(data.hasMore);
     } catch {
-      /* ignore */
+      setLoadError(true);
     } finally {
       setLoading(false);
     }
@@ -376,6 +379,8 @@ export default function People() {
       {/* List */}
       {loading && contacts.length === 0 ? (
         <SkeletonList count={5} />
+      ) : loadError ? (
+        <ErrorState message="Не удалось загрузить контакты" onRetry={fetchContacts} />
       ) : contacts.length === 0 ? (
         <div className="flex flex-1 flex-col items-center justify-center gap-3 text-center">
           {debouncedSearch || filter || categoryFilter || dormantFilter ? (
