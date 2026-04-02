@@ -85,28 +85,34 @@ router.get("/", async (_req, res, next) => {
 });
 
 async function calculateStreak(): Promise<number> {
-  // Check consecutive days with at least 1 follow-up done or contact created
+  const yearAgo = new Date(Date.now() - 365 * 86400000);
+
+  const [doneFUs, createdContacts] = await Promise.all([
+    prisma.followUp.findMany({
+      where: { status: "done", completed_at: { gte: yearAgo } },
+      select: { completed_at: true },
+    }),
+    prisma.contact.findMany({
+      where: { created_at: { gte: yearAgo } },
+      select: { created_at: true },
+    }),
+  ]);
+
+  const activeDays = new Set<string>();
+  for (const fu of doneFUs) {
+    if (fu.completed_at) activeDays.add(fu.completed_at.toISOString().slice(0, 10));
+  }
+  for (const c of createdContacts) {
+    activeDays.add(c.created_at.toISOString().slice(0, 10));
+  }
+
   let streak = 0;
-  const now = new Date();
-  now.setHours(0, 0, 0, 0);
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
 
   for (let i = 0; i < 365; i++) {
-    const dayStart = new Date(now.getTime() - i * 86400000);
-    const dayEnd = new Date(dayStart.getTime() + 86400000);
-
-    const [followupsDone, contactsCreated] = await Promise.all([
-      prisma.followUp.count({
-        where: {
-          status: "done",
-          completed_at: { gte: dayStart, lt: dayEnd },
-        },
-      }),
-      prisma.contact.count({
-        where: { created_at: { gte: dayStart, lt: dayEnd } },
-      }),
-    ]);
-
-    if (followupsDone > 0 || contactsCreated > 0) {
+    const day = new Date(today.getTime() - i * 86400000);
+    if (activeDays.has(day.toISOString().slice(0, 10))) {
       streak++;
     } else {
       break;

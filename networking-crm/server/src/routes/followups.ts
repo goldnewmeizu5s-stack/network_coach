@@ -15,29 +15,19 @@ router.get("/", async (req, res, next) => {
     const limit = Math.min(parseInt(req.query.limit as string) || 20, 100);
     const offset = parseInt(req.query.offset as string) || 0;
 
-    const where: Record<string, unknown> = { status };
-    if (contactId) where.contact_id = contactId;
+    const statusFilter =
+      status === "pending"
+        ? {
+            OR: [
+              { status: "pending" as const },
+              { status: "snoozed" as const, snoozed_until: { lte: new Date() } },
+            ],
+          }
+        : { status };
 
-    // For snoozed, only show those whose snooze has expired
-    if (status === "pending") {
-      where.OR = [
-        { snoozed_until: null },
-        { snoozed_until: { lte: new Date() } },
-      ];
-      // Re-activate snoozed ones that have expired
-      delete where.status;
-      where.AND = [
-        {
-          OR: [
-            { status: "pending" },
-            {
-              status: "snoozed",
-              snoozed_until: { lte: new Date() },
-            },
-          ],
-        },
-      ];
-    }
+    const where = contactId
+      ? { AND: [statusFilter, { contact_id: contactId }] }
+      : statusFilter;
 
     const followUps = await prisma.followUp.findMany({
       where,

@@ -79,33 +79,22 @@ router.get("/history", async (req, res, next) => {
       if (c.status === "completed") byCategory[c.category].completed++;
     }
 
-    // Streak
+    // Streak — single query approach
+    const yearAgo = new Date(Date.now() - 365 * 86400000);
+    const allCompleted = await prisma.challenge.findMany({
+      where: { status: "completed", date: { gte: yearAgo } },
+      select: { date: true },
+    });
+    const completedDays = new Set(
+      allCompleted.map((c) => c.date.toISOString().slice(0, 10))
+    );
+
     let streak = 0;
     const now = new Date();
     now.setHours(0, 0, 0, 0);
     for (let i = 0; i < 365; i++) {
-      const dayStart = new Date(now.getTime() - i * 86400000);
-      const dayEnd = new Date(dayStart.getTime() + 86400000);
-      const dayCompleted = challenges.some(
-        (c) =>
-          c.status === "completed" &&
-          c.date >= dayStart &&
-          c.date < dayEnd
-      );
-      // For days beyond our query, check DB
-      if (i >= days) {
-        const count = await prisma.challenge.count({
-          where: {
-            date: { gte: dayStart, lt: dayEnd },
-            status: "completed",
-          },
-        });
-        if (count > 0) {
-          streak++;
-        } else {
-          break;
-        }
-      } else if (dayCompleted) {
+      const day = new Date(now.getTime() - i * 86400000);
+      if (completedDays.has(day.toISOString().slice(0, 10))) {
         streak++;
       } else {
         break;
