@@ -39,7 +39,6 @@ COPY --from=server-build /app/server/dist ./server/dist
 COPY --from=server-build /app/server/package.json ./server/
 
 COPY --from=prod-deps /app/node_modules ./node_modules
-COPY --from=prod-deps /app/server/node_modules ./server/node_modules
 
 COPY prisma/ ./prisma/
 COPY --from=prod-deps /app/node_modules/.prisma ./node_modules/.prisma
