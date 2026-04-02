@@ -7,6 +7,18 @@ interface FollowUpDraft {
   priority: number;
 }
 
+/** Pre-loaded contact data with counts — no DB queries inside. */
+export interface ContactWithCounts {
+  id: string;
+  full_name: string;
+  warmth_status: string;
+  key_interests: string[];
+  last_interaction_at: Date | null;
+  created_at: Date;
+  pendingCount: number;
+  skippedCount: number;
+}
+
 function daysAgo(date: Date | null | undefined): number {
   if (!date) return Infinity;
   return (Date.now() - date.getTime()) / (1000 * 60 * 60 * 24);
@@ -18,58 +30,32 @@ function addDays(days: number): Date {
   return d;
 }
 
-export async function generateFollowUps(
-  contactId: string
-): Promise<FollowUpDraft[]> {
-  const contact = await prisma.contact.findUnique({
-    where: { id: contactId },
-    select: {
-      id: true,
-      full_name: true,
-      warmth_status: true,
-      key_interests: true,
-      last_interaction_at: true,
-      created_at: true,
-    },
-  });
-  if (!contact) return [];
-
-  // Get existing pending follow-ups to avoid duplicates
-  const pendingCount = await prisma.followUp.count({
-    where: { contact_id: contactId, status: "pending" },
-  });
-
-  // Get skipped count for cooling contacts
-  const skippedCount = await prisma.followUp.count({
-    where: { contact_id: contactId, status: "skipped" },
-  });
-
-  const daysSinceCreated = daysAgo(contact.created_at);
-  const daysSinceLastInteraction = daysAgo(contact.last_interaction_at);
-  const drafts: FollowUpDraft[] = [];
+/**
+ * Generate follow-up drafts from pre-loaded contact data.
+ * No DB queries — all data is passed in.
+ */
+export function generateFollowUps(contact: ContactWithCounts): FollowUpDraft[] {
+  const { pendingCount, skippedCount } = contact;
 
   // Don't generate if there are already 3+ pending
   if (pendingCount >= 3) return [];
 
+  const daysSinceCreated = daysAgo(contact.created_at);
+  const daysSinceLastInteraction = daysAgo(contact.last_interaction_at);
+
   switch (contact.warmth_status) {
     case "new":
-      drafts.push(...generateNewContactFollowUps(contact, daysSinceCreated, pendingCount));
-      break;
     case "warming":
-      drafts.push(...generateNewContactFollowUps(contact, daysSinceCreated, pendingCount));
-      break;
+      return generateNewContactFollowUps(contact, daysSinceCreated, pendingCount);
     case "warm":
-      drafts.push(...generateWarmFollowUps(contact, daysSinceLastInteraction, pendingCount));
-      break;
+      return generateWarmFollowUps(contact, daysSinceLastInteraction, pendingCount);
     case "cooling":
-      drafts.push(...generateCoolingFollowUps(contact, daysSinceLastInteraction, skippedCount, pendingCount));
-      break;
+      return generateCoolingFollowUps(contact, daysSinceLastInteraction, skippedCount, pendingCount);
     case "paused":
-      drafts.push(...generatePausedFollowUps(contact, daysSinceLastInteraction, pendingCount));
-      break;
+      return generatePausedFollowUps(contact, daysSinceLastInteraction, pendingCount);
+    default:
+      return [];
   }
-
-  return drafts;
 }
 
 function generateNewContactFollowUps(
@@ -185,4 +171,36 @@ function generatePausedFollowUps(
   }
 
   return drafts;
+}
+
+/**
+ * Convenience wrapper: loads contact + counts from DB, then generates drafts.
+ * Used by the /api/followups/generate route (single contact).
+ */
+export async function generateFollowUpsForContact(
+  contactId: string
+): Promise<FollowUpDraft[]> {
+  const contact = await prisma.contact.findUnique({
+    where: { id: contactId },
+    select: {
+      id: true,
+      full_name: true,
+      warmth_status: true,
+      key_interests: true,
+      last_interaction_at: true,
+      created_at: true,
+    },
+  });
+  if (!contact) return [];
+
+  const [pendingCount, skippedCount] = await Promise.all([
+    prisma.followUp.count({
+      where: { contact_id: contactId, status: "pending" },
+    }),
+    prisma.followUp.count({
+      where: { contact_id: contactId, status: "skipped" },
+    }),
+  ]);
+
+  return generateFollowUps({ ...contact, pendingCount, skippedCount });
 }

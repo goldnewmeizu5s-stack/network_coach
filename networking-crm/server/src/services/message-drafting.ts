@@ -1,4 +1,5 @@
 import { anthropic } from "../lib/ai";
+import { config } from "../config";
 import prisma from "../lib/prisma";
 import { logger } from "../lib/logger";
 
@@ -135,7 +136,7 @@ Return as JSON array of 3 strings: ["message1", "message2", "message3"]`;
 
   try {
     const message = await anthropic.messages.create({
-      model: "claude-opus-4-20250514",
+      model: config.claudeModel,
       max_tokens: 1024,
       messages: [{ role: "user", content: prompt }],
     });
@@ -206,7 +207,7 @@ Write in the same language as the contact's notes.`;
 
   try {
     const message = await anthropic.messages.create({
-      model: "claude-opus-4-20250514",
+      model: config.claudeModel,
       max_tokens: 1024,
       messages: [{ role: "user", content: prompt }],
     });
@@ -270,7 +271,7 @@ Rules:
 - Write in Russian`;
 
     const message = await anthropic.messages.create({
-      model: "claude-opus-4-20250514",
+      model: config.claudeModel,
       max_tokens: 200,
       messages: [{ role: "user", content: prompt }],
     });
@@ -313,7 +314,7 @@ ${context ? `Context: ${context}` : ""}
 Write ONE short sentence in Russian. Reference specific details. Keep it actionable.`;
 
     const message = await anthropic.messages.create({
-      model: "claude-opus-4-20250514",
+      model: config.claudeModel,
       max_tokens: 100,
       messages: [{ role: "user", content: prompt }],
     });
@@ -324,6 +325,72 @@ Write ONE short sentence in Russian. Reference specific details. Keep it actiona
   } catch {
     return templateAction;
   }
+}
+
+export interface BatchPersonalizeItem {
+  index: number;
+  contactName: string;
+  templateAction: string;
+  contactInterests: string[];
+  whereMet: string | null;
+}
+
+/**
+ * Personalize multiple follow-up texts in a single Claude API call.
+ * Returns a map from index to personalized text. Items not in the result
+ * keep their template text.
+ */
+export async function batchPersonalizeFollowUps(
+  items: BatchPersonalizeItem[]
+): Promise<Map<number, string>> {
+  const result = new Map<number, string>();
+  if (items.length === 0) return result;
+
+  const itemDescriptions = items.map((item, i) => {
+    const context = [
+      item.contactInterests.length > 0 && `Interests: ${item.contactInterests.join(", ")}`,
+      item.whereMet && `Where met: ${item.whereMet}`,
+    ]
+      .filter(Boolean)
+      .join(". ");
+
+    return `[${i}] Contact: ${item.contactName}${context ? ` | ${context}` : ""}
+Template: "${item.templateAction}"`;
+  }).join("\n\n");
+
+  const prompt = `Rewrite each follow-up action below to be more personal and specific.
+For each item, write ONE short sentence in Russian. Reference specific details from the context. Keep it actionable.
+
+${itemDescriptions}
+
+Return a JSON array with exactly ${items.length} strings, one per item in the same order.
+Example format: ["personalized text 1", "personalized text 2", ...]`;
+
+  try {
+    const message = await anthropic.messages.create({
+      model: config.claudeModel,
+      max_tokens: items.length * 150,
+      messages: [{ role: "user", content: prompt }],
+    });
+
+    const text = message.content[0].type === "text" ? message.content[0].text : "[]";
+    const match = text.match(/\[[\s\S]*\]/);
+    if (match) {
+      const parsed = JSON.parse(match[0]);
+      if (Array.isArray(parsed)) {
+        for (let i = 0; i < Math.min(parsed.length, items.length); i++) {
+          const personalized = String(parsed[i]).trim();
+          if (personalized) {
+            result.set(items[i].index, personalized);
+          }
+        }
+      }
+    }
+  } catch (err) {
+    logger.error("Claude API error in batch personalization", { error: String(err) });
+  }
+
+  return result;
 }
 
 // Fallback functions

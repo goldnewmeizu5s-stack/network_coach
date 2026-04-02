@@ -1,4 +1,5 @@
 import { anthropic } from "../lib/ai";
+import { config } from "../config";
 import { ExtractedContact } from "../types";
 import { logger } from "../lib/logger";
 
@@ -44,7 +45,7 @@ export async function extractContactData(
   for (let attempt = 0; attempt < maxRetries; attempt++) {
     try {
       const message = await anthropic.messages.create({
-        model: "claude-opus-4-20250514",
+        model: config.claudeModel,
         max_tokens: 1024,
         system: SYSTEM_PROMPT,
         messages: [{ role: "user", content: transcript }],

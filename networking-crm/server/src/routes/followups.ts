@@ -4,7 +4,7 @@ import { logger } from "../lib/logger";
 import { aiLimiter } from "../lib/rate-limit";
 import { createFollowUpSchema, updateFollowUpSchema } from "../lib/validators";
 import { recalcAndAutoStatus } from "../services/warmth";
-import { generateFollowUps } from "../services/followup-engine";
+import { generateFollowUpsForContact } from "../services/followup-engine";
 import { draftFollowUpMessage } from "../services/message-drafting";
 const router = Router();
 
@@ -160,7 +160,7 @@ router.post("/generate", async (req, res, next) => {
       return;
     }
 
-    const drafts = await generateFollowUps(contact_id);
+    const drafts = await generateFollowUpsForContact(contact_id);
     const created = [];
     for (const draft of drafts) {
       const fu = await prisma.followUp.create({ data: draft });

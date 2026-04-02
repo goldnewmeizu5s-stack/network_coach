@@ -1,4 +1,5 @@
 import { anthropic } from "../lib/ai";
+import { config } from "../config";
 import prisma from "../lib/prisma";
 import { logger } from "../lib/logger";
 import {
@@ -212,7 +213,7 @@ Write in the same language as the user's profile (default: Russian).`;
   let challengeData: ChallengeData;
   try {
     const response = await anthropic.messages.create({
-      model: "claude-opus-4-20250514",
+      model: config.claudeModel,
       max_tokens: 500,
       messages: [{ role: "user", content: prompt }],
     });

@@ -52,64 +52,79 @@ export default function Home() {
     status: string;
   } | null>(null);
 
-  const fetchFollowUps = useCallback(async () => {
-    setLoadingFu(true);
-    setFuError(false);
-    try {
-      const data = await api.get<FollowUpItem[]>("/followups?limit=3");
-      setFollowUps(data);
-    } catch {
-      setFuError(true);
-    } finally {
-      setLoadingFu(false);
-    }
-  }, []);
+  const fetchFollowUps = useCallback(
+    async (signal?: AbortSignal) => {
+      setLoadingFu(true);
+      setFuError(false);
+      try {
+        const data = await api.get<FollowUpItem[]>("/followups?limit=3", { signal });
+        setFollowUps(data);
+      } catch (err) {
+        if (err instanceof DOMException && err.name === "AbortError") return;
+        setFuError(true);
+      } finally {
+        setLoadingFu(false);
+      }
+    },
+    []
+  );
 
-  const fetchInsight = useCallback(async () => {
-    const cached = getCachedInsight();
-    if (cached) {
-      setInsight(cached.text);
-      return;
-    }
-    setInsightLoading(true);
-    try {
-      const data = await api.post<{ insight: string }>("/insights/daily");
-      setInsight(data.insight);
-      sessionStorage.setItem(
-        INSIGHT_KEY,
-        JSON.stringify({ text: data.insight, date: new Date().toDateString() })
-      );
-    } catch {
-      // ignore
-    } finally {
-      setInsightLoading(false);
-    }
-  }, []);
+  const fetchInsight = useCallback(
+    async (signal?: AbortSignal) => {
+      const cached = getCachedInsight();
+      if (cached) {
+        setInsight(cached.text);
+        return;
+      }
+      setInsightLoading(true);
+      try {
+        const data = await api.post<{ insight: string }>("/insights/daily", undefined, { signal });
+        setInsight(data.insight);
+        sessionStorage.setItem(
+          INSIGHT_KEY,
+          JSON.stringify({ text: data.insight, date: new Date().toDateString() })
+        );
+      } catch (err) {
+        if (err instanceof DOMException && err.name === "AbortError") return;
+      } finally {
+        setInsightLoading(false);
+      }
+    },
+    []
+  );
 
-  const fetchStats = useCallback(async () => {
-    try {
-      setStats(await api.get<Stats>("/stats"));
-    } catch {
-      /* ignore */
-    }
-  }, []);
+  const fetchStats = useCallback(
+    async (signal?: AbortSignal) => {
+      try {
+        setStats(await api.get<Stats>("/stats", { signal }));
+      } catch {
+        /* ignore */
+      }
+    },
+    []
+  );
 
-  const fetchChallenge = useCallback(async () => {
-    try {
-      const data = await api.get<{
-        challenge: { id: string; title: string; category: string; status: string };
-      }>("/challenges/today");
-      setTodayChallenge(data.challenge);
-    } catch {
-      /* ignore */
-    }
-  }, []);
+  const fetchChallenge = useCallback(
+    async (signal?: AbortSignal) => {
+      try {
+        const data = await api.get<{
+          challenge: { id: string; title: string; category: string; status: string };
+        }>("/challenges/today", { signal });
+        setTodayChallenge(data.challenge);
+      } catch {
+        /* ignore */
+      }
+    },
+    []
+  );
 
   useEffect(() => {
-    fetchFollowUps();
-    fetchInsight();
-    fetchStats();
-    fetchChallenge();
+    const ac = new AbortController();
+    fetchFollowUps(ac.signal);
+    fetchInsight(ac.signal);
+    fetchStats(ac.signal);
+    fetchChallenge(ac.signal);
+    return () => ac.abort();
   }, [fetchFollowUps, fetchInsight, fetchStats, fetchChallenge]);
 
   const handleRecorderClose = useCallback(
