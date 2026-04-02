@@ -97,12 +97,16 @@ router.put("/change-pin", async (req: Request, res: Response) => {
 });
 
 router.post("/logout", async (req: Request, res: Response) => {
-  const token = req.cookies?.[COOKIE_NAME];
-  if (token) {
-    await prisma.session.deleteMany({ where: { token } });
+  try {
+    const token = req.cookies?.[COOKIE_NAME];
+    if (token) {
+      await prisma.session.deleteMany({ where: { token } });
+    }
+    res.clearCookie(COOKIE_NAME, { path: "/" });
+    res.json({ success: true });
+  } catch {
+    res.status(500).json({ error: "Internal server error" });
   }
-  res.clearCookie(COOKIE_NAME, { path: "/" });
-  res.json({ success: true });
 });
 
 export default router;
