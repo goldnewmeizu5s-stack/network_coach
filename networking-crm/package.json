@@ -12,7 +12,8 @@
     "dev": "concurrently \"npm run dev:client\" \"npm run dev:server\"",
     "build": "npm run build --workspace=client && npm run build --workspace=server",
     "db:push": "npx prisma db push --schema=prisma/schema.prisma",
-    "db:generate": "npx prisma generate --schema=prisma/schema.prisma"
+    "db:generate": "npx prisma generate --schema=prisma/schema.prisma",
+    "db:seed": "npx ts-node --transpile-only server/src/seed/methodologies.ts"
   },
   "dependencies": {
     "@prisma/client": "^5.22.0"
