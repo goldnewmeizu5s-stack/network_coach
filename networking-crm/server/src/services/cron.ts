@@ -24,6 +24,9 @@ export async function runDailyJob(): Promise<void> {
     // d. Daily challenge generation
     await ensureDailyChallenge();
 
+    // e. Cleanup expired sessions
+    await prisma.session.deleteMany({ where: { expires_at: { lt: new Date() } } });
+
     logger.info(`[cron] Daily job completed`);
   } catch (err) {
     logger.error("Daily job failed", { error: String(err) });
@@ -158,15 +161,27 @@ async function generateAllFollowUps(): Promise<void> {
   // Get pending and skipped follow-up counts in two bulk queries
   const candidateIds = candidates.map((c) => c.id);
 
+  // Exclude contacts with active snoozed follow-ups
+  const snoozedContacts = await prisma.followUp.findMany({
+    where: { contact_id: { in: candidateIds }, status: "snoozed", snoozed_until: { gt: new Date() } },
+    select: { contact_id: true },
+  });
+  const snoozedSet = new Set(snoozedContacts.map(f => f.contact_id));
+  const filteredCandidates = candidates.filter(c => !snoozedSet.has(c.id));
+
+  if (filteredCandidates.length === 0) return;
+
+  const filteredIds = filteredCandidates.map((c) => c.id);
+
   const [pendingCounts, skippedCounts] = await Promise.all([
     prisma.followUp.groupBy({
       by: ["contact_id"],
-      where: { contact_id: { in: candidateIds }, status: "pending" },
+      where: { contact_id: { in: filteredIds }, status: "pending" },
       _count: true,
     }),
     prisma.followUp.groupBy({
       by: ["contact_id"],
-      where: { contact_id: { in: candidateIds }, status: "skipped" },
+      where: { contact_id: { in: filteredIds }, status: "skipped" },
       _count: true,
     }),
   ]);
@@ -180,7 +195,7 @@ async function generateAllFollowUps(): Promise<void> {
     contact: typeof candidates[number];
   }[] = [];
 
-  for (const candidate of candidates) {
+  for (const candidate of filteredCandidates) {
     const contactData: ContactWithCounts = {
       id: candidate.id,
       full_name: candidate.full_name,
@@ -231,7 +246,7 @@ async function generateAllFollowUps(): Promise<void> {
 
   const personalizedCount = personalizedTexts.size;
   logger.info(
-    `[cron] Generated ${followUpData.length} follow-ups (${personalizedCount} AI-personalized) from ${candidates.length} candidates`
+    `[cron] Generated ${followUpData.length} follow-ups (${personalizedCount} AI-personalized) from ${filteredCandidates.length} candidates`
   );
 }
 

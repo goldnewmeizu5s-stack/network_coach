@@ -200,6 +200,7 @@ async function createContact(extracted: Awaited<ReturnType<typeof extractContact
       memory_summary: extracted.memory_summary,
       relationship_category: extracted.relationship_category,
       urgency_score: extracted.urgency_score,
+      met_date: new Date(),
       warmth_status: "new",
       last_interaction_at: new Date(),
     },

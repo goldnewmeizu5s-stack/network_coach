@@ -40,6 +40,7 @@ export const createContactSchema = z.object({
   where_met: z.string().max(500).optional(),
   key_interests: z.array(z.string()).optional(),
   relationship_category: z.string().max(50).optional(),
+  met_date: z.string().refine((s) => !isNaN(Date.parse(s)), "Invalid date").optional(),
 });
 
 export const updateContactSchema = z.object({
@@ -54,6 +55,7 @@ export const updateContactSchema = z.object({
   personal_notes: z.string().max(5000).nullable().optional(),
   warmth_status: z.enum(WARMTH_STATUSES).optional(),
   relationship_category: z.string().max(50).nullable().optional(),
+  social_links: z.record(z.string(), z.string()).nullable().optional(),
 });
 
 export const createFollowUpSchema = z.object({

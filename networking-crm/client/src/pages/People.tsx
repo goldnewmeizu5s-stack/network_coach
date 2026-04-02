@@ -507,7 +507,7 @@ function ContactCard({
     const dy = e.touches[0].clientY - startY.current;
 
     // Lock direction on first significant movement
-    if (direction.current === "none" && (Math.abs(dx) > 10 || Math.abs(dy) > 10)) {
+    if (direction.current === "none" && (Math.abs(dx) > 15 || Math.abs(dy) > 15)) {
       direction.current = Math.abs(dx) > Math.abs(dy) ? "horizontal" : "vertical";
     }
 
@@ -526,9 +526,14 @@ function ContactCard({
       clearTimeout(longTimer.current);
       longTimer.current = null;
     }
+    if (direction.current === "vertical") {
+      setOffset(0);
+    } else if (offset < -70) {
+      setOffset(-140);
+    } else {
+      setOffset(0);
+    }
     direction.current = "none";
-    if (offset < -70) setOffset(-140);
-    else setOffset(0);
   };
 
   const warmthColor = getWarmthColor(c.warmth_status);
@@ -554,7 +559,7 @@ function ContactCard({
         className={`relative flex items-center gap-3 bg-card p-3 transition-transform ${
           selected ? "ring-2 ring-accent" : ""
         }`}
-        style={{ transform: `translateX(${offset}px)`, touchAction: "pan-y" }}
+        style={{ transform: `translateX(${offset}px)`, touchAction: "pan-y", willChange: offset !== 0 ? "transform" : "auto" }}
         onTouchStart={handleTouchStart}
         onTouchMove={handleTouchMove}
         onTouchEnd={handleTouchEnd}
@@ -641,6 +646,7 @@ function AddContactModal({
   const [name, setName] = useState("");
   const [whereMet, setWhereMet] = useState("");
   const [occupation, setOccupation] = useState("");
+  const [metDate, setMetDate] = useState("");
   const [saving, setSaving] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -652,6 +658,7 @@ function AddContactModal({
         full_name: name.trim(),
         where_met: whereMet.trim() || undefined,
         occupation: occupation.trim() || undefined,
+        met_date: metDate || undefined,
       });
       onCreated(data.id);
     } catch {
@@ -695,6 +702,15 @@ function AddContactModal({
             onChange={(e) => setOccupation(e.target.value)}
             className="w-full rounded-xl bg-neutral-800 px-4 py-3 text-sm text-white placeholder-neutral-500 outline-none ring-1 ring-neutral-700 focus:ring-accent"
           />
+          <div>
+            <label className="mb-1 block text-xs text-neutral-500">Дата знакомства</label>
+            <input
+              type="date"
+              value={metDate}
+              onChange={(e) => setMetDate(e.target.value)}
+              className="w-full rounded-xl bg-neutral-800 px-4 py-3 text-sm text-white outline-none ring-1 ring-neutral-700 focus:ring-accent"
+            />
+          </div>
           <button
             type="submit"
             disabled={saving || !name.trim()}

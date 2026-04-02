@@ -8,7 +8,7 @@ import {
   useNavigate,
 } from "react-router-dom";
 import { AnimatePresence, motion } from "framer-motion";
-import { Home as HomeIcon, Users, Target, MessageCircle, Settings as SettingsIcon } from "lucide-react";
+import { Home as HomeIcon, Users, Target, MessageCircle, ClipboardList } from "lucide-react";
 import { ToastProvider, useToast } from "./components/Toast";
 import { SkeletonList } from "./components/Skeleton";
 import Onboarding from "./components/Onboarding";
@@ -23,22 +23,22 @@ const Challenge = lazy(() => import("./pages/Challenge"));
 const Chat = lazy(() => import("./pages/Chat"));
 const Settings = lazy(() => import("./pages/Settings"));
 
-type Tab = "home" | "people" | "challenge" | "chat" | "settings";
+type Tab = "home" | "people" | "challenge" | "chat" | "followups";
 
 const TAB_ICONS = {
   home: HomeIcon,
   people: Users,
   challenge: Target,
   chat: MessageCircle,
-  settings: SettingsIcon,
+  followups: ClipboardList,
 };
 
 const tabs: { id: Tab; path: string; label: string }[] = [
   { id: "home", path: "/", label: "Home" },
   { id: "people", path: "/people", label: "People" },
+  { id: "followups", path: "/followups", label: "Tasks" },
   { id: "challenge", path: "/challenges", label: "Challenge" },
   { id: "chat", path: "/chat", label: "Chat" },
-  { id: "settings", path: "/settings", label: "Settings" },
 ];
 
 function PageFallback() {
@@ -336,13 +336,13 @@ function App() {
 
   return (
     <ToastProvider>
-      {!authed ? (
-        <LoginScreen onLogin={handleLogin} />
-      ) : (
-        <BrowserRouter>
+      <BrowserRouter>
+        {!authed ? (
+          <LoginScreen onLogin={handleLogin} />
+        ) : (
           <AuthedLayout />
-        </BrowserRouter>
-      )}
+        )}
+      </BrowserRouter>
     </ToastProvider>
   );
 }

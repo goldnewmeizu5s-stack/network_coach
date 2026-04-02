@@ -85,7 +85,16 @@ export async function recalcAndAutoStatus(contactId: string): Promise<void> {
   } else if (contact.warmth_status === "warming" && interactionCount >= 3) {
     newStatus = "warm";
   } else if (contact.warmth_status === "cooling") {
-    newStatus = "warming";
+    const recentMeaningful = await prisma.interaction.count({
+      where: {
+        contact_id: contactId,
+        type: { in: ["meeting", "message", "follow_up"] },
+        created_at: { gte: new Date(Date.now() - 7 * 86400000) },
+      },
+    });
+    if (recentMeaningful > 0) {
+      newStatus = "warming";
+    }
   }
 
   const data: Record<string, unknown> = { warmth_score: score };

@@ -49,6 +49,20 @@ RULES:
 - If the user seems anxious about networking, acknowledge the feeling first, then provide practical framework
 - Keep responses concise but substantive — no fluff`;
 
+function trimMessages(
+  messages: { role: "user" | "assistant"; content: string }[],
+  maxChars: number
+): typeof messages {
+  let total = 0;
+  const result: typeof messages = [];
+  for (let i = messages.length - 1; i >= 0; i--) {
+    total += messages[i].content.length;
+    if (total > maxChars) break;
+    result.unshift(messages[i]);
+  }
+  return result;
+}
+
 function sleep(ms: number) {
   return new Promise((r) => setTimeout(r, ms));
 }
@@ -166,9 +180,12 @@ router.post("/", async (req, res, next) => {
     const claudeMessages = sanitizeChatHistory(history);
     claudeMessages.push({ role: "user", content: message });
 
+    const trimmedSystem = systemPrompt.length > 15000 ? systemPrompt.slice(0, 15000) : systemPrompt;
+    const trimmedMessages = trimMessages(claudeMessages, 30000);
+
     let response: string;
     try {
-      response = await callClaude(systemPrompt, claudeMessages);
+      response = await callClaude(trimmedSystem, trimmedMessages);
     } catch {
       response =
         "Извини, AI временно недоступен. Попробуй через минуту.";
@@ -328,9 +345,12 @@ router.post("/voice", voiceUpload.single("audio"), async (req, res, next) => {
     const claudeMessages = sanitizeChatHistory(history);
     claudeMessages.push({ role: "user", content: transcript });
 
+    const trimmedSystem = systemPrompt.length > 15000 ? systemPrompt.slice(0, 15000) : systemPrompt;
+    const trimmedMessages = trimMessages(claudeMessages, 30000);
+
     let response: string;
     try {
-      response = await callClaude(systemPrompt, claudeMessages);
+      response = await callClaude(trimmedSystem, trimmedMessages);
     } catch {
       response = "Извини, AI временно недоступен. Попробуй через минуту.";
     }

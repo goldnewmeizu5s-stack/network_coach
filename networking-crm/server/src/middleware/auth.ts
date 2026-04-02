@@ -1,18 +1,18 @@
 import { Request, Response, NextFunction } from "express";
-import { verifyPin, getEnvPinHash } from "../config";
 import prisma from "../lib/prisma";
 
 export async function authMiddleware(req: Request, res: Response, next: NextFunction): Promise<void> {
-  const sessionPin = req.cookies?.["auth_session"];
+  const token = req.cookies?.["auth_session"];
 
-  if (!sessionPin) {
+  if (!token) {
     res.status(401).json({ error: "Invalid or missing session" });
     return;
   }
 
   try {
-    const valid = await verifyPinAgainstStored(sessionPin);
-    if (!valid) {
+    const session = await prisma.session.findUnique({ where: { token } });
+
+    if (!session || session.expires_at < new Date()) {
       res.status(401).json({ error: "Invalid or missing session" });
       return;
     }
@@ -21,15 +21,6 @@ export async function authMiddleware(req: Request, res: Response, next: NextFunc
   } catch (err) {
     next(err);
   }
-}
-
-/** Check PIN against DB hash first, fallback to env hash */
-async function verifyPinAgainstStored(pin: string): Promise<boolean> {
-  const user = await prisma.user.findFirst();
-  if (user?.pin_hash) {
-    return verifyPin(pin, user.pin_hash);
-  }
-  return verifyPin(pin, getEnvPinHash());
 }
 
 /** Ensure at least one User row exists. Call once at server startup. */
