@@ -1,6 +1,7 @@
 import { Router } from "express";
 import prisma from "../lib/prisma";
 import { logger } from "../lib/logger";
+import { aiLimiter } from "../lib/rate-limit";
 import {
   createContactSchema,
   updateContactSchema,
@@ -324,17 +325,18 @@ router.put("/:id/status", async (req, res, next) => {
 });
 
 // POST /api/contacts/:id/suggest-actions
-router.post("/:id/suggest-actions", async (req, res, next) => {
+router.post("/:id/suggest-actions", aiLimiter, async (req, res, next) => {
   try {
+    const contactId = req.params.id as string;
     const contact = await prisma.contact.findUnique({
-      where: { id: req.params.id },
+      where: { id: contactId },
       select: { id: true },
     });
     if (!contact) {
       res.status(404).json({ error: "Contact not found" });
       return;
     }
-    const suggestions = await suggestActions(req.params.id);
+    const suggestions = await suggestActions(contactId);
     res.json({ suggestions });
   } catch (err) {
     next(err);

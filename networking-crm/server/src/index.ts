@@ -6,6 +6,8 @@ import compression from "compression";
 import rateLimit from "express-rate-limit";
 import { config } from "./config";
 import prisma from "./lib/prisma";
+import { logger } from "./lib/logger";
+import { aiLimiter } from "./lib/rate-limit";
 import { authMiddleware } from "./middleware/auth";
 import { errorHandler } from "./middleware/errorHandler";
 import authRoutes from "./routes/auth";
@@ -32,7 +34,7 @@ if (config.isProd) {
 // Security & compression
 app.use(
   helmet({
-    contentSecurityPolicy: false, // Let Vite handle CSP
+    contentSecurityPolicy: false,
     crossOriginEmbedderPolicy: false,
   })
 );
@@ -49,26 +51,9 @@ const apiLimiter = rateLimit({
   legacyHeaders: false,
 });
 
-const chatLimiter = rateLimit({
-  windowMs: 60 * 1000,
-  max: 100,
-  standardHeaders: true,
-  legacyHeaders: false,
-});
-
-// Request logging (JSON in prod)
+// Request logging
 app.use((req, _res, next) => {
-  if (config.isProd) {
-    console.log(
-      JSON.stringify({
-        ts: new Date().toISOString(),
-        method: req.method,
-        path: req.path,
-      })
-    );
-  } else {
-    console.log(`[${new Date().toISOString()}] ${req.method} ${req.path}`);
-  }
+  logger.info(`${req.method} ${req.path}`);
   next();
 });
 
@@ -100,12 +85,12 @@ app.use("/api/auth", authRoutes);
 // Protected routes
 app.use("/api/contacts", authMiddleware, apiLimiter, contactsRoutes);
 app.use("/api/voice", authMiddleware, apiLimiter, voiceRoutes);
-app.use("/api/chat", authMiddleware, chatLimiter, chatRoutes);
+app.use("/api/chat", authMiddleware, aiLimiter, chatRoutes);
 app.use("/api/challenges", authMiddleware, apiLimiter, challengesRoutes);
 app.use("/api/followups", authMiddleware, apiLimiter, followupsRoutes);
 app.use("/api/user", authMiddleware, apiLimiter, userRoutes);
 app.use("/api/methodologies", authMiddleware, apiLimiter, methodologiesRoutes);
-app.use("/api/insights", authMiddleware, chatLimiter, insightsRoutes);
+app.use("/api/insights", authMiddleware, aiLimiter, insightsRoutes);
 app.use("/api/stats", authMiddleware, apiLimiter, statsRoutes);
 app.use("/api/export", authMiddleware, apiLimiter, exportRoutes);
 
@@ -131,7 +116,25 @@ if (config.isProd) {
 // Error handler (must be last)
 app.use(errorHandler);
 
-app.listen(config.port, () => {
-  console.log(`Server running on http://localhost:${config.port} [${config.nodeEnv}]`);
+// Start server
+const server = app.listen(config.port, () => {
+  logger.info(`Server running on http://localhost:${config.port} [${config.nodeEnv}]`);
   startCron();
 });
+
+// Graceful shutdown
+function shutdown() {
+  logger.info("Shutting down gracefully...");
+  server.close(async () => {
+    await prisma.$disconnect();
+    logger.info("Server closed");
+    process.exit(0);
+  });
+  setTimeout(() => {
+    logger.warn("Forced shutdown after timeout");
+    process.exit(1);
+  }, 10000);
+}
+
+process.on("SIGTERM", shutdown);
+process.on("SIGINT", shutdown);

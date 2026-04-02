@@ -1,6 +1,7 @@
 import { Router } from "express";
 import prisma from "../lib/prisma";
 import { logger } from "../lib/logger";
+import { aiLimiter } from "../lib/rate-limit";
 import { createFollowUpSchema, updateFollowUpSchema } from "../lib/validators";
 import { recalcAndAutoStatus } from "../services/warmth";
 import { generateFollowUps } from "../services/followup-engine";
@@ -173,10 +174,10 @@ router.post("/generate", async (req, res, next) => {
 });
 
 // POST /api/followups/:id/draft — AI message drafting
-router.post("/:id/draft", async (req, res, next) => {
+router.post("/:id/draft", aiLimiter, async (req, res, next) => {
   try {
     const followUp = await prisma.followUp.findUnique({
-      where: { id: req.params.id },
+      where: { id: req.params.id as string },
       select: { contact_id: true, suggested_action: true },
     });
     if (!followUp) {
