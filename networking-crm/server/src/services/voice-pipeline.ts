@@ -1,6 +1,7 @@
 import prisma from "../lib/prisma";
 import { transcribeAudio } from "./transcription";
 import { extractContactData } from "./ai-extraction";
+import { recalcAndAutoStatus } from "./warmth";
 
 export async function processVoiceNote(
   interactionId: string,
@@ -152,6 +153,9 @@ export async function processVoiceNote(
         },
       });
     }
+
+    // Recalculate warmth score
+    await recalcAndAutoStatus(contactId);
 
     // i. Mark as completed
     await prisma.audioFile.update({
