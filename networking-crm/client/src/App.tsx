@@ -1,4 +1,4 @@
-import { useState, useEffect, Suspense, lazy } from "react";
+import { useState, useEffect, useCallback, Suspense, lazy } from "react";
 import {
   BrowserRouter,
   Routes,
@@ -11,6 +11,8 @@ import { AnimatePresence, motion } from "framer-motion";
 import { Home as HomeIcon, Users, Target, MessageCircle, Settings as SettingsIcon } from "lucide-react";
 import { ToastProvider, useToast } from "./components/Toast";
 import { SkeletonList } from "./components/Skeleton";
+import Onboarding from "./components/Onboarding";
+import { api } from "./lib/api";
 
 // Lazy-loaded pages
 const Home = lazy(() => import("./pages/Home"));
@@ -260,6 +262,32 @@ function AnimatedRoutes() {
 }
 
 function AuthedLayout() {
+  const [showOnboarding, setShowOnboarding] = useState(false);
+  const [onboardingChecked, setOnboardingChecked] = useState(false);
+
+  const checkOnboarding = useCallback(async () => {
+    if (localStorage.getItem("onboarding_completed")) {
+      setOnboardingChecked(true);
+      return;
+    }
+    try {
+      const [stats, profile] = await Promise.all([
+        api.get<{ total_contacts: number }>("/stats"),
+        api.get<{ goals: string | null }>("/user/profile"),
+      ]);
+      if (stats.total_contacts === 0 && !profile.goals) {
+        setShowOnboarding(true);
+      }
+    } catch {
+      // If check fails, skip onboarding
+    }
+    setOnboardingChecked(true);
+  }, []);
+
+  useEffect(() => {
+    checkOnboarding();
+  }, [checkOnboarding]);
+
   return (
     <div className="mx-auto flex h-full max-w-[430px] flex-col">
       <main className="flex flex-1 flex-col overflow-y-auto content-pb">
@@ -268,6 +296,9 @@ function AuthedLayout() {
         <AnimatedRoutes />
       </main>
       <BottomNav />
+      {onboardingChecked && showOnboarding && (
+        <Onboarding onComplete={() => setShowOnboarding(false)} />
+      )}
     </div>
   );
 }

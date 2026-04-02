@@ -140,7 +140,22 @@ export default function Home() {
         Networking CRM
       </motion.h1>
 
-      {/* AI Insight */}
+      {/* Welcome block for fresh users */}
+      {stats && stats.total_contacts === 0 && (
+        <motion.section
+          className="rounded-2xl border border-accent/20 bg-accent/5 p-6 text-center"
+          variants={{ hidden: { opacity: 0, y: 12 }, visible: { opacity: 1, y: 0 } }}
+        >
+          <div className="text-4xl mb-3">{"\u{1F44B}"}</div>
+          <h2 className="text-lg font-semibold text-white mb-2">Добро пожаловать!</h2>
+          <p className="text-sm text-neutral-400">
+            Запиши голосовое о первом знакомстве — расскажи, кого встретил, и AI создаст контакт с напоминаниями.
+          </p>
+        </motion.section>
+      )}
+
+      {/* AI Insight (hidden for fresh users) */}
+      {(!stats || stats.total_contacts > 0) && (
       <motion.section
         className="rounded-2xl border border-accent/20 bg-accent/5 p-4"
         variants={{ hidden: { opacity: 0, y: 12 }, visible: { opacity: 1, y: 0 } }}
@@ -159,6 +174,7 @@ export default function Home() {
           <p className="text-neutral-400">Запишите первое голосовое — и AI начнёт давать советы</p>
         )}
       </motion.section>
+      )}
 
       {/* Today's challenge */}
       <section
@@ -248,8 +264,8 @@ export default function Home() {
         )}
       </section>
 
-      {/* Stats cards */}
-      {stats && (
+      {/* Stats cards (hidden for fresh users) */}
+      {stats && stats.total_contacts > 0 && (
         <section>
           <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-neutral-500">
             Статистика
