@@ -9,7 +9,7 @@ import { config, initEnvPinHash } from "./config";
 import prisma from "./lib/prisma";
 import { logger } from "./lib/logger";
 import { aiLimiter } from "./lib/rate-limit";
-import { authMiddleware } from "./middleware/auth";
+import { authMiddleware, ensureUser } from "./middleware/auth";
 import { errorHandler } from "./middleware/errorHandler";
 import authRoutes from "./routes/auth";
 import contactsRoutes from "./routes/contacts";
@@ -131,6 +131,9 @@ app.use(errorHandler);
 async function start() {
   await initEnvPinHash();
   logger.info("PIN hash initialized");
+
+  await ensureUser();
+  logger.info("Default user ensured");
 
   const server = app.listen(config.port, () => {
     logger.info(`Server running on http://localhost:${config.port} [${config.nodeEnv}]`);

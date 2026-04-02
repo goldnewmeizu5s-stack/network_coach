@@ -17,7 +17,6 @@ export async function authMiddleware(req: Request, res: Response, next: NextFunc
       return;
     }
 
-    await ensureUser();
     next();
   } catch (err) {
     next(err);
@@ -33,9 +32,10 @@ async function verifyPinAgainstStored(pin: string): Promise<boolean> {
   return verifyPin(pin, getEnvPinHash());
 }
 
-async function ensureUser(): Promise<void> {
-  const count = await prisma.user.count();
-  if (count === 0) {
+/** Ensure at least one User row exists. Call once at server startup. */
+export async function ensureUser(): Promise<void> {
+  const user = await prisma.user.findFirst();
+  if (!user) {
     await prisma.user.create({ data: {} });
   }
 }

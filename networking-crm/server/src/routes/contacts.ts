@@ -32,49 +32,57 @@ router.get("/", async (req, res, next) => {
       offset: offsetStr,
     } = req.query as Record<string, string | undefined>;
 
-    const where: Record<string, unknown> = {};
+    const conditions: Record<string, unknown>[] = [];
 
     if (status) {
-      where.warmth_status = { in: status.split(",").map((s) => s.trim()) };
+      conditions.push({
+        warmth_status: { in: status.split(",").map((s) => s.trim()) },
+      });
     }
 
     if (category) {
-      where.relationship_category = {
-        in: category.split(",").map((s) => s.trim()),
-      };
+      conditions.push({
+        relationship_category: {
+          in: category.split(",").map((s) => s.trim()),
+        },
+      });
     }
 
     if (city) {
-      where.city = { contains: city, mode: "insensitive" };
+      conditions.push({
+        city: { contains: city, mode: "insensitive" },
+      });
     }
 
     if (dormant === "true") {
       const thirtyDaysAgo = new Date();
       thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-      where.warmth_status = { not: "archived" };
-      where.OR = [
-        { last_interaction_at: { lt: thirtyDaysAgo } },
-        { last_interaction_at: null },
-      ];
+      // Only apply "not archived" if no explicit status filter
+      if (!status) {
+        conditions.push({ warmth_status: { not: "archived" } });
+      }
+      conditions.push({
+        OR: [
+          { last_interaction_at: { lt: thirtyDaysAgo } },
+          { last_interaction_at: null },
+        ],
+      });
     }
 
     if (search) {
-      const searchFilter = [
-        { full_name: { contains: search, mode: "insensitive" } },
-        { nickname: { contains: search, mode: "insensitive" } },
-        { occupation: { contains: search, mode: "insensitive" } },
-        { company: { contains: search, mode: "insensitive" } },
-        { memory_summary: { contains: search, mode: "insensitive" } },
-        { what_impressed_me: { contains: search, mode: "insensitive" } },
-      ];
-      // Merge with existing OR (dormant filter)
-      if (where.OR) {
-        where.AND = [{ OR: where.OR as unknown[] }, { OR: searchFilter }];
-        delete where.OR;
-      } else {
-        where.OR = searchFilter;
-      }
+      conditions.push({
+        OR: [
+          { full_name: { contains: search, mode: "insensitive" } },
+          { nickname: { contains: search, mode: "insensitive" } },
+          { occupation: { contains: search, mode: "insensitive" } },
+          { company: { contains: search, mode: "insensitive" } },
+          { memory_summary: { contains: search, mode: "insensitive" } },
+          { what_impressed_me: { contains: search, mode: "insensitive" } },
+        ],
+      });
     }
+
+    const where = conditions.length > 0 ? { AND: conditions } : {};
 
     // Sorting
     const dir = order === "asc" ? "asc" : "desc";
