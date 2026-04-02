@@ -1,8 +1,10 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useNavigate } from "react-router-dom";
+import { motion, AnimatePresence } from "framer-motion";
 import { api } from "../lib/api";
 import { getWarmthColor, getInitials, timeAgo } from "../lib/warmth";
 import { useDebounce } from "../lib/useDebounce";
+import { SkeletonList } from "../components/Skeleton";
 import { useToast } from "../components/Toast";
 
 interface ContactListItem {
@@ -373,20 +375,7 @@ export default function People() {
 
       {/* List */}
       {loading && contacts.length === 0 ? (
-        <div className="flex flex-col gap-2">
-          {[1, 2, 3, 4, 5].map((i) => (
-            <div
-              key={i}
-              className="flex animate-pulse items-center gap-3 rounded-2xl bg-card p-3"
-            >
-              <div className="h-11 w-11 rounded-full bg-neutral-700" />
-              <div className="flex-1 space-y-2">
-                <div className="h-3 w-2/3 rounded bg-neutral-700" />
-                <div className="h-2 w-1/2 rounded bg-neutral-800" />
-              </div>
-            </div>
-          ))}
-        </div>
+        <SkeletonList count={5} />
       ) : contacts.length === 0 ? (
         <div className="flex flex-1 flex-col items-center justify-center gap-3 text-center">
           {debouncedSearch || filter || categoryFilter || dormantFilter ? (
@@ -405,11 +394,14 @@ export default function People() {
         </div>
       ) : (
         <div className="flex flex-col gap-2">
+          <AnimatePresence>
           {contacts.map((c, i) => (
-            <div
+            <motion.div
               key={c.id}
-              className="animate-fade-in"
-              style={{ animationDelay: `${Math.min(i * 30, 200)}ms` }}
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, x: 80 }}
+              transition={{ duration: 0.2, delay: Math.min(i * 0.03, 0.15) }}
             >
               <ContactCard
                 contact={c}
@@ -431,8 +423,9 @@ export default function People() {
                 onArchive={() => handleArchive(c.id)}
                 onPause={() => handlePause(c.id)}
               />
-            </div>
+            </motion.div>
           ))}
+          </AnimatePresence>
           {/* Infinite scroll sentinel */}
           <div ref={sentinelRef} className="h-1" />
           {loadingMore && (

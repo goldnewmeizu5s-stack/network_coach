@@ -7,6 +7,7 @@ import {
   useLocation,
   useNavigate,
 } from "react-router-dom";
+import { AnimatePresence, motion } from "framer-motion";
 import Home from "./pages/Home";
 import People from "./pages/People";
 import ContactProfile from "./pages/ContactProfile";
@@ -59,8 +60,13 @@ function LoginScreen({ onLogin }: { onLogin: () => void }) {
   };
 
   return (
-    <div className="flex min-h-screen items-center justify-center px-6">
-      <form onSubmit={handleSubmit} className="w-full max-w-xs animate-fade-in">
+    <motion.div
+      className="flex min-h-screen items-center justify-center px-6"
+      initial={{ opacity: 0, y: 20 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.3 }}
+    >
+      <form onSubmit={handleSubmit} className="w-full max-w-xs">
         <h1 className="mb-8 text-center text-3xl font-bold text-white">
           Networking CRM
         </h1>
@@ -84,7 +90,7 @@ function LoginScreen({ onLogin }: { onLogin: () => void }) {
           {loading ? "Проверка..." : "Войти"}
         </button>
       </form>
-    </div>
+    </motion.div>
   );
 }
 
@@ -101,26 +107,36 @@ function BottomNav() {
   return (
     <nav className="fixed bottom-0 left-1/2 z-40 flex h-[60px] w-full max-w-[430px] -translate-x-1/2 items-center justify-around border-t border-neutral-800 bg-bg/95 backdrop-blur-sm">
       {tabs.map((t) => (
-        <button
+        <motion.button
           key={t.id}
           onClick={() => navigate(t.path)}
+          whileTap={{ scale: 0.9 }}
           className={`flex min-h-[44px] min-w-[44px] flex-col items-center justify-center gap-0.5 text-xs transition-colors ${
             activeTab === t.id ? "text-accent" : "text-neutral-500"
           }`}
         >
           <span className="text-lg">{t.icon}</span>
           <span>{t.label}</span>
-        </button>
+        </motion.button>
       ))}
     </nav>
   );
 }
 
-function AuthedLayout() {
+function AnimatedRoutes() {
+  const location = useLocation();
+
   return (
-    <div className="mx-auto flex h-full max-w-[430px] flex-col">
-      <main className="flex flex-1 flex-col overflow-y-auto pb-[76px]">
-        <Routes>
+    <AnimatePresence mode="wait">
+      <motion.div
+        key={location.pathname}
+        initial={{ opacity: 0, x: 20 }}
+        animate={{ opacity: 1, x: 0 }}
+        exit={{ opacity: 0, x: -20 }}
+        transition={{ duration: 0.2, ease: "easeOut" }}
+        className="flex flex-1 flex-col"
+      >
+        <Routes location={location}>
           <Route path="/" element={<Home />} />
           <Route path="/people" element={<People />} />
           <Route path="/people/:id" element={<ContactProfile />} />
@@ -130,6 +146,16 @@ function AuthedLayout() {
           <Route path="/settings" element={<Settings />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
+      </motion.div>
+    </AnimatePresence>
+  );
+}
+
+function AuthedLayout() {
+  return (
+    <div className="mx-auto flex h-full max-w-[430px] flex-col">
+      <main className="flex flex-1 flex-col overflow-y-auto pb-[76px]">
+        <AnimatedRoutes />
       </main>
       <BottomNav />
     </div>
