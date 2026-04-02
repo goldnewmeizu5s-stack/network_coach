@@ -1,4 +1,5 @@
 import { Router } from "express";
+import { Prisma } from "@prisma/client";
 import prisma from "../lib/prisma";
 import { logger } from "../lib/logger";
 import { aiLimiter } from "../lib/rate-limit";
@@ -205,9 +206,11 @@ router.post("/", async (req, res, next) => {
       return;
     }
 
+    const { met_date, ...createData } = parsed.data;
     const contact = await prisma.contact.create({
       data: {
-        ...parsed.data,
+        ...createData,
+        ...(met_date && { met_date: new Date(met_date) }),
         warmth_status: "new",
         warmth_score: 0,
       },
@@ -249,7 +252,13 @@ router.put("/:id", async (req, res, next) => {
       res.status(400).json({ error: parsed.error.issues[0].message });
       return;
     }
-    const { warmth_status, ...rest } = parsed.data;
+    const { warmth_status, social_links, ...rest } = parsed.data;
+
+    // Prisma requires Prisma.JsonNull instead of plain null for JSON fields
+    const updateData: Record<string, unknown> = { ...rest };
+    if (social_links !== undefined) {
+      updateData.social_links = social_links === null ? Prisma.JsonNull : social_links;
+    }
 
     if (warmth_status) {
       const current = await prisma.contact.findUnique({
@@ -280,7 +289,7 @@ router.put("/:id", async (req, res, next) => {
 
     const contact = await prisma.contact.update({
       where: { id: req.params.id },
-      data: { ...rest, ...(warmth_status && { warmth_status }) },
+      data: { ...updateData, ...(warmth_status && { warmth_status }) },
     });
 
     res.json(contact);

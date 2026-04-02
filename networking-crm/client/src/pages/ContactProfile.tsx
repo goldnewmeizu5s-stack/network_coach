@@ -47,6 +47,7 @@ interface Contact {
   memory_summary: string | null;
   relationship_category: string | null;
   personal_notes: string | null;
+  social_links: Record<string, string> | null;
   warmth_status: string;
   warmth_score: number;
   urgency_score: number;
@@ -94,6 +95,11 @@ export default function ContactProfile() {
   const [suggestions, setSuggestions] = useState<AISuggestion[]>([]);
   const [suggestionsLoading, setSuggestionsLoading] = useState(false);
   const [expandedSuggestion, setExpandedSuggestion] = useState<number | null>(null);
+  const [showSocialLinks, setShowSocialLinks] = useState(false);
+  const [slTelegram, setSlTelegram] = useState("");
+  const [slLinkedin, setSlLinkedin] = useState("");
+  const [slInstagram, setSlInstagram] = useState("");
+  const [slSaving, setSlSaving] = useState(false);
 
   const fetchContact = useCallback(async () => {
     if (!id) return;
@@ -218,6 +224,39 @@ export default function ContactProfile() {
       // ignore
     } finally {
       setSuggestionsLoading(false);
+    }
+  };
+
+  const openSocialLinks = () => {
+    const links = contact?.social_links || {};
+    setSlTelegram(links.telegram || "");
+    setSlLinkedin(links.linkedin || "");
+    setSlInstagram(links.instagram || "");
+    setShowSocialLinks(true);
+  };
+
+  const saveSocialLinks = async () => {
+    if (!id) return;
+    setSlSaving(true);
+    try {
+      const social_links: Record<string, string> = {};
+      if (slTelegram.trim()) social_links.telegram = slTelegram.trim();
+      if (slLinkedin.trim()) social_links.linkedin = slLinkedin.trim();
+      if (slInstagram.trim()) social_links.instagram = slInstagram.trim();
+      await api.put(`/contacts/${id}`, {
+        social_links: Object.keys(social_links).length > 0 ? social_links : null,
+      });
+      setContact((prev) =>
+        prev
+          ? { ...prev, social_links: Object.keys(social_links).length > 0 ? social_links : null }
+          : prev
+      );
+      setShowSocialLinks(false);
+      show("Соцсети сохранены");
+    } catch {
+      // ignore
+    } finally {
+      setSlSaving(false);
     }
   };
 
@@ -460,6 +499,36 @@ export default function ContactProfile() {
             <Detail label="Дата" value={new Date(contact.met_date).toLocaleDateString("ru")} />
           )}
           {location && <Detail label="Город" value={location} />}
+          {contact.social_links && Object.keys(contact.social_links).length > 0 && (
+            <div className="mb-2">
+              <p className="text-xs text-neutral-500">Соцсети</p>
+              <div className="flex flex-wrap gap-1.5 mt-1">
+                {contact.social_links.telegram && (
+                  <span className="rounded-full bg-neutral-700 px-2.5 py-1 text-xs text-neutral-300">
+                    TG: {contact.social_links.telegram}
+                  </span>
+                )}
+                {contact.social_links.linkedin && (
+                  <span className="rounded-full bg-neutral-700 px-2.5 py-1 text-xs text-neutral-300">
+                    LI: {contact.social_links.linkedin}
+                  </span>
+                )}
+                {contact.social_links.instagram && (
+                  <span className="rounded-full bg-neutral-700 px-2.5 py-1 text-xs text-neutral-300">
+                    IG: {contact.social_links.instagram}
+                  </span>
+                )}
+              </div>
+            </div>
+          )}
+          <button
+            onClick={openSocialLinks}
+            className="mb-2 text-xs text-accent active:text-accent-hover"
+          >
+            {contact.social_links && Object.keys(contact.social_links).length > 0
+              ? "Изменить соцсети"
+              : "Добавить соцсети"}
+          </button>
           {contact.relationship_category && (
             <Detail label="Категория" value={contact.relationship_category} />
           )}
@@ -739,6 +808,49 @@ export default function ContactProfile() {
                 className="flex-1 rounded-xl bg-red-600 py-3 text-sm font-medium text-white active:bg-red-700"
               >
                 Удалить
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Social links bottom sheet */}
+      {showSocialLinks && (
+        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/60" onClick={() => setShowSocialLinks(false)}>
+          <div
+            className="animate-slide-up w-full max-w-[430px] rounded-t-3xl bg-card px-6 pb-8 pt-6"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="mx-auto mb-4 h-1 w-10 rounded-full bg-neutral-600" />
+            <h3 className="mb-4 text-lg font-semibold text-white">Соцсети</h3>
+            <div className="flex flex-col gap-3">
+              <input
+                type="text"
+                placeholder="Telegram (username)"
+                value={slTelegram}
+                onChange={(e) => setSlTelegram(e.target.value)}
+                className="w-full rounded-xl bg-neutral-800 px-4 py-3 text-sm text-white placeholder-neutral-500 outline-none ring-1 ring-neutral-700 focus:ring-accent"
+              />
+              <input
+                type="text"
+                placeholder="LinkedIn (URL или username)"
+                value={slLinkedin}
+                onChange={(e) => setSlLinkedin(e.target.value)}
+                className="w-full rounded-xl bg-neutral-800 px-4 py-3 text-sm text-white placeholder-neutral-500 outline-none ring-1 ring-neutral-700 focus:ring-accent"
+              />
+              <input
+                type="text"
+                placeholder="Instagram (username)"
+                value={slInstagram}
+                onChange={(e) => setSlInstagram(e.target.value)}
+                className="w-full rounded-xl bg-neutral-800 px-4 py-3 text-sm text-white placeholder-neutral-500 outline-none ring-1 ring-neutral-700 focus:ring-accent"
+              />
+              <button
+                onClick={saveSocialLinks}
+                disabled={slSaving}
+                className="w-full rounded-xl bg-accent py-3 text-sm font-medium text-white active:bg-accent-hover disabled:opacity-50"
+              >
+                {slSaving ? "Сохранение..." : "Сохранить"}
               </button>
             </div>
           </div>

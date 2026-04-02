@@ -267,7 +267,6 @@ Write in the same language as the user's profile (default: Russian).`;
 export async function generateAlternativeChallenges(): Promise<
   Awaited<ReturnType<typeof prisma.challenge.create>>[]
 > {
-  // Generate 2 simpler alternatives with different categories
   const stats = await getChallengeStats();
   const mainDiff = calculateDifficulty(stats);
   const recentCategories = stats.last5.slice(0, 3).map((c) => c.category);
@@ -276,19 +275,66 @@ export async function generateAlternativeChallenges(): Promise<
     (c) => !recentCategories.includes(c)
   );
 
+  let challengeDataList: ChallengeData[];
+
+  try {
+    const prompt = `Generate 2 alternative networking challenges with DIFFERENT categories from these recent ones: ${recentCategories.join(", ") || "none"}.
+
+Available categories: ${availableCategories.join(", ") || CATEGORIES.join(", ")}
+Target difficulty range: ${Math.max(1, mainDiff - 1)} to ${Math.min(10, mainDiff + 1)}
+
+Return a JSON array of exactly 2 objects, each with:
+{
+  "title": "short catchy title (5-8 words)",
+  "description": "detailed description with specific instructions (2-4 sentences)",
+  "category": "one of: conversation, follow_up, digital, skill, mindset, stretch",
+  "difficulty": <number 1-10>,
+  "methodology_reference": null,
+  "estimated_time_minutes": <number>
+}
+
+Each challenge must have a DIFFERENT category. Write in Russian.`;
+
+    const response = await anthropic.messages.create({
+      model: config.claudeModel,
+      max_tokens: 600,
+      messages: [{ role: "user", content: prompt }],
+    });
+
+    const text =
+      response.content[0].type === "text" ? response.content[0].text : "";
+    const match = text.match(/\[[\s\S]*\]/);
+    challengeDataList = match ? JSON.parse(match[0]) : [];
+
+    if (!Array.isArray(challengeDataList) || challengeDataList.length < 2) {
+      throw new Error("Invalid AI response");
+    }
+  } catch (err) {
+    logger.error("Alternative challenges Claude error, using fallbacks", {
+      error: String(err),
+    });
+    // Fallback to templates
+    challengeDataList = [];
+    for (let i = 0; i < 2; i++) {
+      const cat =
+        availableCategories[i % availableCategories.length] || CATEGORIES[i];
+      const diff = Math.max(1, Math.min(10, mainDiff + (i === 0 ? -1 : 1)));
+      challengeDataList.push(getFallbackChallenge(diff, cat));
+    }
+  }
+
   const alternatives = [];
   for (let i = 0; i < 2; i++) {
-    const cat =
-      availableCategories[i % availableCategories.length] || CATEGORIES[i];
-    const diff = Math.max(1, Math.min(10, mainDiff + (i === 0 ? -1 : 1)));
-    const fallback = getFallbackChallenge(diff, cat);
+    const data = challengeDataList[i];
+    const diff = Math.max(1, Math.min(10, data.difficulty || mainDiff));
+    const cat = CATEGORIES.includes(data.category) ? data.category : (availableCategories[i] || "mindset");
 
     const challenge = await prisma.challenge.create({
       data: {
         date: new Date(),
-        title: fallback.title,
-        description: fallback.description,
-        category: fallback.category,
+        title: data.title,
+        description: data.description,
+        category: cat,
         difficulty: diff,
         status: "pending",
       },

@@ -646,6 +646,7 @@ function AddContactModal({
   const [name, setName] = useState("");
   const [whereMet, setWhereMet] = useState("");
   const [occupation, setOccupation] = useState("");
+  const [metDate, setMetDate] = useState("");
   const [saving, setSaving] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -657,6 +658,7 @@ function AddContactModal({
         full_name: name.trim(),
         where_met: whereMet.trim() || undefined,
         occupation: occupation.trim() || undefined,
+        met_date: metDate || undefined,
       });
       onCreated(data.id);
     } catch {
@@ -700,6 +702,15 @@ function AddContactModal({
             onChange={(e) => setOccupation(e.target.value)}
             className="w-full rounded-xl bg-neutral-800 px-4 py-3 text-sm text-white placeholder-neutral-500 outline-none ring-1 ring-neutral-700 focus:ring-accent"
           />
+          <div>
+            <label className="mb-1 block text-xs text-neutral-500">Дата знакомства</label>
+            <input
+              type="date"
+              value={metDate}
+              onChange={(e) => setMetDate(e.target.value)}
+              className="w-full rounded-xl bg-neutral-800 px-4 py-3 text-sm text-white outline-none ring-1 ring-neutral-700 focus:ring-accent"
+            />
+          </div>
           <button
             type="submit"
             disabled={saving || !name.trim()}
