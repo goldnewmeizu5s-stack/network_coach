@@ -8,9 +8,11 @@
     "start": "node dist/index.js"
   },
   "dependencies": {
+    "cors": "^2.8.6",
     "express": "^4.21.2"
   },
   "devDependencies": {
+    "@types/cors": "^2.8.19",
     "@types/express": "^5.0.1",
     "@types/node": "^22.14.1",
     "ts-node-dev": "^2.0.0",
