@@ -82,6 +82,32 @@ async function callClaude(
   throw new Error("Unreachable");
 }
 
+function sanitizeChatHistory(
+  messages: { role: string; content: string }[]
+): { role: "user" | "assistant"; content: string }[] {
+  const result: { role: "user" | "assistant"; content: string }[] = [];
+
+  for (const m of messages) {
+    // Skip empty content
+    if (!m.content || !m.content.trim()) continue;
+    // Normalize role
+    const role = m.role === "assistant" ? "assistant" : "user";
+    // If same role as previous, replace previous (keep latest)
+    if (result.length > 0 && result[result.length - 1].role === role) {
+      result[result.length - 1] = { role, content: m.content };
+    } else {
+      result.push({ role, content: m.content });
+    }
+  }
+
+  // First message must be from user
+  while (result.length > 0 && result[0].role === "assistant") {
+    result.shift();
+  }
+
+  return result;
+}
+
 const router = Router();
 
 // POST /api/chat
@@ -137,11 +163,7 @@ router.post("/", async (req, res, next) => {
       .replace("{progress}", findSection("## PROGRESS"));
 
     // f. Send to Claude
-    const claudeMessages: { role: "user" | "assistant"; content: string }[] =
-      history.map((m) => ({
-        role: m.role as "user" | "assistant",
-        content: m.content,
-      }));
+    const claudeMessages = sanitizeChatHistory(history);
     claudeMessages.push({ role: "user", content: message });
 
     let response: string;
@@ -302,11 +324,7 @@ router.post("/voice", voiceUpload.single("audio"), async (req, res, next) => {
     });
     history.reverse();
 
-    const claudeMessages: { role: "user" | "assistant"; content: string }[] =
-      history.map((m) => ({
-        role: m.role as "user" | "assistant",
-        content: m.content,
-      }));
+    const claudeMessages = sanitizeChatHistory(history);
     claudeMessages.push({ role: "user", content: transcript });
 
     let response: string;
