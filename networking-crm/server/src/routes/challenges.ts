@@ -1,5 +1,7 @@
 import { Router } from "express";
 import prisma from "../lib/prisma";
+import { logger } from "../lib/logger";
+import { updateChallengeSchema } from "../lib/validators";
 import {
   generateDailyChallenge,
   generateAlternativeChallenges,
@@ -126,19 +128,12 @@ router.get("/history", async (req, res, next) => {
 // PUT /api/challenges/:id
 router.put("/:id", async (req, res, next) => {
   try {
-    const { status, reflection, rating } = req.body;
-    const validStatuses = [
-      "accepted",
-      "completed",
-      "skipped",
-      "too_hard",
-    ];
-    if (!validStatuses.includes(status)) {
-      res.status(400).json({
-        error: `status must be one of: ${validStatuses.join(", ")}`,
-      });
+    const parsed = updateChallengeSchema.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ error: parsed.error.issues[0].message });
       return;
     }
+    const { status, reflection, rating } = parsed.data;
 
     const existing = await prisma.challenge.findUnique({
       where: { id: req.params.id },
@@ -164,7 +159,11 @@ router.put("/:id", async (req, res, next) => {
 
     // Update streak in user preferences
     if (status === "completed") {
-      await updateStreak();
+      try {
+        await updateStreak();
+      } catch (err) {
+        logger.error("Failed to update streak", { error: String(err) });
+      }
     }
 
     res.json(challenge);

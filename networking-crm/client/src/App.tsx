@@ -195,6 +195,14 @@ function InstallBanner() {
   );
 }
 
+function ScrollToTop() {
+  const { pathname } = useLocation();
+  useEffect(() => {
+    document.querySelector("main")?.scrollTo(0, 0);
+  }, [pathname]);
+  return null;
+}
+
 function AnimatedRoutes() {
   const location = useLocation();
 
@@ -229,6 +237,7 @@ function AuthedLayout() {
   return (
     <div className="mx-auto flex h-full max-w-[430px] flex-col">
       <main className="flex flex-1 flex-col overflow-y-auto content-pb">
+        <ScrollToTop />
         <InstallBanner />
         <AnimatedRoutes />
       </main>

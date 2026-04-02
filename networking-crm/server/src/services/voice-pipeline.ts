@@ -1,4 +1,5 @@
 import prisma from "../lib/prisma";
+import { logger } from "../lib/logger";
 import { transcribeAudio } from "./transcription";
 import { extractContactData } from "./ai-extraction";
 import { recalcAndAutoStatus } from "./warmth";
@@ -164,7 +165,7 @@ export async function processVoiceNote(
     });
   } catch (err) {
     // j. Mark as failed
-    console.error(`[voice-pipeline] error processing ${interactionId}:`, err);
+    logger.error("Voice pipeline failed", { interactionId, error: String(err) });
     try {
       await prisma.audioFile.update({
         where: { interaction_id: interactionId },

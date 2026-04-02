@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { api } from "../lib/api";
 import { getWarmthColor, getInitials } from "../lib/warmth";
 import { FollowUpItem, getDueDateInfo, SNOOZE_OPTIONS } from "../lib/followups";
+import { events, EVENTS } from "../lib/events";
 import { useToast } from "./Toast";
 
 interface Props {
@@ -28,6 +29,7 @@ export default function FollowUpCard({ item, onRemoved, compact }: Props) {
       await api.put(`/followups/${item.id}`, { status: "done" });
       setTimeout(() => onRemoved(item.id), 300);
       show("Follow-up отмечен! \u{1F4AA}");
+      events.emit(EVENTS.FOLLOWUP_CHANGED);
     } catch {
       setRemoving(false);
     }

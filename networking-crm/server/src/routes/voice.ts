@@ -2,6 +2,7 @@ import path from "path";
 import { Router } from "express";
 import multer from "multer";
 import prisma from "../lib/prisma";
+import { logger } from "../lib/logger";
 import { processVoiceNote } from "../services/voice-pipeline";
 
 const UPLOADS_DIR = path.join(__dirname, "../../uploads");
@@ -69,7 +70,7 @@ router.post("/upload", upload.single("audio"), async (req, res, next) => {
 
     // Fire and forget
     processVoiceNote(interaction.id, file.path).catch((err) => {
-      console.error("[voice/upload] pipeline error:", err);
+      logger.error("Voice pipeline error", { error: String(err) });
     });
   } catch (err) {
     next(err);

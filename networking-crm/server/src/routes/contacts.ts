@@ -1,5 +1,12 @@
 import { Router } from "express";
 import prisma from "../lib/prisma";
+import { logger } from "../lib/logger";
+import {
+  createContactSchema,
+  updateContactSchema,
+  batchActionSchema,
+  interactionSchema,
+} from "../lib/validators";
 import {
   isValidTransition,
   getAllowedTransitions,
@@ -181,18 +188,17 @@ router.get("/:id", async (req, res, next) => {
 // POST /api/contacts
 router.post("/", async (req, res, next) => {
   try {
-    const { full_name, ...rest } = req.body;
-    if (!full_name || typeof full_name !== "string" || !full_name.trim()) {
-      res.status(400).json({ error: "full_name is required" });
+    const parsed = createContactSchema.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ error: parsed.error.issues[0].message });
       return;
     }
 
     const contact = await prisma.contact.create({
       data: {
-        full_name: full_name.trim(),
+        ...parsed.data,
         warmth_status: "new",
         warmth_score: 0,
-        ...rest,
       },
     });
 
@@ -205,15 +211,12 @@ router.post("/", async (req, res, next) => {
 // POST /api/contacts/batch
 router.post("/batch", async (req, res, next) => {
   try {
-    const { action, ids } = req.body;
-    if (!Array.isArray(ids) || ids.length === 0) {
-      res.status(400).json({ error: "ids array is required" });
+    const parsed = batchActionSchema.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ error: parsed.error.issues[0].message });
       return;
     }
-    if (!["archive", "pause"].includes(action)) {
-      res.status(400).json({ error: "action must be archive or pause" });
-      return;
-    }
+    const { action, ids } = parsed.data;
 
     const newStatus = action === "archive" ? "archived" : "paused";
     const result = await prisma.contact.updateMany({
@@ -230,7 +233,12 @@ router.post("/batch", async (req, res, next) => {
 // PUT /api/contacts/:id
 router.put("/:id", async (req, res, next) => {
   try {
-    const { warmth_status, ...rest } = req.body;
+    const parsed = updateContactSchema.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ error: parsed.error.issues[0].message });
+      return;
+    }
+    const { warmth_status, ...rest } = parsed.data;
 
     if (warmth_status) {
       const current = await prisma.contact.findUnique({
@@ -336,14 +344,12 @@ router.post("/:id/suggest-actions", async (req, res, next) => {
 // POST /api/contacts/:id/interaction
 router.post("/:id/interaction", async (req, res, next) => {
   try {
-    const { type, content } = req.body;
-    const validTypes = ["meeting", "message", "note"];
-    if (!validTypes.includes(type)) {
-      res
-        .status(400)
-        .json({ error: `type must be one of: ${validTypes.join(", ")}` });
+    const parsed = interactionSchema.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ error: parsed.error.issues[0].message });
       return;
     }
+    const { type, content } = parsed.data;
 
     const contact = await prisma.contact.findUnique({
       where: { id: req.params.id },

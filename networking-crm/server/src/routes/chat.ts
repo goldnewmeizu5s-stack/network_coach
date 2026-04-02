@@ -3,6 +3,8 @@ import { Router } from "express";
 import multer from "multer";
 import Anthropic from "@anthropic-ai/sdk";
 import prisma from "../lib/prisma";
+import { logger } from "../lib/logger";
+import { chatMessageSchema } from "../lib/validators";
 import { buildChatContext, buildContactContext } from "../services/context-builder";
 import {
   getRelevantMethodologies,
@@ -69,12 +71,10 @@ async function callClaude(
         : "";
     } catch (err) {
       if (attempt < 2) {
-        console.error(
-          `[chat] Claude attempt ${attempt + 1} failed, retrying...`
-        );
+        logger.warn(`Claude attempt ${attempt + 1} failed, retrying`);
         await sleep(backoff[attempt]);
       } else {
-        console.error("[chat] Claude API failed after 3 attempts:", err);
+        logger.error("Claude API failed after 3 attempts", { error: String(err) });
         throw err;
       }
     }
@@ -87,11 +87,12 @@ const router = Router();
 // POST /api/chat
 router.post("/", async (req, res, next) => {
   try {
-    const { message, contact_id } = req.body;
-    if (!message || typeof message !== "string") {
-      res.status(400).json({ error: "message is required" });
+    const parsed = chatMessageSchema.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ error: parsed.error.issues[0].message });
       return;
     }
+    const { message, contact_id } = parsed.data;
 
     // a. Load chat history
     const history = await prisma.chatMessage.findMany({

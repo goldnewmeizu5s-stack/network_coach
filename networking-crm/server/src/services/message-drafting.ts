@@ -1,5 +1,6 @@
 import Anthropic from "@anthropic-ai/sdk";
 import prisma from "../lib/prisma";
+import { logger } from "../lib/logger";
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
@@ -148,7 +149,7 @@ Return as JSON array of 3 strings: ["message1", "message2", "message3"]`;
     if (parsed && parsed.length > 0) return parsed.slice(0, 3);
     return [text];
   } catch (err) {
-    console.error("[message-drafting] Claude API error:", err);
+    logger.error("Claude API error in message drafting", { error: String(err) });
     // Fallback templates
     return generateFallbackMessages(contact.full_name, action, contact.warmth_status);
   }
@@ -222,7 +223,7 @@ Write in the same language as the contact's notes.`;
     }
     return [];
   } catch (err) {
-    console.error("[suggest-actions] Claude API error:", err);
+    logger.error("Claude API error in suggest-actions", { error: String(err) });
     return getFallbackSuggestions(contact.full_name, contact.warmth_status);
   }
 }
@@ -280,7 +281,7 @@ Rules:
       ? message.content[0].text
       : getFallbackInsight(coolingContacts.length, pendingFollowUps);
   } catch (err) {
-    console.error("[daily-insight] Claude API error:", err);
+    logger.error("Claude API error in daily insight", { error: String(err) });
     const cooling = await prisma.contact.count({
       where: { warmth_status: "cooling" },
     });

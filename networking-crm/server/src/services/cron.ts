@@ -1,5 +1,6 @@
 import cron from "node-cron";
 import prisma from "../lib/prisma";
+import { logger } from "../lib/logger";
 import { generateFollowUps } from "./followup-engine";
 import { personalizeFollowUpText } from "./message-drafting";
 import {
@@ -8,7 +9,7 @@ import {
 } from "./challenge-engine";
 
 export async function runDailyJob(): Promise<void> {
-  console.log(`[cron] Running daily job at ${new Date().toISOString()}`);
+  logger.info(`[cron] Running daily job at ${new Date().toISOString()}`);
 
   try {
     // a. Warmth decay check
@@ -35,7 +36,7 @@ export async function runDailyJob(): Promise<void> {
           content: `Status auto-changed from warm to cooling (no interaction for 30+ days)`,
         },
       });
-      console.log(`[cron] ${contact.full_name}: warm → cooling (decay)`);
+      logger.info(`[cron] ${contact.full_name}: warm → cooling (decay)`);
     }
 
     // b. Follow-up generation with AI personalization
@@ -66,7 +67,7 @@ export async function runDailyJob(): Promise<void> {
       }
     }
     if (generated > 0) {
-      console.log(`[cron] Generated ${generated} new follow-ups`);
+      logger.info(`[cron] Generated ${generated} new follow-ups`);
     }
 
     // c. Stale follow-ups: overdue by 7+ days → increase priority
@@ -88,7 +89,7 @@ export async function runDailyJob(): Promise<void> {
       });
     }
     if (staleFollowUps.length > 0) {
-      console.log(
+      logger.info(
         `[cron] Bumped priority on ${staleFollowUps.length} stale follow-ups`
       );
     }
@@ -106,22 +107,22 @@ export async function runDailyJob(): Promise<void> {
       try {
         await generateDailyChallenge();
         await generateAlternativeChallenges();
-        console.log("[cron] Generated daily challenge + alternatives");
+        logger.info("[cron] Generated daily challenge + alternatives");
       } catch (err) {
-        console.error("[cron] Challenge generation failed:", err);
+        logger.error("Challenge generation failed", { error: String(err) });
       }
     }
 
-    console.log(`[cron] Daily job completed`);
+    logger.info(`[cron] Daily job completed`);
   } catch (err) {
-    console.error("[cron] Daily job failed:", err);
+    logger.error("Daily job failed", { error: String(err) });
   }
 }
 
 export function startCron(): void {
   // Run daily at 08:00 UTC
   cron.schedule("0 8 * * *", () => {
-    runDailyJob().catch((err) => console.error("[cron] Error:", err));
+    runDailyJob().catch((err) => logger.error("Cron error", { error: String(err) }));
   });
-  console.log("[cron] Scheduled daily job at 08:00 UTC");
+  logger.info("[cron] Scheduled daily job at 08:00 UTC");
 }

@@ -1,5 +1,6 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { ExtractedContact } from "../types";
+import { logger } from "../lib/logger";
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
@@ -87,9 +88,7 @@ export async function extractContactData(
       if (isLast) throw err;
 
       const message = err instanceof Error ? err.message : String(err);
-      console.error(
-        `[ai-extraction] attempt ${attempt + 1} failed: ${message}, retrying in ${backoff[attempt]}ms`
-      );
+      logger.warn(`AI extraction attempt ${attempt + 1} failed, retrying`, { delay: backoff[attempt] });
       await sleep(backoff[attempt]);
     }
   }

@@ -1,5 +1,7 @@
 import { Router } from "express";
 import prisma from "../lib/prisma";
+import { logger } from "../lib/logger";
+import { createFollowUpSchema, updateFollowUpSchema } from "../lib/validators";
 import { recalcAndAutoStatus } from "../services/warmth";
 import { generateFollowUps } from "../services/followup-engine";
 import { draftFollowUpMessage } from "../services/message-drafting";
@@ -62,7 +64,12 @@ router.get("/", async (req, res, next) => {
 // PUT /api/followups/:id
 router.put("/:id", async (req, res, next) => {
   try {
-    const { status, snoozed_until } = req.body;
+    const parsed = updateFollowUpSchema.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ error: parsed.error.issues[0].message });
+      return;
+    }
+    const { status, snoozed_until } = parsed.data;
 
     const followUp = await prisma.followUp.findUnique({
       where: { id: req.params.id },
@@ -131,13 +138,12 @@ router.put("/:id", async (req, res, next) => {
 // POST /api/followups — create manual follow-up
 router.post("/", async (req, res, next) => {
   try {
-    const { contact_id, suggested_action, due_date, priority } = req.body;
-    if (!contact_id || !suggested_action || !due_date) {
-      res
-        .status(400)
-        .json({ error: "contact_id, suggested_action, and due_date are required" });
+    const parsed = createFollowUpSchema.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ error: parsed.error.issues[0].message });
       return;
     }
+    const { contact_id, suggested_action, due_date, priority } = parsed.data;
 
     const followUp = await prisma.followUp.create({
       data: {

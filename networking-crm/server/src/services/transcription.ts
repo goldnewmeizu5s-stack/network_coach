@@ -1,5 +1,6 @@
 import fs from "fs";
 import OpenAI from "openai";
+import { logger } from "../lib/logger";
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
@@ -29,9 +30,7 @@ export async function transcribeAudio(filePath: string): Promise<string> {
         throw err;
       }
 
-      console.error(
-        `[transcription] attempt ${attempt + 1} failed: ${message}, retrying in ${backoff[attempt]}ms`
-      );
+      logger.warn(`Transcription attempt ${attempt + 1} failed, retrying`, { delay: backoff[attempt] });
       await sleep(backoff[attempt]);
     }
   }

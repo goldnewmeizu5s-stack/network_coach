@@ -1,5 +1,6 @@
 import Anthropic from "@anthropic-ai/sdk";
 import prisma from "../lib/prisma";
+import { logger } from "../lib/logger";
 import {
   getRelevantMethodologies,
   formatMethodologiesForPrompt,
@@ -225,7 +226,7 @@ Write in the same language as the user's profile (default: Russian).`;
       ? JSON.parse(match[0])
       : getFallbackChallenge(difficulty);
   } catch (err) {
-    console.error("[challenge-engine] Claude error:", err);
+    logger.error("Challenge generation Claude error", { error: String(err) });
     challengeData = getFallbackChallenge(difficulty);
   }
 
