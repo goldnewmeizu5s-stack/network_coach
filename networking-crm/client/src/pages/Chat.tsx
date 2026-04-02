@@ -9,6 +9,7 @@ import { api } from "../lib/api";
 import { renderMarkdown, sanitizeHtml } from "../lib/markdown";
 import { useToast } from "../components/Toast";
 import ErrorState from "../components/ErrorState";
+import { useKeyboardHeight } from "../lib/useKeyboardHeight";
 
 interface ChatMsg {
   id: string;
@@ -33,6 +34,7 @@ const QUICK_PROMPTS = [
 export default function Chat() {
   const navigate = useNavigate();
   const { show } = useToast();
+  const kbHeight = useKeyboardHeight();
 
   const [messages, setMessages] = useState<ChatMsg[]>([]);
   const [input, setInput] = useState("");
@@ -372,8 +374,11 @@ export default function Chat() {
         <div ref={messagesEndRef} />
       </div>
 
-      {/* Context bar */}
-      <div className="border-t border-neutral-800 px-4 pt-2">
+      {/* Context bar + input */}
+      <div
+        className="border-t border-neutral-800 px-4 pt-2 transition-transform"
+        style={kbHeight > 0 ? { transform: `translateY(-${kbHeight}px)` } : undefined}
+      >
         <button
           onClick={() => setShowCtxPicker(true)}
           className="mb-2 flex items-center gap-1.5 rounded-full bg-card px-3 py-1 text-[11px] text-neutral-400 ring-1 ring-neutral-700"

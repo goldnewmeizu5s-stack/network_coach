@@ -9,7 +9,7 @@ import {
 } from "react-router-dom";
 import { AnimatePresence, motion } from "framer-motion";
 import { Home as HomeIcon, Users, Target, MessageCircle, Settings as SettingsIcon } from "lucide-react";
-import { ToastProvider } from "./components/Toast";
+import { ToastProvider, useToast } from "./components/Toast";
 import { SkeletonList } from "./components/Skeleton";
 
 // Lazy-loaded pages
@@ -51,6 +51,7 @@ function LoginScreen({ onLogin }: { onLogin: () => void }) {
   const [pin, setPin] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const { show } = useToast();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -73,7 +74,7 @@ function LoginScreen({ onLogin }: { onLogin: () => void }) {
         setError("Неверный PIN-код");
       }
     } catch {
-      setError("Ошибка соединения");
+      show("Нет соединения с сервером");
     } finally {
       setLoading(false);
     }
@@ -282,14 +283,16 @@ function App() {
     return () => window.removeEventListener("storage", onStorage);
   }, []);
 
-  if (!authed) return <LoginScreen onLogin={() => setAuthed(true)} />;
-
   return (
-    <BrowserRouter>
-      <ToastProvider>
-        <AuthedLayout />
-      </ToastProvider>
-    </BrowserRouter>
+    <ToastProvider>
+      {!authed ? (
+        <LoginScreen onLogin={() => setAuthed(true)} />
+      ) : (
+        <BrowserRouter>
+          <AuthedLayout />
+        </BrowserRouter>
+      )}
+    </ToastProvider>
   );
 }
 
