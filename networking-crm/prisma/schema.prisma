@@ -48,6 +48,11 @@ model Contact {
 
   interactions Interaction[]
   follow_ups   FollowUp[]
+
+  @@index([warmth_status])
+  @@index([last_interaction_at])
+  @@index([created_at])
+  @@index([warmth_status, last_interaction_at])
 }
 
 model Interaction {
@@ -61,6 +66,9 @@ model Interaction {
   created_at DateTime @default(now())
 
   audio_file AudioFile?
+
+  @@index([contact_id, created_at])
+  @@index([created_at])
 }
 
 model AudioFile {
@@ -71,6 +79,8 @@ model AudioFile {
   duration_seconds     Int?
   transcription_status String      @default("pending")
   created_at           DateTime    @default(now())
+
+  @@index([transcription_status])
 }
 
 model FollowUp {
@@ -84,6 +94,9 @@ model FollowUp {
   snoozed_until    DateTime?
   completed_at     DateTime?
   created_at       DateTime  @default(now())
+
+  @@index([status, due_date])
+  @@index([contact_id, status])
 }
 
 model Challenge {
@@ -100,6 +113,9 @@ model Challenge {
   rating         Int?
   created_at     DateTime     @default(now())
   completed_at   DateTime?
+
+  @@index([date])
+  @@index([status, date])
 }
 
 model Methodology {
@@ -122,4 +138,6 @@ model ChatMessage {
   content    String
   metadata   Json?
   created_at DateTime @default(now())
+
+  @@index([created_at])
 }

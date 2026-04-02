@@ -2,7 +2,7 @@
 set -e
 
 echo "Running database migrations..."
-npx prisma db push --schema=prisma/schema.prisma --accept-data-loss 2>/dev/null || echo "DB push completed (or skipped)"
+npx prisma db push --schema=prisma/schema.prisma 2>/dev/null || true
 
 echo "Checking seed data..."
 node -e "
