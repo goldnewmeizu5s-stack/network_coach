@@ -1,8 +1,37 @@
-import { useState } from "react";
+import { useState, useCallback } from "react";
+import { useNavigate } from "react-router-dom";
 import VoiceRecorder from "../components/VoiceRecorder";
+import { api } from "../lib/api";
 
 export default function Home() {
+  const navigate = useNavigate();
   const [showRecorder, setShowRecorder] = useState(false);
+
+  const handleRecorderClose = useCallback(
+    async (interactionId?: string) => {
+      setShowRecorder(false);
+      if (!interactionId) return;
+
+      // Poll for contact_id
+      for (let i = 0; i < 30; i++) {
+        await new Promise((r) => setTimeout(r, 2000));
+        try {
+          const data = await api.get<{
+            status: string;
+            contact_id?: string | null;
+          }>(`/voice/${interactionId}/status`);
+          if (data.contact_id) {
+            navigate(`/people/${data.contact_id}`);
+            return;
+          }
+          if (data.status === "completed" || data.status === "failed") return;
+        } catch {
+          return;
+        }
+      }
+    },
+    [navigate]
+  );
 
   return (
     <div className="flex flex-1 flex-col gap-5 px-4 pt-6">
@@ -53,7 +82,7 @@ export default function Home() {
         <p className="text-neutral-400">Данные пока не собраны</p>
       </section>
 
-      {showRecorder && <VoiceRecorder onClose={() => setShowRecorder(false)} />}
+      {showRecorder && <VoiceRecorder onClose={handleRecorderClose} />}
     </div>
   );
 }

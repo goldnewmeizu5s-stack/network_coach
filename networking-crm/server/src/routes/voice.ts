@@ -44,11 +44,14 @@ router.post("/upload", upload.single("audio"), async (req, res, next) => {
       ? parseInt(req.body.duration_seconds, 10)
       : null;
 
+    const contactId = req.body.contact_id || null;
+
     // Create interaction + audio file records
     const interaction = await prisma.interaction.create({
       data: {
         type: "voice_note",
         content: null,
+        ...(contactId && { contact_id: contactId }),
       },
     });
 

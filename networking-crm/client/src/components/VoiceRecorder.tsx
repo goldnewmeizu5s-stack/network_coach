@@ -12,10 +12,11 @@ function formatTime(s: number): string {
 }
 
 interface Props {
-  onClose: () => void;
+  onClose: (contactId?: string) => void;
+  contactId?: string;
 }
 
-export default function VoiceRecorder({ onClose }: Props) {
+export default function VoiceRecorder({ onClose, contactId }: Props) {
   const [state, setState] = useState<State>("idle");
   const [seconds, setSeconds] = useState(0);
   const [audioUrl, setAudioUrl] = useState<string | null>(null);
@@ -135,6 +136,8 @@ export default function VoiceRecorder({ onClose }: Props) {
     setState("idle");
   };
 
+  const uploadResultRef = useRef<{ id: string; contact_id?: string } | null>(null);
+
   const upload = async () => {
     if (!chunks.current.length) return;
     setState("uploading");
@@ -144,7 +147,9 @@ export default function VoiceRecorder({ onClose }: Props) {
       const fd = new FormData();
       fd.append("audio", blob, "voice.webm");
       fd.append("duration_seconds", String(seconds));
-      await api.upload("/voice/upload", fd);
+      if (contactId) fd.append("contact_id", contactId);
+      const result = await api.upload<{ id: string; contact_id?: string }>("/voice/upload", fd);
+      uploadResultRef.current = result;
       setState("done");
     } catch {
       setError("Ошибка загрузки. Попробуйте ещё раз.");
@@ -156,7 +161,7 @@ export default function VoiceRecorder({ onClose }: Props) {
   const circleScale = 1 + audioLevel * 0.3;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/60" onClick={onClose}>
+    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/60" onClick={() => onClose()}>
       <div
         className="animate-slide-up w-full max-w-[430px] rounded-t-3xl bg-card px-6 pb-8 pt-6"
         onClick={(e) => e.stopPropagation()}
@@ -253,7 +258,7 @@ export default function VoiceRecorder({ onClose }: Props) {
               Запись обработана!<br />Контакт создан.
             </p>
             <button
-              onClick={onClose}
+              onClick={() => onClose(uploadResultRef.current?.id)}
               className="w-full rounded-xl bg-accent py-3 text-sm font-medium text-white transition-colors active:bg-accent-hover"
             >
               Посмотреть

@@ -38,9 +38,43 @@ export async function processVoiceNote(
       return;
     }
 
+    // Check if interaction already has a contact (update flow)
+    const existingInteraction = await prisma.interaction.findUnique({
+      where: { id: interactionId },
+      select: { contact_id: true },
+    });
     let contactId: string;
 
-    if (extracted.is_update) {
+    if (existingInteraction?.contact_id) {
+      // Pre-linked contact — update it
+      contactId = existingInteraction.contact_id;
+      await prisma.contact.update({
+        where: { id: contactId },
+        data: {
+          ...(extracted.occupation && { occupation: extracted.occupation }),
+          ...(extracted.company && { company: extracted.company }),
+          ...(extracted.city && { city: extracted.city }),
+          ...(extracted.country && { country: extracted.country }),
+          ...(extracted.key_interests.length && {
+            key_interests: extracted.key_interests,
+          }),
+          ...(extracted.what_impressed_me && {
+            what_impressed_me: extracted.what_impressed_me,
+          }),
+          ...(extracted.potential_synergies && {
+            potential_synergies: extracted.potential_synergies,
+          }),
+          ...(extracted.personality_notes && {
+            personality_notes: extracted.personality_notes,
+          }),
+          ...(extracted.memory_summary && {
+            memory_summary: extracted.memory_summary,
+          }),
+          urgency_score: extracted.urgency_score,
+          last_interaction_at: new Date(),
+        },
+      });
+    } else if (extracted.is_update) {
       // g. Find existing contact by name (fuzzy match)
       const existing = extracted.full_name
         ? await prisma.contact.findFirst({
