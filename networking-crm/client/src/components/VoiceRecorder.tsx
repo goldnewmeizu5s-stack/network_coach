@@ -36,8 +36,10 @@ export default function VoiceRecorder({ onClose, contactId }: Props) {
   const audioCtxRef = useRef<AudioContext | null>(null);
   const pollRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const audioUrlRef = useRef<string | null>(null);
+  const abortedRef = useRef(false);
 
   const cleanup = useCallback(() => {
+    abortedRef.current = true;
     if (timerRef.current) clearInterval(timerRef.current);
     if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current);
     if (pollRef.current) clearTimeout(pollRef.current);
@@ -150,18 +152,23 @@ export default function VoiceRecorder({ onClose, contactId }: Props) {
 
   const pollStatus = useCallback(
     (interactionId: string, attempt: number) => {
+      if (abortedRef.current) return;
       if (attempt >= POLL_MAX) {
+        if (abortedRef.current) return;
         setDoneMessage("Обработка занимает больше времени. Проверьте позже.");
         setState("done");
         return;
       }
 
       pollRef.current = setTimeout(async () => {
+        if (abortedRef.current) return;
         try {
           const data = await api.get<{
             status: string;
             contact_id?: string | null;
           }>(`/voice/${interactionId}/status`);
+
+          if (abortedRef.current) return;
 
           if (data.status === "completed") {
             if (data.contact_id) {
@@ -183,6 +190,7 @@ export default function VoiceRecorder({ onClose, contactId }: Props) {
           // Still processing — poll again
           pollStatus(interactionId, attempt + 1);
         } catch {
+          if (abortedRef.current) return;
           setError("Ошибка проверки статуса");
           setState("error");
         }
@@ -192,6 +200,7 @@ export default function VoiceRecorder({ onClose, contactId }: Props) {
   );
 
   const upload = async () => {
+    if (state !== "preview") return;
     if (!chunks.current.length) return;
     setState("uploading");
     setError(null);

@@ -336,13 +336,13 @@ function App() {
 
   return (
     <ToastProvider>
-      {!authed ? (
-        <LoginScreen onLogin={handleLogin} />
-      ) : (
-        <BrowserRouter>
+      <BrowserRouter>
+        {!authed ? (
+          <LoginScreen onLogin={handleLogin} />
+        ) : (
           <AuthedLayout />
-        </BrowserRouter>
-      )}
+        )}
+      </BrowserRouter>
     </ToastProvider>
   );
 }

@@ -11,6 +11,7 @@ import { FollowUpItem } from "../lib/followups";
 import VoiceRecorder from "../components/VoiceRecorder";
 import FollowUpCard from "../components/FollowUpCard";
 import { useToast } from "../components/Toast";
+import { Skeleton } from "../components/Skeleton";
 
 interface AISuggestion {
   action: string;
@@ -258,8 +259,21 @@ export default function ContactProfile() {
 
   if (loading) {
     return (
-      <div className="flex flex-1 items-center justify-center">
-        <div className="h-8 w-8 animate-spin rounded-full border-2 border-accent border-t-transparent" />
+      <div className="flex flex-1 flex-col pb-24">
+        <div className="sticky top-0 z-10 flex items-center gap-3 bg-bg/95 px-4 py-3 backdrop-blur-sm">
+          <Skeleton className="h-9 w-9 rounded-full" />
+          <Skeleton className="h-5 w-40" />
+        </div>
+        <div className="flex flex-col items-center gap-3 px-4 pt-2">
+          <Skeleton className="h-20 w-20 rounded-full" />
+          <Skeleton className="h-5 w-48" />
+          <Skeleton className="h-4 w-32" />
+        </div>
+        <div className="flex flex-col gap-4 px-4 pt-4">
+          <Skeleton className="h-28 w-full rounded-2xl" />
+          <Skeleton className="h-28 w-full rounded-2xl" />
+          <Skeleton className="h-28 w-full rounded-2xl" />
+        </div>
       </div>
     );
   }

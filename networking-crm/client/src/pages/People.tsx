@@ -507,7 +507,7 @@ function ContactCard({
     const dy = e.touches[0].clientY - startY.current;
 
     // Lock direction on first significant movement
-    if (direction.current === "none" && (Math.abs(dx) > 10 || Math.abs(dy) > 10)) {
+    if (direction.current === "none" && (Math.abs(dx) > 15 || Math.abs(dy) > 15)) {
       direction.current = Math.abs(dx) > Math.abs(dy) ? "horizontal" : "vertical";
     }
 
@@ -526,9 +526,14 @@ function ContactCard({
       clearTimeout(longTimer.current);
       longTimer.current = null;
     }
+    if (direction.current === "vertical") {
+      setOffset(0);
+    } else if (offset < -70) {
+      setOffset(-140);
+    } else {
+      setOffset(0);
+    }
     direction.current = "none";
-    if (offset < -70) setOffset(-140);
-    else setOffset(0);
   };
 
   const warmthColor = getWarmthColor(c.warmth_status);
@@ -554,7 +559,7 @@ function ContactCard({
         className={`relative flex items-center gap-3 bg-card p-3 transition-transform ${
           selected ? "ring-2 ring-accent" : ""
         }`}
-        style={{ transform: `translateX(${offset}px)`, touchAction: "pan-y" }}
+        style={{ transform: `translateX(${offset}px)`, touchAction: "pan-y", willChange: offset !== 0 ? "transform" : "auto" }}
         onTouchStart={handleTouchStart}
         onTouchMove={handleTouchMove}
         onTouchEnd={handleTouchEnd}
