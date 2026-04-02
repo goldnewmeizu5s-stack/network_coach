@@ -41,6 +41,12 @@ export default function Home() {
   );
   const [insightLoading, setInsightLoading] = useState(false);
   const [stats, setStats] = useState<Stats | null>(null);
+  const [todayChallenge, setTodayChallenge] = useState<{
+    id: string;
+    title: string;
+    category: string;
+    status: string;
+  } | null>(null);
 
   const fetchFollowUps = useCallback(async () => {
     setLoadingFu(true);
@@ -83,11 +89,23 @@ export default function Home() {
     }
   }, []);
 
+  const fetchChallenge = useCallback(async () => {
+    try {
+      const data = await api.get<{
+        challenge: { id: string; title: string; category: string; status: string };
+      }>("/challenges/today");
+      setTodayChallenge(data.challenge);
+    } catch {
+      /* ignore */
+    }
+  }, []);
+
   useEffect(() => {
     fetchFollowUps();
     fetchInsight();
     fetchStats();
-  }, [fetchFollowUps, fetchInsight, fetchStats]);
+    fetchChallenge();
+  }, [fetchFollowUps, fetchInsight, fetchStats, fetchChallenge]);
 
   const handleRecorderClose = useCallback(
     async (interactionId?: string) => {
@@ -160,12 +178,49 @@ export default function Home() {
         )}
       </section>
 
-      {/* Today's challenge placeholder */}
-      <section className="rounded-2xl bg-card p-4">
+      {/* Today's challenge */}
+      <section
+        className="rounded-2xl bg-card p-4 cursor-pointer active:bg-neutral-800 transition-colors"
+        onClick={() => navigate("/challenges")}
+      >
         <h2 className="mb-2 text-sm font-semibold uppercase tracking-wide text-neutral-500">
           Сегодняшний челлендж
         </h2>
-        <p className="text-neutral-400">Скоро здесь появится ежедневный вызов</p>
+        {todayChallenge ? (
+          <div className="flex items-center gap-3">
+            <span className="text-xl">
+              {
+                {
+                  conversation: "\u{1F5E3}\uFE0F",
+                  follow_up: "\u{1F91D}",
+                  digital: "\u{1F4F1}",
+                  skill: "\u{1F3AF}",
+                  mindset: "\u{1F9E0}",
+                  stretch: "\u{1F525}",
+                }[todayChallenge.category] || "\u{2728}"
+              }
+            </span>
+            <div className="flex-1 min-w-0">
+              <p className="truncate text-sm font-medium text-white">
+                {todayChallenge.title}
+              </p>
+              <p className="text-xs text-neutral-400">
+                {todayChallenge.status === "completed"
+                  ? "Сделано! \u{1F389}"
+                  : todayChallenge.status === "accepted"
+                    ? "В процессе..."
+                    : "Нажми для подробностей"}
+              </p>
+            </div>
+            {todayChallenge.status === "completed" ? (
+              <span className="text-green-400 text-sm">{"\u2705"}</span>
+            ) : (
+              <span className="text-xs text-accent">&rarr;</span>
+            )}
+          </div>
+        ) : (
+          <p className="text-neutral-400">Загрузка...</p>
+        )}
       </section>
 
       {/* Urgent follow-ups */}
