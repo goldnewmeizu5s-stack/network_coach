@@ -63,6 +63,7 @@ export default function Challenge() {
   const [reflectionRating, setReflectionRating] = useState(0);
   const [showStats, setShowStats] = useState(false);
   const [celebration, setCelebration] = useState<string | null>(null);
+  const [actionBusy, setActionBusy] = useState(false);
 
   // Swipe
   const touchStartX = useRef(0);
@@ -107,6 +108,8 @@ export default function Challenge() {
     status: string,
     extra?: { reflection?: string; rating?: number }
   ) => {
+    if (actionBusy) return;
+    setActionBusy(true);
     try {
       await api.put(`/challenges/${id}`, { status, ...extra });
       setChallenges((prev) =>
@@ -129,6 +132,8 @@ export default function Challenge() {
       }
     } catch {
       /* ignore */
+    } finally {
+      setActionBusy(false);
     }
   };
 
@@ -253,7 +258,8 @@ export default function Challenge() {
                 <div className="flex gap-2">
                   <button
                     onClick={() => updateStatus(current.id, "accepted")}
-                    className="flex-1 rounded-xl bg-accent py-3 text-sm font-medium text-white active:bg-accent-hover"
+                    disabled={actionBusy}
+                    className="flex-1 rounded-xl bg-accent py-3 text-sm font-medium text-white active:bg-accent-hover disabled:opacity-50"
                   >
                     Принять {"\u{1F4AA}"}
                   </button>
@@ -269,7 +275,8 @@ export default function Challenge() {
                   </button>
                   <button
                     onClick={() => updateStatus(current.id, "too_hard")}
-                    className="rounded-xl bg-red-900/30 px-4 py-3 text-sm font-medium text-red-400 active:bg-red-900/50"
+                    disabled={actionBusy}
+                    className="rounded-xl bg-red-900/30 px-4 py-3 text-sm font-medium text-red-400 active:bg-red-900/50 disabled:opacity-50"
                   >
                     {"\u{1F630}"}
                   </button>

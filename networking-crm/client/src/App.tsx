@@ -126,7 +126,7 @@ function BottomNav() {
       t.path === "/"
         ? location.pathname === "/"
         : location.pathname.startsWith(t.path)
-    )?.id || "home";
+    )?.id || null;
 
   return (
     <nav className="fixed bottom-0 left-1/2 z-40 flex w-full max-w-[430px] -translate-x-1/2 items-center justify-around border-t border-white/5 bg-bg/95 backdrop-blur-sm tab-bar-safe"
@@ -227,7 +227,9 @@ function InstallBanner() {
 function ScrollToTop() {
   const { pathname } = useLocation();
   useEffect(() => {
-    document.querySelector("main")?.scrollTo(0, 0);
+    const main = document.querySelector("main");
+    if (main) main.scrollTop = 0;
+    window.scrollTo(0, 0);
   }, [pathname]);
   return null;
 }

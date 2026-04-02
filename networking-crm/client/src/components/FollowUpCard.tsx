@@ -145,7 +145,8 @@ export default function FollowUpCard({ item, onRemoved, compact }: Props) {
         <div className="flex items-center gap-2">
           <button
             onClick={handleDone}
-            className="flex h-[44px] w-[44px] items-center justify-center rounded-xl bg-green-600/20 text-green-400 active:bg-green-600/30"
+            disabled={removing}
+            className="flex h-[44px] w-[44px] items-center justify-center rounded-xl bg-green-600/20 text-green-400 active:bg-green-600/30 disabled:opacity-40"
             title="Done"
           >
             <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.5}>
@@ -155,7 +156,8 @@ export default function FollowUpCard({ item, onRemoved, compact }: Props) {
           <div className="relative">
             <button
               onClick={() => setShowSnooze(!showSnooze)}
-              className="flex h-[44px] w-[44px] items-center justify-center rounded-xl bg-yellow-600/20 text-yellow-400 active:bg-yellow-600/30"
+              disabled={removing}
+              className="flex h-[44px] w-[44px] items-center justify-center rounded-xl bg-yellow-600/20 text-yellow-400 active:bg-yellow-600/30 disabled:opacity-40"
               title="Snooze"
             >
               <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
@@ -178,7 +180,8 @@ export default function FollowUpCard({ item, onRemoved, compact }: Props) {
           </div>
           <button
             onClick={handleSkip}
-            className="flex h-[44px] w-[44px] items-center justify-center rounded-xl bg-neutral-600/20 text-neutral-400 active:bg-neutral-600/30"
+            disabled={removing}
+            className="flex h-[44px] w-[44px] items-center justify-center rounded-xl bg-neutral-600/20 text-neutral-400 active:bg-neutral-600/30 disabled:opacity-40"
             title="Skip"
           >
             <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>

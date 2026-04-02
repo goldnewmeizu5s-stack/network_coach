@@ -81,6 +81,7 @@ export default function ContactProfile() {
   const [showRecorder, setShowRecorder] = useState(false);
   const [showStatusSheet, setShowStatusSheet] = useState(false);
   const [showNoteInput, setShowNoteInput] = useState(false);
+  const [actionBusy, setActionBusy] = useState(false);
   const [noteText, setNoteText] = useState("");
   const [personalNotes, setPersonalNotes] = useState("");
   const [notesSaving, setNotesSaving] = useState(false);
@@ -151,7 +152,8 @@ export default function ContactProfile() {
   };
 
   const addNote = async () => {
-    if (!id || !noteText.trim()) return;
+    if (!id || !noteText.trim() || actionBusy) return;
+    setActionBusy(true);
     try {
       await api.post(`/contacts/${id}/interaction`, {
         type: "note",
@@ -163,11 +165,14 @@ export default function ContactProfile() {
       show("Заметка добавлена");
     } catch {
       // ignore
+    } finally {
+      setActionBusy(false);
     }
   };
 
   const addMeeting = async () => {
-    if (!id) return;
+    if (!id || actionBusy) return;
+    setActionBusy(true);
     try {
       await api.post(`/contacts/${id}/interaction`, {
         type: "meeting",
@@ -177,6 +182,8 @@ export default function ContactProfile() {
       show("Встреча отмечена");
     } catch {
       // ignore
+    } finally {
+      setActionBusy(false);
     }
   };
 
@@ -554,7 +561,8 @@ export default function ContactProfile() {
         </button>
         <button
           onClick={addMeeting}
-          className="rounded-xl bg-card px-3 py-3 text-sm font-medium text-neutral-300 ring-1 ring-neutral-700 active:bg-neutral-800"
+          disabled={actionBusy}
+          className="rounded-xl bg-card px-3 py-3 text-sm font-medium text-neutral-300 ring-1 ring-neutral-700 active:bg-neutral-800 disabled:opacity-50"
         >
           Встреча
         </button>
