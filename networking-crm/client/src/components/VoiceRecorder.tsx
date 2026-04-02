@@ -35,6 +35,7 @@ export default function VoiceRecorder({ onClose, contactId }: Props) {
   const animFrameRef = useRef<number | undefined>(undefined);
   const audioCtxRef = useRef<AudioContext | null>(null);
   const pollRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const audioUrlRef = useRef<string | null>(null);
 
   const cleanup = useCallback(() => {
     if (timerRef.current) clearInterval(timerRef.current);
@@ -47,6 +48,10 @@ export default function VoiceRecorder({ onClose, contactId }: Props) {
     if (audioCtxRef.current) {
       audioCtxRef.current.close();
       audioCtxRef.current = null;
+    }
+    if (audioUrlRef.current) {
+      URL.revokeObjectURL(audioUrlRef.current);
+      audioUrlRef.current = null;
     }
     analyserRef.current = null;
   }, []);
@@ -98,7 +103,9 @@ export default function VoiceRecorder({ onClose, contactId }: Props) {
 
       recorder.onstop = () => {
         const blob = new Blob(chunks.current, { type: mimeType });
-        setAudioUrl(URL.createObjectURL(blob));
+        const url = URL.createObjectURL(blob);
+        audioUrlRef.current = url;
+        setAudioUrl(url);
         setState("preview");
         if (timerRef.current) clearInterval(timerRef.current);
         if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current);
@@ -134,6 +141,7 @@ export default function VoiceRecorder({ onClose, contactId }: Props) {
 
   const discard = () => {
     if (audioUrl) URL.revokeObjectURL(audioUrl);
+    audioUrlRef.current = null;
     setAudioUrl(null);
     setSeconds(0);
     setAudioLevel(0);

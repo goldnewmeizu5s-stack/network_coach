@@ -82,4 +82,5 @@ export const config = {
   openaiApiKey: required("OPENAI_API_KEY"),
   anthropicApiKey: required("ANTHROPIC_API_KEY"),
   authPin: required("AUTH_PIN"),
+  claudeModel: optional("CLAUDE_MODEL", "claude-opus-4-20250514"),
 };

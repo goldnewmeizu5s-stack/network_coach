@@ -4,6 +4,7 @@ import { Router } from "express";
 import multer from "multer";
 import prisma from "../lib/prisma";
 import { anthropic } from "../lib/ai";
+import { config } from "../config";
 import { logger } from "../lib/logger";
 import { chatMessageSchema } from "../lib/validators";
 import { buildChatContext, buildContactContext } from "../services/context-builder";
@@ -60,7 +61,7 @@ async function callClaude(
   for (let attempt = 0; attempt <= 2; attempt++) {
     try {
       const response = await anthropic.messages.create({
-        model: "claude-opus-4-20250514",
+        model: config.claudeModel,
         max_tokens: 1500,
         system: systemPrompt,
         messages,
@@ -91,9 +92,9 @@ function sanitizeChatHistory(
     if (!m.content || !m.content.trim()) continue;
     // Normalize role
     const role = m.role === "assistant" ? "assistant" : "user";
-    // If same role as previous, replace previous (keep latest)
+    // If same role as previous, merge content to preserve context
     if (result.length > 0 && result[result.length - 1].role === role) {
-      result[result.length - 1] = { role, content: m.content };
+      result[result.length - 1].content += "\n\n" + m.content;
     } else {
       result.push({ role, content: m.content });
     }

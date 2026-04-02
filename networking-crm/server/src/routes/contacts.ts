@@ -145,11 +145,13 @@ router.get("/", async (req, res, next) => {
 router.get("/counts", async (_req, res, next) => {
   try {
     const statuses = ["new", "warming", "warm", "cooling", "paused", "archived"];
+    const groups = await prisma.contact.groupBy({
+      by: ["warmth_status"],
+      _count: true,
+    });
     const counts: Record<string, number> = {};
     for (const s of statuses) {
-      counts[s] = await prisma.contact.count({
-        where: { warmth_status: s },
-      });
+      counts[s] = groups.find((g) => g.warmth_status === s)?._count ?? 0;
     }
     counts.all = Object.values(counts).reduce((a, b) => a + b, 0);
     res.json(counts);

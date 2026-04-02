@@ -1,4 +1,5 @@
 import { anthropic } from "../lib/ai";
+import { config } from "../config";
 import prisma from "../lib/prisma";
 import { logger } from "../lib/logger";
 
@@ -135,7 +136,7 @@ Return as JSON array of 3 strings: ["message1", "message2", "message3"]`;
 
   try {
     const message = await anthropic.messages.create({
-      model: "claude-opus-4-20250514",
+      model: config.claudeModel,
       max_tokens: 1024,
       messages: [{ role: "user", content: prompt }],
     });
@@ -206,7 +207,7 @@ Write in the same language as the contact's notes.`;
 
   try {
     const message = await anthropic.messages.create({
-      model: "claude-opus-4-20250514",
+      model: config.claudeModel,
       max_tokens: 1024,
       messages: [{ role: "user", content: prompt }],
     });
@@ -270,7 +271,7 @@ Rules:
 - Write in Russian`;
 
     const message = await anthropic.messages.create({
-      model: "claude-opus-4-20250514",
+      model: config.claudeModel,
       max_tokens: 200,
       messages: [{ role: "user", content: prompt }],
     });
@@ -313,7 +314,7 @@ ${context ? `Context: ${context}` : ""}
 Write ONE short sentence in Russian. Reference specific details. Keep it actionable.`;
 
     const message = await anthropic.messages.create({
-      model: "claude-opus-4-20250514",
+      model: config.claudeModel,
       max_tokens: 100,
       messages: [{ role: "user", content: prompt }],
     });
@@ -367,7 +368,7 @@ Example format: ["personalized text 1", "personalized text 2", ...]`;
 
   try {
     const message = await anthropic.messages.create({
-      model: "claude-opus-4-20250514",
+      model: config.claudeModel,
       max_tokens: items.length * 150,
       messages: [{ role: "user", content: prompt }],
     });
