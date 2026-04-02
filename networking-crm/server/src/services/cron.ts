@@ -2,6 +2,10 @@ import cron from "node-cron";
 import prisma from "../lib/prisma";
 import { generateFollowUps } from "./followup-engine";
 import { personalizeFollowUpText } from "./message-drafting";
+import {
+  generateDailyChallenge,
+  generateAlternativeChallenges,
+} from "./challenge-engine";
 
 export async function runDailyJob(): Promise<void> {
   console.log(`[cron] Running daily job at ${new Date().toISOString()}`);
@@ -49,7 +53,6 @@ export async function runDailyJob(): Promise<void> {
     for (const contact of activeContacts) {
       const drafts = await generateFollowUps(contact.id);
       for (const draft of drafts) {
-        // Try to personalize with AI (falls back to template on error)
         const personalizedAction = await personalizeFollowUpText(
           contact.full_name,
           draft.suggested_action,
@@ -88,6 +91,25 @@ export async function runDailyJob(): Promise<void> {
       console.log(
         `[cron] Bumped priority on ${staleFollowUps.length} stale follow-ups`
       );
+    }
+
+    // d. Daily challenge generation
+    const todayStart = new Date();
+    todayStart.setHours(0, 0, 0, 0);
+    const todayEnd = new Date(todayStart.getTime() + 86400000);
+
+    const existingChallenge = await prisma.challenge.count({
+      where: { date: { gte: todayStart, lt: todayEnd } },
+    });
+
+    if (existingChallenge === 0) {
+      try {
+        await generateDailyChallenge();
+        await generateAlternativeChallenges();
+        console.log("[cron] Generated daily challenge + alternatives");
+      } catch (err) {
+        console.error("[cron] Challenge generation failed:", err);
+      }
     }
 
     console.log(`[cron] Daily job completed`);
