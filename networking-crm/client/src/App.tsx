@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, Suspense, lazy } from "react";
 import {
   BrowserRouter,
   Routes,
@@ -8,14 +8,17 @@ import {
   useNavigate,
 } from "react-router-dom";
 import { AnimatePresence, motion } from "framer-motion";
-import Home from "./pages/Home";
-import People from "./pages/People";
-import ContactProfile from "./pages/ContactProfile";
-import FollowUps from "./pages/FollowUps";
-import Challenge from "./pages/Challenge";
-import Chat from "./pages/Chat";
-import Settings from "./pages/Settings";
 import { ToastProvider } from "./components/Toast";
+import { SkeletonList } from "./components/Skeleton";
+
+// Lazy-loaded pages
+const Home = lazy(() => import("./pages/Home"));
+const People = lazy(() => import("./pages/People"));
+const ContactProfile = lazy(() => import("./pages/ContactProfile"));
+const FollowUps = lazy(() => import("./pages/FollowUps"));
+const Challenge = lazy(() => import("./pages/Challenge"));
+const Chat = lazy(() => import("./pages/Chat"));
+const Settings = lazy(() => import("./pages/Settings"));
 
 type Tab = "home" | "people" | "challenge" | "chat" | "settings";
 
@@ -26,6 +29,14 @@ const tabs: { id: Tab; path: string; label: string; icon: string }[] = [
   { id: "chat", path: "/chat", label: "Chat", icon: "\u{1F4AC}" },
   { id: "settings", path: "/settings", label: "Settings", icon: "\u2699\uFE0F" },
 ];
+
+function PageFallback() {
+  return (
+    <div className="flex flex-1 flex-col gap-4 px-4 pt-6">
+      <SkeletonList count={4} />
+    </div>
+  );
+}
 
 function LoginScreen({ onLogin }: { onLogin: () => void }) {
   const [pin, setPin] = useState("");
@@ -61,7 +72,7 @@ function LoginScreen({ onLogin }: { onLogin: () => void }) {
 
   return (
     <motion.div
-      className="flex min-h-screen items-center justify-center px-6"
+      className="flex min-h-screen items-center justify-center px-6 safe-top"
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.3 }}
@@ -98,14 +109,15 @@ function BottomNav() {
   const location = useLocation();
   const navigate = useNavigate();
 
-  const activeTab = tabs.find((t) =>
-    t.path === "/"
-      ? location.pathname === "/"
-      : location.pathname.startsWith(t.path)
-  )?.id || "home";
+  const activeTab =
+    tabs.find((t) =>
+      t.path === "/"
+        ? location.pathname === "/"
+        : location.pathname.startsWith(t.path)
+    )?.id || "home";
 
   return (
-    <nav className="fixed bottom-0 left-1/2 z-40 flex h-[60px] w-full max-w-[430px] -translate-x-1/2 items-center justify-around border-t border-neutral-800 bg-bg/95 backdrop-blur-sm">
+    <nav className="fixed bottom-0 left-1/2 z-40 flex w-full max-w-[430px] -translate-x-1/2 items-center justify-around border-t border-neutral-800 bg-bg/95 backdrop-blur-sm tab-bar-safe">
       {tabs.map((t) => (
         <motion.button
           key={t.id}
@@ -123,6 +135,66 @@ function BottomNav() {
   );
 }
 
+function InstallBanner() {
+  const [deferredPrompt, setDeferredPrompt] = useState<Event | null>(null);
+  const [show, setShow] = useState(false);
+
+  useEffect(() => {
+    const dismissed = localStorage.getItem("install_dismissed");
+    if (dismissed) {
+      const ts = parseInt(dismissed, 10);
+      if (Date.now() - ts < 7 * 86400000) return; // 7 days
+    }
+
+    const handler = (e: Event) => {
+      e.preventDefault();
+      setDeferredPrompt(e);
+      setShow(true);
+    };
+    window.addEventListener("beforeinstallprompt", handler);
+    return () => window.removeEventListener("beforeinstallprompt", handler);
+  }, []);
+
+  if (!show) return null;
+
+  const handleInstall = async () => {
+    if (!deferredPrompt) return;
+    (deferredPrompt as unknown as { prompt: () => void }).prompt();
+    setShow(false);
+  };
+
+  const handleDismiss = () => {
+    localStorage.setItem("install_dismissed", String(Date.now()));
+    setShow(false);
+  };
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: -20 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0, y: -20 }}
+      className="mx-4 mb-3 flex items-center gap-3 rounded-2xl bg-accent/10 p-3 ring-1 ring-accent/20"
+    >
+      <div className="flex-1">
+        <p className="text-sm font-medium text-white">Установить приложение</p>
+        <p className="text-xs text-neutral-400">Быстрый доступ с домашнего экрана</p>
+      </div>
+      <button
+        onClick={handleInstall}
+        className="rounded-lg bg-accent px-3 py-1.5 text-xs font-medium text-white"
+      >
+        Установить
+      </button>
+      <button
+        onClick={handleDismiss}
+        className="text-xs text-neutral-500"
+      >
+        &times;
+      </button>
+    </motion.div>
+  );
+}
+
 function AnimatedRoutes() {
   const location = useLocation();
 
@@ -136,16 +208,18 @@ function AnimatedRoutes() {
         transition={{ duration: 0.2, ease: "easeOut" }}
         className="flex flex-1 flex-col"
       >
-        <Routes location={location}>
-          <Route path="/" element={<Home />} />
-          <Route path="/people" element={<People />} />
-          <Route path="/people/:id" element={<ContactProfile />} />
-          <Route path="/followups" element={<FollowUps />} />
-          <Route path="/challenges" element={<Challenge />} />
-          <Route path="/chat" element={<Chat />} />
-          <Route path="/settings" element={<Settings />} />
-          <Route path="*" element={<Navigate to="/" replace />} />
-        </Routes>
+        <Suspense fallback={<PageFallback />}>
+          <Routes location={location}>
+            <Route path="/" element={<Home />} />
+            <Route path="/people" element={<People />} />
+            <Route path="/people/:id" element={<ContactProfile />} />
+            <Route path="/followups" element={<FollowUps />} />
+            <Route path="/challenges" element={<Challenge />} />
+            <Route path="/chat" element={<Chat />} />
+            <Route path="/settings" element={<Settings />} />
+            <Route path="*" element={<Navigate to="/" replace />} />
+          </Routes>
+        </Suspense>
       </motion.div>
     </AnimatePresence>
   );
@@ -154,7 +228,8 @@ function AnimatedRoutes() {
 function AuthedLayout() {
   return (
     <div className="mx-auto flex h-full max-w-[430px] flex-col">
-      <main className="flex flex-1 flex-col overflow-y-auto pb-[76px]">
+      <main className="flex flex-1 flex-col overflow-y-auto content-pb">
+        <InstallBanner />
         <AnimatedRoutes />
       </main>
       <BottomNav />
