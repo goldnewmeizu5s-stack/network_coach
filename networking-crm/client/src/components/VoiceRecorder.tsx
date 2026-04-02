@@ -1,9 +1,11 @@
 import { useState, useRef, useCallback, useEffect } from "react";
 import { api } from "../lib/api";
 
-type State = "idle" | "recording" | "preview" | "uploading" | "done";
+type State = "idle" | "recording" | "preview" | "uploading" | "processing" | "done" | "error";
 
-const MAX_DURATION = 10 * 60; // 10 minutes in seconds
+const MAX_DURATION = 10 * 60;
+const POLL_INTERVAL = 2000;
+const POLL_MAX = 30;
 
 function formatTime(s: number): string {
   const m = Math.floor(s / 60);
@@ -22,6 +24,8 @@ export default function VoiceRecorder({ onClose, contactId }: Props) {
   const [audioUrl, setAudioUrl] = useState<string | null>(null);
   const [audioLevel, setAudioLevel] = useState(0);
   const [error, setError] = useState<string | null>(null);
+  const [doneMessage, setDoneMessage] = useState("");
+  const [resultContactId, setResultContactId] = useState<string | null>(null);
 
   const mediaRecorder = useRef<MediaRecorder | null>(null);
   const chunks = useRef<Blob[]>([]);
@@ -30,10 +34,12 @@ export default function VoiceRecorder({ onClose, contactId }: Props) {
   const analyserRef = useRef<AnalyserNode | null>(null);
   const animFrameRef = useRef<number | undefined>(undefined);
   const audioCtxRef = useRef<AudioContext | null>(null);
+  const pollRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
   const cleanup = useCallback(() => {
     if (timerRef.current) clearInterval(timerRef.current);
     if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current);
+    if (pollRef.current) clearTimeout(pollRef.current);
     if (streamRef.current) {
       streamRef.current.getTracks().forEach((t) => t.stop());
       streamRef.current = null;
@@ -70,7 +76,6 @@ export default function VoiceRecorder({ onClose, contactId }: Props) {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       streamRef.current = stream;
 
-      // Set up analyser
       const audioCtx = new AudioContext();
       audioCtxRef.current = audioCtx;
       const source = audioCtx.createMediaStreamSource(stream);
@@ -79,7 +84,6 @@ export default function VoiceRecorder({ onClose, contactId }: Props) {
       source.connect(analyser);
       analyserRef.current = analyser;
 
-      // Determine supported mime type
       const mimeType = MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
         ? "audio/webm;codecs=opus"
         : "audio/webm";
@@ -136,11 +140,53 @@ export default function VoiceRecorder({ onClose, contactId }: Props) {
     setState("idle");
   };
 
-  const uploadResultRef = useRef<{ id: string; contact_id?: string } | null>(null);
+  const pollStatus = useCallback(
+    (interactionId: string, attempt: number) => {
+      if (attempt >= POLL_MAX) {
+        setDoneMessage("Обработка занимает больше времени. Проверьте позже.");
+        setState("done");
+        return;
+      }
+
+      pollRef.current = setTimeout(async () => {
+        try {
+          const data = await api.get<{
+            status: string;
+            contact_id?: string | null;
+          }>(`/voice/${interactionId}/status`);
+
+          if (data.status === "completed") {
+            if (data.contact_id) {
+              setResultContactId(data.contact_id);
+              setDoneMessage("Контакт создан!");
+            } else {
+              setDoneMessage("Запись сохранена");
+            }
+            setState("done");
+            return;
+          }
+
+          if (data.status === "failed") {
+            setError("Не удалось обработать запись");
+            setState("error");
+            return;
+          }
+
+          // Still processing — poll again
+          pollStatus(interactionId, attempt + 1);
+        } catch {
+          setError("Ошибка проверки статуса");
+          setState("error");
+        }
+      }, POLL_INTERVAL);
+    },
+    []
+  );
 
   const upload = async () => {
     if (!chunks.current.length) return;
     setState("uploading");
+    setError(null);
     try {
       const mimeType = mediaRecorder.current?.mimeType || "audio/webm";
       const blob = new Blob(chunks.current, { type: mimeType });
@@ -148,16 +194,22 @@ export default function VoiceRecorder({ onClose, contactId }: Props) {
       fd.append("audio", blob, "voice.webm");
       fd.append("duration_seconds", String(seconds));
       if (contactId) fd.append("contact_id", contactId);
-      const result = await api.upload<{ id: string; contact_id?: string }>("/voice/upload", fd);
-      uploadResultRef.current = result;
-      setState("done");
+      const result = await api.upload<{ id: string }>("/voice/upload", fd);
+
+      // Switch to processing state + start polling
+      setState("processing");
+      pollStatus(result.id, 0);
     } catch {
       setError("Ошибка загрузки. Попробуйте ещё раз.");
       setState("preview");
     }
   };
 
-  // Pulsing circle scale based on audio level
+  const retry = () => {
+    setError(null);
+    setState("preview");
+  };
+
   const circleScale = 1 + audioLevel * 0.3;
 
   return (
@@ -166,10 +218,9 @@ export default function VoiceRecorder({ onClose, contactId }: Props) {
         className="animate-slide-up w-full max-w-[430px] rounded-t-3xl bg-card px-6 pb-8 pt-6"
         onClick={(e) => e.stopPropagation()}
       >
-        {/* Close handle */}
         <div className="mx-auto mb-6 h-1 w-10 rounded-full bg-neutral-600" />
 
-        {error && (
+        {error && state !== "error" && (
           <div className="mb-4 rounded-xl bg-red-900/40 px-4 py-3 text-sm text-red-300">
             {error}
           </div>
@@ -180,6 +231,7 @@ export default function VoiceRecorder({ onClose, contactId }: Props) {
           <div className="animate-fade-in flex flex-col items-center gap-6">
             <button
               onClick={startRecording}
+              aria-label="Начать запись"
               className="flex h-24 w-24 items-center justify-center rounded-full bg-rec text-white transition-transform active:scale-95"
             >
               <svg className="h-10 w-10" fill="currentColor" viewBox="0 0 24 24">
@@ -200,6 +252,7 @@ export default function VoiceRecorder({ onClose, contactId }: Props) {
               />
               <button
                 onClick={stopRecording}
+                aria-label="Остановить запись"
                 className="relative z-10 flex h-24 w-24 items-center justify-center rounded-full bg-rec text-white"
               >
                 <svg className="h-8 w-8" fill="currentColor" viewBox="0 0 24 24">
@@ -242,7 +295,43 @@ export default function VoiceRecorder({ onClose, contactId }: Props) {
         {state === "uploading" && (
           <div className="animate-fade-in flex flex-col items-center gap-4 py-4">
             <div className="h-10 w-10 animate-spin rounded-full border-4 border-accent border-t-transparent" />
-            <p className="text-neutral-400">Обработка...</p>
+            <p className="text-neutral-400">Загрузка...</p>
+          </div>
+        )}
+
+        {/* PROCESSING (server-side) */}
+        {state === "processing" && (
+          <div className="animate-fade-in flex flex-col items-center gap-4 py-4">
+            <div className="h-10 w-10 animate-spin rounded-full border-4 border-accent border-t-transparent" />
+            <p className="text-neutral-400">
+              Обрабатываю запись
+              <span className="inline-flex w-6">
+                <span className="animate-pulse">...</span>
+              </span>
+            </p>
+            <p className="text-xs text-neutral-500">
+              Транскрипция и анализ контакта
+            </p>
+          </div>
+        )}
+
+        {/* ERROR (failed processing) */}
+        {state === "error" && (
+          <div className="animate-fade-in flex flex-col items-center gap-5">
+            <div className="flex h-16 w-16 items-center justify-center rounded-full bg-red-600/20">
+              <svg className="h-8 w-8 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </div>
+            <p className="text-center text-sm text-red-300">
+              {error || "Не удалось обработать запись"}
+            </p>
+            <button
+              onClick={retry}
+              className="w-full rounded-xl bg-accent py-3 text-sm font-medium text-white transition-colors active:bg-accent-hover"
+            >
+              Попробовать снова
+            </button>
           </div>
         )}
 
@@ -254,15 +343,22 @@ export default function VoiceRecorder({ onClose, contactId }: Props) {
                 <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
               </svg>
             </div>
-            <p className="text-center text-white">
-              Запись обработана!<br />Контакт создан.
-            </p>
-            <button
-              onClick={() => onClose(uploadResultRef.current?.id)}
-              className="w-full rounded-xl bg-accent py-3 text-sm font-medium text-white transition-colors active:bg-accent-hover"
-            >
-              Посмотреть
-            </button>
+            <p className="text-center text-white">{doneMessage}</p>
+            {resultContactId ? (
+              <button
+                onClick={() => onClose(resultContactId)}
+                className="w-full rounded-xl bg-accent py-3 text-sm font-medium text-white transition-colors active:bg-accent-hover"
+              >
+                Посмотреть контакт
+              </button>
+            ) : (
+              <button
+                onClick={() => onClose()}
+                className="w-full rounded-xl bg-neutral-700 py-3 text-sm font-medium text-white transition-colors active:bg-neutral-600"
+              >
+                Закрыть
+              </button>
+            )}
           </div>
         )}
       </div>

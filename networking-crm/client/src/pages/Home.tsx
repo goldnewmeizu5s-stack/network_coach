@@ -110,25 +110,10 @@ export default function Home() {
   }, [fetchFollowUps, fetchInsight, fetchStats, fetchChallenge]);
 
   const handleRecorderClose = useCallback(
-    async (interactionId?: string) => {
+    (contactId?: string) => {
       setShowRecorder(false);
-      if (!interactionId) return;
-
-      for (let i = 0; i < 30; i++) {
-        await new Promise((r) => setTimeout(r, 2000));
-        try {
-          const data = await api.get<{
-            status: string;
-            contact_id?: string | null;
-          }>(`/voice/${interactionId}/status`);
-          if (data.contact_id) {
-            navigate(`/people/${data.contact_id}`);
-            return;
-          }
-          if (data.status === "completed" || data.status === "failed") return;
-        } catch {
-          return;
-        }
+      if (contactId) {
+        navigate(`/people/${contactId}`);
       }
     },
     [navigate]
