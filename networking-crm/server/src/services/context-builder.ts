@@ -1,11 +1,13 @@
 import prisma from "../lib/prisma";
 
+const MAX_CONTEXT_CHARS = 12000;
+
 export async function buildChatContext(): Promise<string> {
-  const sections: string[] = [];
+  const sections: Map<string, string> = new Map();
   const now = new Date();
   const weekAgo = new Date(now.getTime() - 7 * 86400000);
 
-  // a. User Profile
+  // a. User Profile (always kept)
   const user = await prisma.user.findFirst();
   if (user) {
     const lines = ["## USER PROFILE"];
@@ -13,10 +15,10 @@ export async function buildChatContext(): Promise<string> {
     if (user.fears) lines.push(`Fears: ${user.fears}`);
     if (user.strengths) lines.push(`Strengths: ${user.strengths}`);
     if (user.weaknesses) lines.push(`Weaknesses: ${user.weaknesses}`);
-    if (lines.length > 1) sections.push(lines.join("\n"));
+    if (lines.length > 1) sections.set("profile", lines.join("\n"));
   }
 
-  // b. Activity Summary (last 7 days)
+  // b. Activity Summary (last 7 days) — trimmable
   const [newContacts, fuDone, fuSkipped, recentInteractions] =
     await Promise.all([
       prisma.contact.count({ where: { created_at: { gte: weekAgo } } }),
@@ -27,23 +29,24 @@ export async function buildChatContext(): Promise<string> {
         where: { status: "skipped", created_at: { gte: weekAgo } },
       }),
       prisma.interaction.findMany({
-        where: { created_at: { gte: weekAgo } },
+        where: { created_at: { gte: weekAgo }, type: { not: "note" } },
         select: {
           type: true,
           contact: { select: { full_name: true } },
           created_at: true,
         },
         orderBy: { created_at: "desc" },
-        take: 15,
+        take: 10,
       }),
     ]);
 
   const interactionNames = recentInteractions
     .filter((i) => i.contact)
     .map((i) => `${i.contact!.full_name} (${i.type})`)
-    .slice(0, 10);
+    .slice(0, 8);
 
-  sections.push(
+  sections.set(
+    "activity",
     `## ACTIVITY (last 7 days)\n` +
       `New contacts: ${newContacts}\n` +
       `Follow-ups done: ${fuDone}\n` +
@@ -51,7 +54,7 @@ export async function buildChatContext(): Promise<string> {
       `Interactions: ${interactionNames.join(", ") || "none"}`
   );
 
-  // c. Urgent Follow-ups (top 5)
+  // c. Urgent Follow-ups (top 5) — always kept
   const urgentFu = await prisma.followUp.findMany({
     where: { status: "pending" },
     include: { contact: { select: { full_name: true } } },
@@ -64,10 +67,10 @@ export async function buildChatContext(): Promise<string> {
       const date = f.due_date.toLocaleDateString();
       return `- [P${f.priority}] ${f.contact.full_name}: ${f.suggested_action} (due: ${date})`;
     });
-    sections.push(`## URGENT FOLLOW-UPS\n${fuLines.join("\n")}`);
+    sections.set("followups", `## URGENT FOLLOW-UPS\n${fuLines.join("\n")}`);
   }
 
-  // d. Contact Overview
+  // d. Contact Overview — trimmable
   const [totalContacts, byStatus, coolingContacts, warmContacts] =
     await Promise.all([
       prisma.contact.count({ where: { warmth_status: { not: "archived" } } }),
@@ -119,10 +122,11 @@ export async function buildChatContext(): Promise<string> {
     }
   }
 
-  sections.push(overview);
+  sections.set("contacts", overview);
 
-  // e. Recent Interactions (last 10)
+  // e. Recent Interactions (last 10) — first to trim
   const recentInter = await prisma.interaction.findMany({
+    where: { type: { not: "note" } },
     orderBy: { created_at: "desc" },
     take: 10,
     select: {
@@ -141,10 +145,10 @@ export async function buildChatContext(): Promise<string> {
       const text = (i.ai_summary || i.content || "").slice(0, 80);
       return `- [${date}] ${i.type} with ${name}: ${text}`;
     });
-    sections.push(`## RECENT INTERACTIONS\n${lines.join("\n")}`);
+    sections.set("interactions", `## RECENT INTERACTIONS\n${lines.join("\n")}`);
   }
 
-  // f. Progress metrics
+  // f. Progress metrics — always kept
   const [fuDone7, fuDone30] = await Promise.all([
     prisma.followUp.count({
       where: { status: "done", completed_at: { gte: weekAgo } },
@@ -152,18 +156,36 @@ export async function buildChatContext(): Promise<string> {
     prisma.followUp.count({
       where: {
         status: "done",
-        completed_at: {
-          gte: new Date(now.getTime() - 30 * 86400000),
-        },
+        completed_at: { gte: new Date(now.getTime() - 30 * 86400000) },
       },
     }),
   ]);
 
-  sections.push(
+  sections.set(
+    "progress",
     `## PROGRESS\nFollow-ups done (7d): ${fuDone7}\nFollow-ups done (30d): ${fuDone30}`
   );
 
-  return sections.join("\n\n");
+  // Assemble with size control
+  const order = ["profile", "followups", "contacts", "activity", "interactions", "progress"];
+  const trimOrder = ["interactions", "activity", "contacts"]; // first trimmed first
+
+  let result = order
+    .filter((k) => sections.has(k))
+    .map((k) => sections.get(k)!)
+    .join("\n\n");
+
+  // Trim if too large
+  for (const key of trimOrder) {
+    if (result.length <= MAX_CONTEXT_CHARS) break;
+    sections.delete(key);
+    result = order
+      .filter((k) => sections.has(k))
+      .map((k) => sections.get(k)!)
+      .join("\n\n");
+  }
+
+  return result;
 }
 
 export async function buildContactContext(
@@ -173,8 +195,9 @@ export async function buildContactContext(
     where: { id: contactId },
     include: {
       interactions: {
+        where: { type: { not: "note" } },
         orderBy: { created_at: "desc" },
-        take: 30,
+        take: 10,
         select: {
           type: true,
           content: true,
@@ -185,7 +208,7 @@ export async function buildContactContext(
       },
       follow_ups: {
         orderBy: { created_at: "desc" },
-        take: 20,
+        take: 5,
         select: {
           suggested_action: true,
           status: true,
@@ -228,18 +251,18 @@ export async function buildContactContext(
     .filter(Boolean)
     .join("\n");
 
-  // Interactions
+  // Interactions (max 10, text capped at 150 chars each)
   let interactionsText = "";
   if (contact.interactions.length > 0) {
     const items = contact.interactions.map((i) => {
       const date = i.created_at.toLocaleDateString();
-      const text = i.transcript || i.ai_summary || i.content || "(empty)";
-      return `[${date}] ${i.type}: ${text.slice(0, 200)}`;
+      const text = (i.transcript || i.ai_summary || i.content || "(empty)").slice(0, 150);
+      return `[${date}] ${i.type}: ${text}`;
     });
-    interactionsText = `\n\nAll interactions:\n${items.join("\n")}`;
+    interactionsText = `\n\nInteractions:\n${items.join("\n")}`;
   }
 
-  // Follow-ups
+  // Follow-ups (max 5)
   let fuText = "";
   if (contact.follow_ups.length > 0) {
     const items = contact.follow_ups.map((f) => {

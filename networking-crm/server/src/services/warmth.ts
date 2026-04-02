@@ -9,6 +9,9 @@ const VALID_TRANSITIONS: Record<string, string[]> = {
   archived: ["new"],
 };
 
+// Only these types count toward warmth scoring
+const SCORING_TYPES = ["voice_note", "follow_up", "meeting", "message"];
+
 export function getAllowedTransitions(currentStatus: string): string[] {
   return VALID_TRANSITIONS[currentStatus] || [];
 }
@@ -19,7 +22,7 @@ export function isValidTransition(from: string, to: string): boolean {
 
 export async function calculateWarmthScore(contactId: string): Promise<number> {
   const interactions = await prisma.interaction.findMany({
-    where: { contact_id: contactId },
+    where: { contact_id: contactId, type: { in: SCORING_TYPES } },
     select: {
       type: true,
       created_at: true,
@@ -72,9 +75,9 @@ export async function recalcAndAutoStatus(contactId: string): Promise<void> {
 
   let newStatus = contact.warmth_status;
 
-  // Auto-transitions
+  // Count only meaningful interactions for auto-transitions
   const interactionCount = await prisma.interaction.count({
-    where: { contact_id: contactId },
+    where: { contact_id: contactId, type: { in: SCORING_TYPES } },
   });
 
   if (contact.warmth_status === "new" && interactionCount >= 2) {
@@ -88,12 +91,11 @@ export async function recalcAndAutoStatus(contactId: string): Promise<void> {
   const data: Record<string, unknown> = { warmth_score: score };
   if (newStatus !== contact.warmth_status) {
     data.warmth_status = newStatus;
-    // Log status change
     await prisma.interaction.create({
       data: {
         contact_id: contactId,
         type: "note",
-        content: `Status changed from ${contact.warmth_status} to ${newStatus}`,
+        content: `[auto] Status changed from ${contact.warmth_status} to ${newStatus}`,
       },
     });
   }
