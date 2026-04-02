@@ -128,6 +128,32 @@ router.put("/:id", async (req, res, next) => {
   }
 });
 
+// POST /api/followups — create manual follow-up
+router.post("/", async (req, res, next) => {
+  try {
+    const { contact_id, suggested_action, due_date, priority } = req.body;
+    if (!contact_id || !suggested_action || !due_date) {
+      res
+        .status(400)
+        .json({ error: "contact_id, suggested_action, and due_date are required" });
+      return;
+    }
+
+    const followUp = await prisma.followUp.create({
+      data: {
+        contact_id,
+        suggested_action,
+        due_date: new Date(due_date),
+        priority: priority || 5,
+      },
+    });
+
+    res.status(201).json(followUp);
+  } catch (err) {
+    next(err);
+  }
+});
+
 // POST /api/followups/generate
 router.post("/generate", async (req, res, next) => {
   try {

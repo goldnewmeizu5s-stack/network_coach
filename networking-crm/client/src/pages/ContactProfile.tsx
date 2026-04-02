@@ -7,7 +7,10 @@ import {
   timeAgo,
   WARMTH_LABELS,
 } from "../lib/warmth";
+import { FollowUpItem } from "../lib/followups";
 import VoiceRecorder from "../components/VoiceRecorder";
+import FollowUpCard from "../components/FollowUpCard";
+import { useToast } from "../components/Toast";
 
 interface Interaction {
   id: string;
@@ -16,14 +19,6 @@ interface Interaction {
   transcript: string | null;
   ai_summary: string | null;
   created_at: string;
-}
-
-interface FollowUp {
-  id: string;
-  suggested_action: string;
-  due_date: string;
-  status: string;
-  priority: number;
 }
 
 interface Contact {
@@ -50,7 +45,6 @@ interface Contact {
   last_interaction_at: string | null;
   created_at: string;
   interactions: Interaction[];
-  follow_ups: FollowUp[];
 }
 
 const VALID_TRANSITIONS: Record<string, string[]> = {
@@ -73,7 +67,9 @@ const TYPE_LABELS: Record<string, string> = {
 export default function ContactProfile() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const { show } = useToast();
   const [contact, setContact] = useState<Contact | null>(null);
+  const [followUps, setFollowUps] = useState<FollowUpItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [showRecorder, setShowRecorder] = useState(false);
   const [showStatusSheet, setShowStatusSheet] = useState(false);
@@ -83,6 +79,9 @@ export default function ContactProfile() {
   const [notesSaving, setNotesSaving] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [showHardDelete, setShowHardDelete] = useState(false);
+  const [showCreateFu, setShowCreateFu] = useState(false);
+  const [fuText, setFuText] = useState("");
+  const [fuDate, setFuDate] = useState("");
 
   const fetchContact = useCallback(async () => {
     if (!id) return;
@@ -98,9 +97,22 @@ export default function ContactProfile() {
     }
   }, [id]);
 
+  const fetchFollowUps = useCallback(async () => {
+    if (!id) return;
+    try {
+      const data = await api.get<FollowUpItem[]>(
+        `/followups?contact_id=${id}`
+      );
+      setFollowUps(data);
+    } catch {
+      // ignore
+    }
+  }, [id]);
+
   useEffect(() => {
     fetchContact();
-  }, [fetchContact]);
+    fetchFollowUps();
+  }, [fetchContact, fetchFollowUps]);
 
   const updateStatus = async (status: string) => {
     if (!id) return;
@@ -138,6 +150,7 @@ export default function ContactProfile() {
       setNoteText("");
       setShowNoteInput(false);
       await fetchContact();
+      show("Заметка добавлена");
     } catch {
       // ignore
     }
@@ -151,6 +164,25 @@ export default function ContactProfile() {
         content: `Встреча ${new Date().toLocaleDateString("ru")}`,
       });
       await fetchContact();
+      show("Встреча отмечена");
+    } catch {
+      // ignore
+    }
+  };
+
+  const createFollowUp = async () => {
+    if (!id || !fuText.trim() || !fuDate) return;
+    try {
+      await api.post("/followups", {
+        contact_id: id,
+        suggested_action: fuText.trim(),
+        due_date: fuDate,
+      });
+      setShowCreateFu(false);
+      setFuText("");
+      setFuDate("");
+      await fetchFollowUps();
+      show("Follow-up создан");
     } catch {
       // ignore
     }
@@ -168,6 +200,12 @@ export default function ContactProfile() {
     await api.del(`/contacts/${id}?hard=true`);
     setShowHardDelete(false);
     navigate("/people");
+  };
+
+  const handleFollowUpRemoved = (fuId: string) => {
+    setFollowUps((prev) => prev.filter((f) => f.id !== fuId));
+    // Refresh contact to get updated warmth
+    fetchContact();
   };
 
   if (loading) {
@@ -225,7 +263,6 @@ export default function ContactProfile() {
               </p>
             )}
           </div>
-          {/* Status badge + warmth score bar */}
           <div className="flex w-full max-w-xs flex-col items-center gap-2">
             <span
               className="rounded-full px-3 py-1 text-xs font-medium text-white"
@@ -262,6 +299,38 @@ export default function ContactProfile() {
           </div>
         )}
 
+        {/* Follow-ups */}
+        <Section title="Следующие шаги">
+          {followUps.length > 0 ? (
+            <div className="flex flex-col gap-2">
+              {followUps.map((fu) => (
+                <FollowUpCard
+                  key={fu.id}
+                  item={fu}
+                  onRemoved={handleFollowUpRemoved}
+                />
+              ))}
+            </div>
+          ) : (
+            <p className="text-sm text-neutral-500">
+              Нет активных follow-ups
+            </p>
+          )}
+          <button
+            onClick={() => {
+              setFuDate(
+                new Date(Date.now() + 2 * 86400000)
+                  .toISOString()
+                  .split("T")[0]
+              );
+              setShowCreateFu(true);
+            }}
+            className="mt-3 w-full rounded-xl bg-neutral-800 py-2.5 text-sm text-neutral-300 active:bg-neutral-700"
+          >
+            + Создать follow-up
+          </button>
+        </Section>
+
         {/* Details */}
         <Section title="Детали">
           {contact.where_met && <Detail label="Где познакомились" value={contact.where_met} />}
@@ -289,14 +358,12 @@ export default function ContactProfile() {
           )}
         </Section>
 
-        {/* What impressed me */}
         {contact.what_impressed_me && (
           <Section title="Что зацепило">
             <p className="text-sm text-neutral-300">{contact.what_impressed_me}</p>
           </Section>
         )}
 
-        {/* Potential */}
         {contact.potential_synergies && (
           <Section title="Потенциал">
             <p className="text-sm text-neutral-300">{contact.potential_synergies}</p>
@@ -322,28 +389,6 @@ export default function ContactProfile() {
             <p className="mt-1 text-xs text-neutral-500">Сохранение...</p>
           )}
         </Section>
-
-        {/* Follow-ups */}
-        {contact.follow_ups.length > 0 && (
-          <Section title="Следующие шаги">
-            <div className="flex flex-col gap-2">
-              {contact.follow_ups.map((fu) => (
-                <div
-                  key={fu.id}
-                  className="flex items-start gap-2 rounded-xl bg-neutral-800 p-3"
-                >
-                  <div className="mt-0.5 h-2 w-2 shrink-0 rounded-full bg-accent" />
-                  <div className="min-w-0 flex-1">
-                    <p className="text-sm text-neutral-200">{fu.suggested_action}</p>
-                    <p className="text-xs text-neutral-500">
-                      {new Date(fu.due_date).toLocaleDateString("ru")}
-                    </p>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </Section>
-        )}
 
         {/* Interactions */}
         {contact.interactions.length > 0 && (
@@ -476,6 +521,40 @@ export default function ContactProfile() {
               className="w-full rounded-xl bg-accent py-3 text-sm font-medium text-white active:bg-accent-hover disabled:opacity-50"
             >
               Сохранить
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Create follow-up bottom sheet */}
+      {showCreateFu && (
+        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/60" onClick={() => setShowCreateFu(false)}>
+          <div
+            className="animate-slide-up w-full max-w-[430px] rounded-t-3xl bg-card px-6 pb-8 pt-6"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="mx-auto mb-4 h-1 w-10 rounded-full bg-neutral-600" />
+            <h3 className="mb-4 text-lg font-semibold text-white">Новый follow-up</h3>
+            <textarea
+              value={fuText}
+              onChange={(e) => setFuText(e.target.value)}
+              placeholder="Что нужно сделать?"
+              rows={3}
+              autoFocus
+              className="mb-3 w-full resize-none rounded-xl bg-neutral-800 px-4 py-3 text-sm text-white placeholder-neutral-500 outline-none ring-1 ring-neutral-700 focus:ring-accent"
+            />
+            <input
+              type="date"
+              value={fuDate}
+              onChange={(e) => setFuDate(e.target.value)}
+              className="mb-3 w-full rounded-xl bg-neutral-800 px-4 py-3 text-sm text-white outline-none ring-1 ring-neutral-700 focus:ring-accent"
+            />
+            <button
+              onClick={createFollowUp}
+              disabled={!fuText.trim() || !fuDate}
+              className="w-full rounded-xl bg-accent py-3 text-sm font-medium text-white active:bg-accent-hover disabled:opacity-50"
+            >
+              Создать
             </button>
           </div>
         </div>

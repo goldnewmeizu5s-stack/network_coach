@@ -10,9 +10,11 @@ import {
 import Home from "./pages/Home";
 import People from "./pages/People";
 import ContactProfile from "./pages/ContactProfile";
+import FollowUps from "./pages/FollowUps";
 import Challenge from "./pages/Challenge";
 import Chat from "./pages/Chat";
 import Settings from "./pages/Settings";
+import { ToastProvider } from "./components/Toast";
 
 type Tab = "home" | "people" | "challenge" | "chat" | "settings";
 
@@ -122,6 +124,7 @@ function AuthedLayout() {
           <Route path="/" element={<Home />} />
           <Route path="/people" element={<People />} />
           <Route path="/people/:id" element={<ContactProfile />} />
+          <Route path="/followups" element={<FollowUps />} />
           <Route path="/challenges" element={<Challenge />} />
           <Route path="/chat" element={<Chat />} />
           <Route path="/settings" element={<Settings />} />
@@ -148,7 +151,9 @@ function App() {
 
   return (
     <BrowserRouter>
-      <AuthedLayout />
+      <ToastProvider>
+        <AuthedLayout />
+      </ToastProvider>
     </BrowserRouter>
   );
 }

@@ -1,18 +1,37 @@
-import { useState, useCallback } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import VoiceRecorder from "../components/VoiceRecorder";
+import FollowUpCard from "../components/FollowUpCard";
 import { api } from "../lib/api";
+import { FollowUpItem } from "../lib/followups";
 
 export default function Home() {
   const navigate = useNavigate();
   const [showRecorder, setShowRecorder] = useState(false);
+  const [followUps, setFollowUps] = useState<FollowUpItem[]>([]);
+  const [loadingFu, setLoadingFu] = useState(true);
+
+  const fetchFollowUps = useCallback(async () => {
+    setLoadingFu(true);
+    try {
+      const data = await api.get<FollowUpItem[]>("/followups?limit=3");
+      setFollowUps(data);
+    } catch {
+      // ignore
+    } finally {
+      setLoadingFu(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchFollowUps();
+  }, [fetchFollowUps]);
 
   const handleRecorderClose = useCallback(
     async (interactionId?: string) => {
       setShowRecorder(false);
       if (!interactionId) return;
 
-      // Poll for contact_id
       for (let i = 0; i < 30; i++) {
         await new Promise((r) => setTimeout(r, 2000));
         try {
@@ -32,6 +51,10 @@ export default function Home() {
     },
     [navigate]
   );
+
+  const handleFollowUpRemoved = (id: string) => {
+    setFollowUps((prev) => prev.filter((f) => f.id !== id));
+  };
 
   return (
     <div className="flex flex-1 flex-col gap-5 px-4 pt-6">
@@ -66,12 +89,45 @@ export default function Home() {
         <p className="text-neutral-400">Скоро здесь появится ежедневный вызов</p>
       </section>
 
-      {/* Urgent follow-ups placeholder */}
-      <section className="rounded-2xl bg-card p-4">
-        <h2 className="mb-2 text-sm font-semibold uppercase tracking-wide text-neutral-500">
-          Срочные follow-ups
-        </h2>
-        <p className="text-neutral-400">Нет срочных напоминаний</p>
+      {/* Urgent follow-ups */}
+      <section>
+        <div className="mb-3 flex items-center justify-between">
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-neutral-500">
+            Срочные follow-ups
+          </h2>
+          {followUps.length > 0 && (
+            <button
+              onClick={() => navigate("/followups")}
+              className="text-xs text-accent active:text-accent-hover"
+            >
+              Все follow-ups &rarr;
+            </button>
+          )}
+        </div>
+
+        {loadingFu ? (
+          <div className="flex justify-center py-6">
+            <div className="h-6 w-6 animate-spin rounded-full border-2 border-accent border-t-transparent" />
+          </div>
+        ) : followUps.length === 0 ? (
+          <div className="rounded-2xl bg-card p-4 text-center">
+            <span className="text-2xl">{"\u{1F389}"}</span>
+            <p className="mt-1 text-sm text-neutral-400">
+              Всё чисто! Нет активных задач
+            </p>
+          </div>
+        ) : (
+          <div className="flex flex-col gap-2">
+            {followUps.map((fu) => (
+              <FollowUpCard
+                key={fu.id}
+                item={fu}
+                onRemoved={handleFollowUpRemoved}
+                compact
+              />
+            ))}
+          </div>
+        )}
       </section>
 
       {/* Stats placeholder */}
