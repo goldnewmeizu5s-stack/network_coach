@@ -76,13 +76,32 @@ export default function FollowUpCard({ item, onRemoved, compact }: Props) {
     }
   };
 
+  const lastCopied = { current: "" };
+
   const copyText = async (text: string) => {
     try {
       await navigator.clipboard.writeText(text);
+      lastCopied.current = text;
       show("Скопировано!");
     } catch {
       show("Не удалось скопировать");
     }
+  };
+
+  const handleDoneAfterDraft = async () => {
+    // Log the copied message as an interaction
+    if (lastCopied.current) {
+      try {
+        await api.post(`/contacts/${item.contact_id}/interaction`, {
+          type: "message",
+          content: lastCopied.current,
+        });
+      } catch {
+        // ignore
+      }
+    }
+    setShowDraft(false);
+    handleDone();
   };
 
   return (
@@ -212,10 +231,7 @@ export default function FollowUpCard({ item, onRemoved, compact }: Props) {
               ))}
             </div>
             <button
-              onClick={() => {
-                setShowDraft(false);
-                handleDone();
-              }}
+              onClick={handleDoneAfterDraft}
               className="mt-4 w-full rounded-xl bg-accent py-3 text-sm font-medium text-white active:bg-accent-hover"
             >
               Отметить follow-up как выполненный

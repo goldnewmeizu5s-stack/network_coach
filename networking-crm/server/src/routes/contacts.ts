@@ -5,6 +5,7 @@ import {
   getAllowedTransitions,
   recalcAndAutoStatus,
 } from "../services/warmth";
+import { suggestActions } from "../services/message-drafting";
 
 const router = Router();
 
@@ -228,6 +229,24 @@ router.put("/:id/status", async (req, res, next) => {
     });
 
     res.json(contact);
+  } catch (err) {
+    next(err);
+  }
+});
+
+// POST /api/contacts/:id/suggest-actions
+router.post("/:id/suggest-actions", async (req, res, next) => {
+  try {
+    const contact = await prisma.contact.findUnique({
+      where: { id: req.params.id },
+      select: { id: true },
+    });
+    if (!contact) {
+      res.status(404).json({ error: "Contact not found" });
+      return;
+    }
+    const suggestions = await suggestActions(req.params.id);
+    res.json({ suggestions });
   } catch (err) {
     next(err);
   }

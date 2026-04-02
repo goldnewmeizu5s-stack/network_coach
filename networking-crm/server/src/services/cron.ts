@@ -1,6 +1,7 @@
 import cron from "node-cron";
 import prisma from "../lib/prisma";
 import { generateFollowUps } from "./followup-engine";
+import { personalizeFollowUpText } from "./message-drafting";
 
 export async function runDailyJob(): Promise<void> {
   console.log(`[cron] Running daily job at ${new Date().toISOString()}`);
@@ -33,17 +34,31 @@ export async function runDailyJob(): Promise<void> {
       console.log(`[cron] ${contact.full_name}: warm → cooling (decay)`);
     }
 
-    // b. Follow-up generation
+    // b. Follow-up generation with AI personalization
     const activeContacts = await prisma.contact.findMany({
       where: { warmth_status: { not: "archived" } },
-      select: { id: true },
+      select: {
+        id: true,
+        full_name: true,
+        key_interests: true,
+        where_met: true,
+      },
     });
 
     let generated = 0;
     for (const contact of activeContacts) {
       const drafts = await generateFollowUps(contact.id);
       for (const draft of drafts) {
-        await prisma.followUp.create({ data: draft });
+        // Try to personalize with AI (falls back to template on error)
+        const personalizedAction = await personalizeFollowUpText(
+          contact.full_name,
+          draft.suggested_action,
+          contact.key_interests,
+          contact.where_met
+        );
+        await prisma.followUp.create({
+          data: { ...draft, suggested_action: personalizedAction },
+        });
         generated++;
       }
     }

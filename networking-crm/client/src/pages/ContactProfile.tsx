@@ -12,6 +12,13 @@ import VoiceRecorder from "../components/VoiceRecorder";
 import FollowUpCard from "../components/FollowUpCard";
 import { useToast } from "../components/Toast";
 
+interface AISuggestion {
+  action: string;
+  reasoning: string;
+  urgency: "low" | "medium" | "high";
+  timeframe: string;
+}
+
 interface Interaction {
   id: string;
   type: string;
@@ -82,6 +89,9 @@ export default function ContactProfile() {
   const [showCreateFu, setShowCreateFu] = useState(false);
   const [fuText, setFuText] = useState("");
   const [fuDate, setFuDate] = useState("");
+  const [suggestions, setSuggestions] = useState<AISuggestion[]>([]);
+  const [suggestionsLoading, setSuggestionsLoading] = useState(false);
+  const [expandedSuggestion, setExpandedSuggestion] = useState<number | null>(null);
 
   const fetchContact = useCallback(async () => {
     if (!id) return;
@@ -183,6 +193,37 @@ export default function ContactProfile() {
       setFuDate("");
       await fetchFollowUps();
       show("Follow-up создан");
+    } catch {
+      // ignore
+    }
+  };
+
+  const fetchSuggestions = async () => {
+    if (!id) return;
+    setSuggestionsLoading(true);
+    try {
+      const data = await api.post<{ suggestions: AISuggestion[] }>(
+        `/contacts/${id}/suggest-actions`
+      );
+      setSuggestions(data.suggestions);
+    } catch {
+      // ignore
+    } finally {
+      setSuggestionsLoading(false);
+    }
+  };
+
+  const createFuFromSuggestion = async (action: string) => {
+    if (!id) return;
+    const dueDate = new Date(Date.now() + 3 * 86400000).toISOString().split("T")[0];
+    try {
+      await api.post("/followups", {
+        contact_id: id,
+        suggested_action: action,
+        due_date: dueDate,
+      });
+      await fetchFollowUps();
+      show("Follow-up создан из рекомендации");
     } catch {
       // ignore
     }
@@ -329,6 +370,66 @@ export default function ContactProfile() {
           >
             + Создать follow-up
           </button>
+        </Section>
+
+        {/* AI Suggestions */}
+        <Section title="AI рекомендации">
+          {suggestions.length > 0 ? (
+            <div className="flex flex-col gap-2">
+              {suggestions.map((s, i) => {
+                const urgencyIcon =
+                  s.urgency === "high"
+                    ? "\u{1F534}"
+                    : s.urgency === "medium"
+                      ? "\u{1F7E1}"
+                      : "\u{1F7E2}";
+                return (
+                  <div key={i} className="rounded-xl bg-neutral-800 p-3">
+                    <div
+                      className="flex items-start gap-2 cursor-pointer"
+                      onClick={() =>
+                        setExpandedSuggestion(expandedSuggestion === i ? null : i)
+                      }
+                    >
+                      <span className="mt-0.5 text-sm">{urgencyIcon}</span>
+                      <div className="min-w-0 flex-1">
+                        <p className="text-sm text-neutral-200">{s.action}</p>
+                        <p className="text-xs text-neutral-500">{s.timeframe}</p>
+                      </div>
+                    </div>
+                    {expandedSuggestion === i && (
+                      <div className="mt-2 animate-fade-in">
+                        <p className="mb-2 text-xs italic text-neutral-400">
+                          {s.reasoning}
+                        </p>
+                        <button
+                          onClick={() => createFuFromSuggestion(s.action)}
+                          className="text-xs font-medium text-accent active:text-accent-hover"
+                        >
+                          Создать follow-up из этого
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          ) : (
+            <button
+              onClick={fetchSuggestions}
+              disabled={suggestionsLoading}
+              className="w-full rounded-xl bg-neutral-800 py-3 text-sm text-accent active:bg-neutral-700 disabled:opacity-50"
+            >
+              {suggestionsLoading ? (
+                <span className="flex items-center justify-center gap-2">
+                  <span className="h-4 w-4 animate-spin rounded-full border-2 border-accent border-t-transparent" />
+                  Анализирую...
+                </span>
+              ) : (
+                "Что делать дальше?"
+              )}
+            </button>
+          )}
         </Section>
 
         {/* Details */}

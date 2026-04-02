@@ -5,11 +5,29 @@ import FollowUpCard from "../components/FollowUpCard";
 import { api } from "../lib/api";
 import { FollowUpItem } from "../lib/followups";
 
+const INSIGHT_KEY = "daily_insight_cache";
+
+function getCachedInsight(): { text: string; date: string } | null {
+  try {
+    const raw = sessionStorage.getItem(INSIGHT_KEY);
+    if (!raw) return null;
+    const data = JSON.parse(raw);
+    if (data.date === new Date().toDateString()) return data;
+  } catch {
+    // ignore
+  }
+  return null;
+}
+
 export default function Home() {
   const navigate = useNavigate();
   const [showRecorder, setShowRecorder] = useState(false);
   const [followUps, setFollowUps] = useState<FollowUpItem[]>([]);
   const [loadingFu, setLoadingFu] = useState(true);
+  const [insight, setInsight] = useState<string | null>(
+    () => getCachedInsight()?.text ?? null
+  );
+  const [insightLoading, setInsightLoading] = useState(false);
 
   const fetchFollowUps = useCallback(async () => {
     setLoadingFu(true);
@@ -23,9 +41,31 @@ export default function Home() {
     }
   }, []);
 
+  const fetchInsight = useCallback(async () => {
+    const cached = getCachedInsight();
+    if (cached) {
+      setInsight(cached.text);
+      return;
+    }
+    setInsightLoading(true);
+    try {
+      const data = await api.post<{ insight: string }>("/insights/daily");
+      setInsight(data.insight);
+      sessionStorage.setItem(
+        INSIGHT_KEY,
+        JSON.stringify({ text: data.insight, date: new Date().toDateString() })
+      );
+    } catch {
+      // ignore
+    } finally {
+      setInsightLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
     fetchFollowUps();
-  }, [fetchFollowUps]);
+    fetchInsight();
+  }, [fetchFollowUps, fetchInsight]);
 
   const handleRecorderClose = useCallback(
     async (interactionId?: string) => {
@@ -79,6 +119,23 @@ export default function Home() {
             <p className="text-sm text-neutral-400">Расскажите о новом контакте</p>
           </div>
         </button>
+      </section>
+
+      {/* AI Insight */}
+      <section className="rounded-2xl border border-accent/20 bg-accent/5 p-4">
+        <h2 className="mb-2 text-sm font-semibold uppercase tracking-wide text-accent">
+          AI-инсайт дня
+        </h2>
+        {insightLoading ? (
+          <div className="flex items-center gap-2">
+            <div className="h-4 w-4 animate-spin rounded-full border-2 border-accent border-t-transparent" />
+            <span className="text-sm text-neutral-400">Анализирую...</span>
+          </div>
+        ) : insight ? (
+          <p className="text-sm leading-relaxed text-neutral-200">{insight}</p>
+        ) : (
+          <p className="text-neutral-400">Запишите первое голосовое — и AI начнёт давать советы</p>
+        )}
       </section>
 
       {/* Today's challenge placeholder */}
