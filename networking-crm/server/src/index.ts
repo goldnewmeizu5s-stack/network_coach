@@ -12,6 +12,7 @@ import followupsRoutes from "./routes/followups";
 import userRoutes from "./routes/user";
 import methodologiesRoutes from "./routes/methodologies";
 import insightsRoutes from "./routes/insights";
+import statsRoutes from "./routes/stats";
 import { startCron, runDailyJob } from "./services/cron";
 
 const app = express();
@@ -45,6 +46,7 @@ app.use("/api/followups", authMiddleware, followupsRoutes);
 app.use("/api/user", authMiddleware, userRoutes);
 app.use("/api/methodologies", authMiddleware, methodologiesRoutes);
 app.use("/api/insights", authMiddleware, insightsRoutes);
+app.use("/api/stats", authMiddleware, statsRoutes);
 
 // Manual cron trigger (dev-mode)
 app.post("/api/cron/run-now", authMiddleware, async (_req, res, next) => {

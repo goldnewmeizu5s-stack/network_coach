@@ -12,56 +12,114 @@ const router = Router();
 // GET /api/contacts
 router.get("/", async (req, res, next) => {
   try {
-    const { status, search, sort } = req.query;
+    const {
+      status,
+      search,
+      sort = "last_interaction",
+      order = "desc",
+      category,
+      city,
+      dormant,
+      limit: limitStr,
+      offset: offsetStr,
+    } = req.query as Record<string, string | undefined>;
 
     const where: Record<string, unknown> = {};
 
-    if (typeof status === "string" && status) {
-      const statuses = status.split(",").map((s) => s.trim());
-      where.warmth_status = { in: statuses };
+    if (status) {
+      where.warmth_status = { in: status.split(",").map((s) => s.trim()) };
     }
 
-    if (typeof search === "string" && search) {
+    if (category) {
+      where.relationship_category = {
+        in: category.split(",").map((s) => s.trim()),
+      };
+    }
+
+    if (city) {
+      where.city = { contains: city, mode: "insensitive" };
+    }
+
+    if (dormant === "true") {
+      const thirtyDaysAgo = new Date();
+      thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+      where.warmth_status = { not: "archived" };
       where.OR = [
+        { last_interaction_at: { lt: thirtyDaysAgo } },
+        { last_interaction_at: null },
+      ];
+    }
+
+    if (search) {
+      const searchFilter = [
         { full_name: { contains: search, mode: "insensitive" } },
         { nickname: { contains: search, mode: "insensitive" } },
         { occupation: { contains: search, mode: "insensitive" } },
         { company: { contains: search, mode: "insensitive" } },
+        { memory_summary: { contains: search, mode: "insensitive" } },
+        { what_impressed_me: { contains: search, mode: "insensitive" } },
       ];
+      // Merge with existing OR (dormant filter)
+      if (where.OR) {
+        where.AND = [{ OR: where.OR as unknown[] }, { OR: searchFilter }];
+        delete where.OR;
+      } else {
+        where.OR = searchFilter;
+      }
     }
 
     // Sorting
+    const dir = order === "asc" ? "asc" : "desc";
     let orderBy: Record<string, unknown>;
     switch (sort) {
-      case "met_date":
-        orderBy = { created_at: "desc" };
+      case "created_at":
+        orderBy = { created_at: dir };
         break;
       case "warmth_score":
-        orderBy = { warmth_score: "desc" };
+        orderBy = { warmth_score: dir };
+        break;
+      case "name":
+        orderBy = { full_name: dir };
         break;
       default:
-        orderBy = { last_interaction_at: { sort: "desc", nulls: "last" } };
+        orderBy =
+          dir === "asc"
+            ? { last_interaction_at: { sort: "asc", nulls: "first" } }
+            : { last_interaction_at: { sort: "desc", nulls: "last" } };
     }
 
-    const contacts = await prisma.contact.findMany({
-      where,
-      select: {
-        id: true,
-        full_name: true,
-        nickname: true,
-        photo_url: true,
-        occupation: true,
-        company: true,
-        warmth_status: true,
-        warmth_score: true,
-        memory_summary: true,
-        last_interaction_at: true,
-        created_at: true,
-      },
-      orderBy,
-    });
+    const limit = Math.min(parseInt(limitStr || "20", 10) || 20, 100);
+    const offset = parseInt(offsetStr || "0", 10) || 0;
 
-    res.json(contacts);
+    const [contacts, total] = await Promise.all([
+      prisma.contact.findMany({
+        where,
+        select: {
+          id: true,
+          full_name: true,
+          nickname: true,
+          photo_url: true,
+          occupation: true,
+          company: true,
+          warmth_status: true,
+          warmth_score: true,
+          relationship_category: true,
+          memory_summary: true,
+          last_interaction_at: true,
+          created_at: true,
+        },
+        orderBy,
+        take: limit,
+        skip: offset,
+      }),
+      prisma.contact.count({ where }),
+    ]);
+
+    res.json({
+      contacts,
+      total,
+      hasMore: offset + contacts.length < total,
+    });
   } catch (err) {
     next(err);
   }
@@ -144,12 +202,36 @@ router.post("/", async (req, res, next) => {
   }
 });
 
+// POST /api/contacts/batch
+router.post("/batch", async (req, res, next) => {
+  try {
+    const { action, ids } = req.body;
+    if (!Array.isArray(ids) || ids.length === 0) {
+      res.status(400).json({ error: "ids array is required" });
+      return;
+    }
+    if (!["archive", "pause"].includes(action)) {
+      res.status(400).json({ error: "action must be archive or pause" });
+      return;
+    }
+
+    const newStatus = action === "archive" ? "archived" : "paused";
+    const result = await prisma.contact.updateMany({
+      where: { id: { in: ids } },
+      data: { warmth_status: newStatus },
+    });
+
+    res.json({ updated: result.count });
+  } catch (err) {
+    next(err);
+  }
+});
+
 // PUT /api/contacts/:id
 router.put("/:id", async (req, res, next) => {
   try {
     const { warmth_status, ...rest } = req.body;
 
-    // If updating warmth_status, validate and log
     if (warmth_status) {
       const current = await prisma.contact.findUnique({
         where: { id: req.params.id },
@@ -167,7 +249,6 @@ router.put("/:id", async (req, res, next) => {
           });
           return;
         }
-        // Log transition
         await prisma.interaction.create({
           data: {
             contact_id: req.params.id,
@@ -258,7 +339,9 @@ router.post("/:id/interaction", async (req, res, next) => {
     const { type, content } = req.body;
     const validTypes = ["meeting", "message", "note"];
     if (!validTypes.includes(type)) {
-      res.status(400).json({ error: `type must be one of: ${validTypes.join(", ")}` });
+      res
+        .status(400)
+        .json({ error: `type must be one of: ${validTypes.join(", ")}` });
       return;
     }
 
@@ -279,13 +362,11 @@ router.post("/:id/interaction", async (req, res, next) => {
       },
     });
 
-    // Update last_interaction_at
     await prisma.contact.update({
       where: { id: req.params.id },
       data: { last_interaction_at: new Date() },
     });
 
-    // Recalculate warmth score and auto-transition
     await recalcAndAutoStatus(req.params.id);
 
     res.status(201).json(interaction);
@@ -308,11 +389,9 @@ router.delete("/:id", async (req, res, next) => {
     }
 
     if (hard) {
-      // Hard delete: cascading relations handled by Prisma onDelete: Cascade
       await prisma.contact.delete({ where: { id: req.params.id } });
       res.json({ deleted: true });
     } else {
-      // Soft delete: archive
       await prisma.contact.update({
         where: { id: req.params.id },
         data: { warmth_status: "archived" },
