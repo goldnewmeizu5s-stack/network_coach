@@ -1,12 +1,9 @@
 # Stage 1: Build client
 FROM node:20-alpine AS client-build
-WORKDIR /app
-COPY client/package.json client/package-lock.json* ./client/
 WORKDIR /app/client
-RUN npm install --ignore-scripts
-WORKDIR /app
-COPY client/ ./client/
-WORKDIR /app/client
+COPY client/package.json client/package-lock.json* ./
+RUN npm ci
+COPY client/ ./
 RUN npm run build
 
 # Stage 2: Build server
@@ -14,6 +11,7 @@ FROM node:20-alpine AS server-build
 WORKDIR /app
 COPY package.json package-lock.json ./
 COPY server/package.json ./server/
+COPY client/package.json ./client/
 COPY prisma/ ./prisma/
 RUN npm install --workspace=server --include=dev
 RUN npm install @prisma/client prisma
