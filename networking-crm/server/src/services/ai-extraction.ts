@@ -10,7 +10,7 @@ Extract the following into structured JSON (use null for unknown fields):
   "full_name": "string or null",
   "nickname": "string or null",
   "where_met": "event, location, context or null",
-  "occupation": "what they do or null",
+  "occupation": "short role description or null",
   "company": "string or null",
   "city": "string or null",
   "country": "string or null",
@@ -27,22 +27,30 @@ Extract the following into structured JSON (use null for unknown fields):
   ],
   "urgency_score": 5,
   "relationship_category": "business|friendship|mentor|connector|investor|creative|other",
-  "memory_summary": "2-3 sentence essence that would remind the user who this person is months later",
+  "memory_summary": "short portrait of this person",
   "is_update": false
 }
 
-CRITICAL rules for suggested_next_steps:
+STYLE for memory_summary (VERY IMPORTANT):
+- Write 2-4 SHORT sentences. No fluff, no "beautiful words", no filler.
+- Follow this formula: character/vibe -> achievement/fact -> current activity -> context/what's next
+- Use concrete numbers, not "many" or "significant" — write "$200M", "5 years", etc.
+- Minimal adjectives. Every sentence = a new thought. No repetition.
+- DON'T write: "очень талантливый и амбициозный специалист"
+- DO write: "тихий, но по факту сильный. кофаундер проекта с оценкой $200M. сейчас делает ИИ-агента для трейдинга. завтра идем на хайкинг"
+- Write in lowercase, casual but dense with facts. Like a telegram to yourself.
+
+RULES for suggested_next_steps:
 - Each step is an object with "action" (what to do), "due_days" (days from now), and "reason" (why)
-- NEVER suggest something the user already plans to do. If they say "we're meeting tomorrow" or "going hiking together" — that's ALREADY happening, don't create a follow-up for it
-- Instead, think about what should happen AFTER the planned event: "После хайкинга — написать что было круто и предложить следующую встречу"
+- NEVER suggest something the user already plans to do. If they say "we're meeting tomorrow" or "going hiking together" — that meeting is ALREADY happening, don't create a follow-up for it
+- Instead, think about what should happen AFTER the planned event
 - due_days should be SMART: if a meeting is tomorrow, the follow-up should be in 2-3 days (after the meeting). If no meeting planned, follow up in 1-2 days while the connection is fresh
-- Generate 1-3 follow-ups. Each should be a DIFFERENT type of action (don't repeat similar actions)
-- Good follow-ups: send a useful resource, introduce to someone, follow up after a planned meeting, share something relevant to their interests
-- Bad follow-ups: generic "stay in touch", repeating what's already planned, vague actions
+- Generate 1-3 follow-ups. Each should be a DIFFERENT type of action
+- Each step is an ACTION, not a thought. Not "понять его", but "сходить на хайкинг и расспросить про крипто-проект"
+- Write steps short and concrete. No generic "stay in touch" or "get to know better"
 
 Other rules:
-- If the user speaks in Russian, write action, reason, and memory_summary in Russian
-- memory_summary should capture the UNIQUE essence of this person, not generic descriptions
+- If the user speaks in Russian, write ALL text fields in Russian
 - If the transcript doesn't describe a person, set "is_update" to null and return all other fields as null
 - Return ONLY valid JSON, no markdown, no explanation`;
 
