@@ -50,6 +50,19 @@ export function startBot(): void {
 
   bot.launch();
   logger.info("Telegram bot started (long polling)");
+
+  // Set Menu Button for Mini App
+  if (config.webappUrl) {
+    bot.telegram.setChatMenuButton({
+      menuButton: {
+        type: "web_app",
+        text: "\u{1F4F1} CRM",
+        web_app: { url: config.webappUrl },
+      },
+    }).catch((err) => {
+      logger.warn("Failed to set menu button", { error: String(err) });
+    });
+  }
 }
 
 export function stopBot(): void {

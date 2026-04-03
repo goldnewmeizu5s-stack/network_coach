@@ -2,6 +2,7 @@ import { Telegraf, Markup } from "telegraf";
 import type { Context } from "telegraf";
 import prisma from "../../lib/prisma";
 import { logger } from "../../lib/logger";
+import { config } from "../../config";
 import {
   getAllowedTransitions,
   isValidTransition,
@@ -406,6 +407,9 @@ async function showContactCard(ctx: Context, contactId: string) {
     }
 
     const buttons = [
+      ...(config.webappUrl
+        ? [[Markup.button.webApp("\u{1F4F1} В приложении", `${config.webappUrl}/people/${contactId}`)]]
+        : []),
       [
         Markup.button.callback("🎤 Голосовое", `voice_for:${contactId}`),
         Markup.button.callback("📝 Заметка", `contact_note:${contactId}`),

@@ -1,6 +1,7 @@
 import { Telegraf, Markup } from "telegraf";
 import type { Context } from "telegraf";
 import { logger } from "../../lib/logger";
+import { config } from "../../config";
 import { processChat } from "../../services/chat-service";
 import { setState, clearState } from "../state";
 import { esc, divider, markdownToTelegramHtml } from "../ui";
@@ -220,6 +221,9 @@ function chatKeyboard() {
       Markup.button.callback("👥 Кого вспомнить?", "quick_neglected"),
       Markup.button.callback("💡 Совет", "quick_advice"),
     ],
+    ...(config.webappUrl
+      ? [[Markup.button.webApp("\u{1F4AC} Полный чат", `${config.webappUrl}/chat`)]]
+      : []),
     [Markup.button.callback("🚪 Выйти", "chat_exit")],
   ]);
 }

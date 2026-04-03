@@ -86,4 +86,6 @@ export const config = {
 
   telegramBotToken: process.env.TELEGRAM_BOT_TOKEN || "",
   telegramAdminChatId: process.env.TELEGRAM_ADMIN_CHAT_ID || "",
+
+  webappUrl: process.env.WEBAPP_URL || "",
 };

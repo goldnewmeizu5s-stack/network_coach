@@ -2,6 +2,7 @@ import { Telegraf, Markup } from "telegraf";
 import type { Context } from "telegraf";
 import prisma from "../lib/prisma";
 import { logger } from "../lib/logger";
+import { config } from "../config";
 import { buildMainMenu, mainMenuKeyboard, getStreak } from "./keyboards";
 import { clearState } from "./state";
 import {

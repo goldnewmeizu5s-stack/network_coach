@@ -2,6 +2,7 @@ import { Telegraf, Markup } from "telegraf";
 import type { Context } from "telegraf";
 import prisma from "../../lib/prisma";
 import { logger } from "../../lib/logger";
+import { config } from "../../config";
 import { setState } from "../state";
 import {
   esc,
@@ -82,6 +83,9 @@ async function handleSettingsMenu(ctx: Context) {
     ].join("\n");
 
     await editOrReply(ctx, text, [
+      ...(config.webappUrl
+        ? [[Markup.button.webApp("\u2699\uFE0F В приложении", `${config.webappUrl}/settings`)]]
+        : []),
       [Markup.button.callback("👤 Мой профиль", "settings_profile")],
       [
         Markup.button.callback("🔕 Тихие часы", "settings_quiet_hours"),

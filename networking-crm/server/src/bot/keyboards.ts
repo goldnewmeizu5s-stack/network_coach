@@ -1,11 +1,15 @@
 import { Markup } from "telegraf";
 import prisma from "../lib/prisma";
 import { logger } from "../lib/logger";
+import { config } from "../config";
 import { dayWord, divider, editOrReply } from "./ui";
 
 // ── Static fallback (when DB is unavailable) ─────────────
 
 export const mainMenuKeyboard = Markup.inlineKeyboard([
+  ...(config.webappUrl
+    ? [[Markup.button.webApp("\u{1F4F1} Открыть приложение", config.webappUrl)]]
+    : []),
   [
     Markup.button.callback("🎤 Записать", "voice_info"),
     Markup.button.callback("👥 Контакты", "contacts"),
@@ -80,6 +84,9 @@ export async function buildMainMenu(): Promise<{
       : "🎯 Челлендж";
 
     const keyboard = Markup.inlineKeyboard([
+      ...(config.webappUrl
+        ? [[Markup.button.webApp("\u{1F4F1} Открыть приложение", config.webappUrl)]]
+        : []),
       [
         Markup.button.callback("🎤 Записать", "voice_info"),
         Markup.button.callback("👥 Контакты", "contacts"),

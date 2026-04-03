@@ -2,6 +2,7 @@ import { Telegraf, Markup } from "telegraf";
 import type { Context } from "telegraf";
 import prisma from "../../lib/prisma";
 import { logger } from "../../lib/logger";
+import { config } from "../../config";
 import { recalcAndAutoStatus } from "../../services/warmth";
 import { draftFollowUpMessage } from "../../services/message-drafting";
 import { setState } from "../state";
@@ -88,9 +89,9 @@ function followupButtons(
   fu: Awaited<ReturnType<typeof loadPendingFollowups>>[number],
   index: number,
   total: number,
-): ReturnType<typeof Markup.button.callback>[][] {
+) {
   const id = fu.id;
-  const rows: ReturnType<typeof Markup.button.callback>[][] = [
+  const rows: import("../ui").InlineButtons = [
     [
       Markup.button.callback("✅ Готово", `fu_done:${id}`),
       Markup.button.callback("✉️ Написать", `fu_draft:${id}`),
@@ -108,6 +109,10 @@ function followupButtons(
   if (index > 0) nav.push(Markup.button.callback("← Пред.", `fu_show:${index - 1}`));
   if (index < total - 1) nav.push(Markup.button.callback("След. →", `fu_show:${index + 1}`));
   if (nav.length) rows.push(nav);
+
+  if (config.webappUrl) {
+    rows.push([Markup.button.webApp("\u{1F4CB} Все задачи", `${config.webappUrl}/followups`)]);
+  }
 
   const bottom: ReturnType<typeof Markup.button.callback>[] = [];
   if (fu.contact) {
