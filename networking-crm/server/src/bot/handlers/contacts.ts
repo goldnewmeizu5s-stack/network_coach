@@ -98,6 +98,7 @@ export function registerTextHandler(bot: Telegraf) {
     // Skip commands
     if (text.startsWith("/")) return next();
 
+    try {
     const chatId = ctx.chat.id;
     const state = getState(chatId);
 
@@ -205,6 +206,10 @@ export function registerTextHandler(bot: Telegraf) {
       "Отправь голосовое 🎤 чтобы добавить контакт,\nили напиши /menu для главного меню.\n\nИли просто напиши имя контакта для быстрого поиска.",
       { parse_mode: "HTML" },
     );
+    } catch (err) {
+      logger.error("Text handler error", { error: String(err) });
+      await ctx.reply("⚠️ Произошла ошибка, попробуйте ещё раз или /menu").catch(() => {});
+    }
   });
 }
 

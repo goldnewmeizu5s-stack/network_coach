@@ -1,4 +1,5 @@
 const EXPIRE_MS = 5 * 60 * 1000; // 5 minutes
+const CLEANUP_INTERVAL_MS = 10 * 60 * 1000; // cleanup every 10 minutes
 
 export interface UserState {
   action: string;
@@ -33,3 +34,17 @@ export function getState(chatId: number): UserState | null {
 export function clearState(chatId: number): void {
   store.delete(chatId);
 }
+
+// Periodic cleanup to prevent memory leaks from expired entries
+// that are never accessed again via getState()
+const cleanupInterval = setInterval(() => {
+  const now = Date.now();
+  for (const [chatId, s] of store) {
+    if (now > s.expiresAt) {
+      store.delete(chatId);
+    }
+  }
+}, CLEANUP_INTERVAL_MS);
+
+// Allow Node.js to exit cleanly without waiting for this timer
+cleanupInterval.unref();
