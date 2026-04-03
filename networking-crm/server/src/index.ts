@@ -89,6 +89,13 @@ app.get("/api/health", async (_req, res) => {
 // Auth routes (public, with strict rate limit)
 app.use("/api/auth", authLimiter, authRoutes);
 
+// Serve uploaded photos (auth-protected)
+app.use(
+  "/api/contacts/photos",
+  authMiddleware,
+  express.static(path.join(__dirname, "../uploads/photos"), { maxAge: "30d" }),
+);
+
 // Protected routes
 app.use("/api/contacts", authMiddleware, apiLimiter, contactsRoutes);
 app.use("/api/voice", authMiddleware, apiLimiter, voiceRoutes);

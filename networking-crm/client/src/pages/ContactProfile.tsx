@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { api } from "../lib/api";
 import {
@@ -100,6 +100,30 @@ export default function ContactProfile() {
   const [slLinkedin, setSlLinkedin] = useState("");
   const [slInstagram, setSlInstagram] = useState("");
   const [slSaving, setSlSaving] = useState(false);
+  const [photoUploading, setPhotoUploading] = useState(false);
+  const photoInputRef = useRef<HTMLInputElement>(null);
+
+  const uploadPhoto = async (file: File) => {
+    if (!id) return;
+    setPhotoUploading(true);
+    try {
+      const formData = new FormData();
+      formData.append("photo", file);
+      const res = await fetch(`/api/contacts/${id}/photo`, {
+        method: "POST",
+        credentials: "same-origin",
+        body: formData,
+      });
+      if (!res.ok) throw new Error("Upload failed");
+      const data = await res.json();
+      setContact((prev) => prev ? { ...prev, photo_url: data.photo_url } : prev);
+      show("Фото обновлено");
+    } catch {
+      show("Не удалось загрузить фото");
+    } finally {
+      setPhotoUploading(false);
+    }
+  };
 
   const fetchContact = useCallback(async () => {
     if (!id) return;
@@ -350,10 +374,41 @@ export default function ContactProfile() {
         {/* Profile header */}
         <div className="flex flex-col items-center gap-3 pt-2">
           <div
-            className="flex h-20 w-20 items-center justify-center rounded-full text-2xl font-bold text-white"
+            className="relative flex h-20 w-20 cursor-pointer items-center justify-center rounded-full text-2xl font-bold text-white overflow-hidden"
             style={{ backgroundColor: warmthColor }}
+            onClick={() => photoInputRef.current?.click()}
           >
-            {getInitials(contact.full_name)}
+            {contact.photo_url ? (
+              <img
+                src={contact.photo_url}
+                alt={contact.full_name}
+                className="h-full w-full object-cover"
+              />
+            ) : (
+              getInitials(contact.full_name)
+            )}
+            {photoUploading && (
+              <div className="absolute inset-0 flex items-center justify-center bg-black/50">
+                <span className="h-5 w-5 animate-spin rounded-full border-2 border-white border-t-transparent" />
+              </div>
+            )}
+            <div className="absolute bottom-0 right-0 flex h-6 w-6 items-center justify-center rounded-full bg-accent text-xs text-white shadow-lg">
+              <svg className="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.5}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M6.827 6.175A2.31 2.31 0 015.186 7.23c-.38.054-.757.112-1.134.175C2.999 7.58 2.25 8.507 2.25 9.574V18a2.25 2.25 0 002.25 2.25h15A2.25 2.25 0 0021.75 18V9.574c0-1.067-.75-1.994-1.802-2.169a47.865 47.865 0 00-1.134-.175 2.31 2.31 0 01-1.64-1.055l-.822-1.316a2.192 2.192 0 00-1.736-1.039 48.774 48.774 0 00-5.232 0 2.192 2.192 0 00-1.736 1.039l-.821 1.316z" />
+                <path strokeLinecap="round" strokeLinejoin="round" d="M16.5 12.75a4.5 4.5 0 11-9 0 4.5 4.5 0 019 0z" />
+              </svg>
+            </div>
+            <input
+              ref={photoInputRef}
+              type="file"
+              accept="image/jpeg,image/png,image/webp"
+              className="hidden"
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                if (file) uploadPhoto(file);
+                e.target.value = "";
+              }}
+            />
           </div>
           <div className="text-center">
             <h2 className="text-xl font-bold text-white">{contact.full_name}</h2>

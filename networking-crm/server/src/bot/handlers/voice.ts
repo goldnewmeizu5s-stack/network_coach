@@ -6,6 +6,7 @@ import type { Context } from "telegraf";
 import prisma from "../../lib/prisma";
 import { logger } from "../../lib/logger";
 import { transcribeAudio } from "../../services/transcription";
+import { polishTranscript } from "../../services/transcript-polish";
 import { extractContactData } from "../../services/ai-extraction";
 import { correctTranscript } from "../../services/transcript-correction";
 import { createContact } from "../../services/voice-pipeline";
@@ -286,19 +287,24 @@ async function handleAudio(
       return;
     }
 
-    // Save transcript
+    // Polish transcript with AI (fix speech-to-text errors)
+    await editMessage(ctx, chatId, messageId, "✨ Причёсываю текст...").catch(() => {});
+
+    const polished = await polishTranscript(transcript);
+
+    // Save both raw and polished transcript
     await prisma.interaction.update({
       where: { id: interaction.id },
-      data: { transcript },
+      data: { transcript: polished },
     });
     await prisma.audioFile.update({
       where: { interaction_id: interaction.id },
       data: { file_path: "deleted", transcription_status: "completed" },
     });
 
-    // ── Show transcript for review ──────────────────────
+    // ── Show polished transcript for review ─────────────
     setState(chatId, "voice_review", {
-      transcript,
+      transcript: polished,
       interactionId: interaction.id,
     });
 
@@ -452,23 +458,28 @@ async function handleVoiceAccept(ctx: Context) {
 
     await recalcAndAutoStatus(contactId);
 
-    // Format response and ask for social links
+    // Show contact card
     const text = formatContactMessage(extracted, isNew);
+    await ctx.editMessageText(text, { parse_mode: "HTML" });
 
-    // Set state to collect social links
+    // Ask for social links in a SEPARATE message (so it's clearly visible)
     setState(chatId, "awaiting_socials", { contactId });
 
-    const keyboard = Markup.inlineKeyboard([
-      [Markup.button.callback("⏭ Пропустить", `socials_skip:${contactId}`)],
-    ]);
-
-    await ctx.editMessageText(
-      text + "\n\n" + thinDivider() + "\n" +
-      "📲 <b>Есть контакт этого человека?</b>\n" +
-      "Вставь ссылку или юзернейм (Telegram, WhatsApp,\n" +
-      "Instagram, LinkedIn — что угодно).\n\n" +
-      "<i>Можно несколько — каждый с новой строки.\nИли нажми «Пропустить».</i>",
-      { parse_mode: "HTML", ...keyboard },
+    await ctx.reply(
+      [
+        "📲 <b>Есть контакт этого человека?</b>",
+        "",
+        "Вставь ссылку или юзернейм (Telegram, WhatsApp,",
+        "Instagram, LinkedIn — что угодно).",
+        "",
+        "Можно несколько — каждый с новой строки.",
+      ].join("\n"),
+      {
+        parse_mode: "HTML",
+        ...Markup.inlineKeyboard([
+          [Markup.button.callback("⏭ Пропустить", `socials_skip:${contactId}`)],
+        ]),
+      },
     );
   } catch (err) {
     logger.error("Voice accept error", { error: String(err) });

@@ -586,16 +586,19 @@ function ContactCard({
 
         {/* Avatar with warmth ring */}
         <div
-          className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-sm font-bold text-white ring-2"
+          className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-sm font-bold text-white ring-2 overflow-hidden"
           style={{
             backgroundColor: warmthColor + "33",
             color: warmthColor,
             borderColor: warmthColor,
-            // ring via style to use dynamic color
             boxShadow: `0 0 0 2px ${warmthColor}`,
           }}
         >
-          {getInitials(c.full_name)}
+          {c.photo_url ? (
+            <img src={c.photo_url} alt={c.full_name} className="h-full w-full object-cover" />
+          ) : (
+            getInitials(c.full_name)
+          )}
         </div>
 
         {/* Info */}
