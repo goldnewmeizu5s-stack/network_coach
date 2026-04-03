@@ -3,6 +3,7 @@ import type { Context } from "telegraf";
 import { logger } from "../../lib/logger";
 import { processChat } from "../../services/chat-service";
 import { setState, clearState } from "../state";
+import { esc } from "../ui";
 
 const CHAT_EXPIRE_MS = 30 * 60 * 1000; // 30 minutes
 
@@ -56,7 +57,7 @@ export async function handleChatVoice(ctx: Context, transcript: string) {
       | string
       | undefined;
 
-  await ctx.reply(`🎤 <i>${escapeForTelegram(transcript)}</i>`, {
+  await ctx.reply(`🎤 <i>${esc(transcript)}</i>`, {
     parse_mode: "HTML",
   });
 
@@ -129,7 +130,7 @@ async function handleContactChat(ctx: Context) {
     setState(ctx.chat!.id, "ai_chat", { contactId });
 
     await ctx.reply(
-      `💬 Чат в контексте <b>${escapeForTelegram(contact.full_name)}</b>.\nСпрашивай что угодно об этом контакте.`,
+      `💬 Чат в контексте <b>${esc(contact.full_name)}</b>.\nСпрашивай что угодно об этом контакте.`,
       {
         parse_mode: "HTML",
         ...Markup.inlineKeyboard([
@@ -228,13 +229,6 @@ function sanitizeHtmlForTelegram(text: string): string {
         .replace(/>/g, "&gt;");
     })
     .join("");
-}
-
-function escapeForTelegram(text: string): string {
-  return text
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;");
 }
 
 /**
