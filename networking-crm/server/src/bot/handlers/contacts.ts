@@ -8,6 +8,7 @@ import {
   recalcAndAutoStatus,
 } from "../../services/warmth";
 import { suggestActions, Suggestion } from "../../services/message-drafting";
+import { handleReflectionText } from "./challenges";
 import { setState, getState, clearState } from "../state";
 
 const PAGE_SIZE = 10;
@@ -141,6 +142,15 @@ export function registerTextHandler(bot: Telegraf) {
           ],
         ]),
       });
+      return;
+    }
+
+    // Handle awaiting_reflection state — challenge reflection text
+    if (state?.action === "awaiting_reflection") {
+      clearState(chatId);
+      const challengeId = state.data.challengeId as string;
+      const rating = state.data.rating as number;
+      await handleReflectionText(ctx, challengeId, rating, text);
       return;
     }
 
