@@ -370,53 +370,50 @@ async function showContactCard(ctx: Context, contactId: string) {
 
     // Header
     const lines: string[] = [
-      `👤 <b>${esc(contact.full_name)}</b>`,
-      `${warmthEmoji(contact.warmth_status)} ${warmthLabel(contact.warmth_status)} · Score: ${progressBar(score, 100)}`,
-      divider(),
+      `<b>${esc(contact.full_name)}</b>`,
+      `${warmthLabel(contact.warmth_status)} · ${score}/100`,
       "",
     ];
 
     // Basic info
-    const job = [contact.occupation, contact.company].filter(Boolean).join(" @ ");
-    if (job) lines.push(`💼 ${esc(job)}`);
-    if (contact.city) lines.push(`📍 ${esc(contact.city)}`);
+    const role: string[] = [];
+    if (contact.occupation) role.push(esc(contact.occupation));
+    if (contact.company) role.push(esc(contact.company));
+    if (role.length) lines.push(role.join(", "));
+    if (contact.city) lines.push(esc(contact.city));
     if (contact.where_met) {
-      lines.push(
-        `📅 Познакомились: ${esc(contact.where_met)}, ${fmtDate(contact.met_date)}`,
-      );
+      lines.push(`познакомились: ${esc(contact.where_met)}, ${fmtDate(contact.met_date)}`);
     }
 
     // Memory summary
     if (contact.memory_summary) {
-      lines.push("", thinDivider(), "");
-      lines.push(`💡 <i>${esc(contact.memory_summary)}</i>`);
+      lines.push("");
+      lines.push(esc(contact.memory_summary));
     }
 
     // Interests & notes
     if (contact.key_interests.length > 0 || contact.personality_notes) {
-      lines.push("", thinDivider(), "");
+      lines.push("");
       if (contact.key_interests.length > 0) {
-        lines.push(`🏷 Интересы: ${contact.key_interests.map(esc).join(", ")}`);
+        lines.push(`интересы: ${contact.key_interests.map(esc).join(", ")}`);
       }
       if (contact.personality_notes) {
-        lines.push(`📝 Заметки: ${esc(contact.personality_notes)}`);
+        lines.push(esc(contact.personality_notes));
       }
     }
 
     // Social links
     const socialLinks = contact.social_links as Record<string, string> | null;
     if (socialLinks && Object.keys(socialLinks).length > 0) {
-      lines.push("", thinDivider(), "");
-      lines.push("📲 <b>Контакты:</b>");
+      lines.push("");
       const platformLabels: Record<string, string> = {
-        telegram: "TG", whatsapp: "WA", instagram: "IG",
-        linkedin: "LI", facebook: "FB", twitter: "X",
-        phone: "📞", email: "✉️",
+        telegram: "tg", whatsapp: "wa", instagram: "ig",
+        linkedin: "li", facebook: "fb", twitter: "x",
+        phone: "tel", email: "email",
       };
-      for (const [key, value] of Object.entries(socialLinks)) {
-        const label = platformLabels[key] || key;
-        lines.push(`  ${label}: ${esc(value)}`);
-      }
+      const parts = Object.entries(socialLinks)
+        .map(([key, value]) => `${platformLabels[key] || key}: ${esc(value)}`);
+      lines.push(parts.join(" · "));
     }
 
     // Stats
@@ -424,15 +421,14 @@ async function showContactCard(ctx: Context, contactId: string) {
       where: { contact_id: contactId },
     });
     lines.push("");
-    lines.push(`📊 Взаимодействий: ${interactionCount}`);
-    lines.push(`📅 Последний контакт: ${relDate(contact.last_interaction_at)}`);
+    lines.push(`взаимодействий: ${interactionCount} · последний: ${relDate(contact.last_interaction_at)}`);
 
     // Active follow-ups
     if (contact.follow_ups.length > 0) {
       lines.push("");
-      lines.push("<b>📋 Активные follow-ups:</b>");
+      lines.push("<b>follow-ups</b>");
       contact.follow_ups.forEach((f) => {
-        lines.push(`  · ${esc(f.suggested_action)}`);
+        lines.push(`· ${esc(f.suggested_action)}`);
       });
     }
 

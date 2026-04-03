@@ -13,6 +13,7 @@ import {
   starsStr,
   editOrReply,
   STATUS_EMOJI,
+  STATUS_LABEL,
 } from "./ui";
 
 export function registerCommands(bot: Telegraf) {
@@ -31,28 +32,25 @@ async function handleStart(ctx: Context) {
       .catch(() => 0);
 
     const intro = [
-      "🤝 <b>Привет! Я — твой нетворкинг-ассистент.</b>",
+      "<b>networking crm</b>",
       "",
-      "Я помогу тебе:",
-      "📇 Записывать знакомства голосом",
-      "🔔 Не забывать про follow-ups",
-      "🎯 Расти через ежедневные челленджи",
-      "🤖 Получать AI-советы по нетворкингу",
+      "записывай знакомства голосом",
+      "не забывай про follow-ups",
+      "расти через ежедневные челленджи",
+      "получай AI-советы по нетворкингу",
       "",
-      "Просто отправь мне голосовое 🎤",
-      "о человеке, которого встретил — и я сделаю остальное.",
-      "",
-      "💡 Напиши имя контакта для быстрого поиска",
+      "отправь голосовое о человеке, которого встретил.",
+      "напиши имя для быстрого поиска.",
     ];
 
     if (totalContacts === 0) {
       intro.push("");
       intro.push(
-        "✨ <i>Начни с голосового: расскажи о ком-то,\nкого недавно встретил, и я создам контакт.</i>",
+        "<i>начни с голосового: расскажи о ком-то, кого недавно встретил.</i>",
       );
     }
 
-    intro.push(divider());
+    intro.push("");
 
     const { text: menuText, keyboard } = await buildMainMenu();
 
@@ -63,7 +61,7 @@ async function handleStart(ctx: Context) {
     });
   } catch (err) {
     logger.error("start command error", { error: String(err) });
-    await ctx.reply("🤝 Привет! Я — твой нетворкинг-ассистент.\n\nОтправь /menu для начала.", {
+    await ctx.reply("networking crm\n\nотправь /menu для начала.", {
       parse_mode: "HTML",
       ...mainMenuKeyboard,
     });
@@ -74,23 +72,20 @@ async function handleStart(ctx: Context) {
 
 async function handleHelp(ctx: Context) {
   const text = [
-    "📖 <b>Справка</b>",
-    divider(),
+    "<b>справка</b>",
     "",
-    "<b>🎤 Голосовые</b>",
-    "Отправь голосовое, кружочек или аудио —",
-    "я распознаю речь и создам контакт.",
+    "<b>голосовые</b>",
+    "отправь голосовое, кружочек или аудио.",
+    "распознаю речь и создам контакт.",
     "",
-    "<b>🔍 Быстрый поиск</b>",
-    "Просто напиши имя — я найду контакт.",
+    "<b>быстрый поиск</b>",
+    "просто напиши имя — найду контакт.",
     "",
-    "<b>💬 AI-чат</b>",
-    "Нажми «AI-чат» в меню и спрашивай",
+    "<b>AI-чат</b>",
+    "нажми «AI-чат» в меню. спрашивай",
     "что угодно о своём нетворкинге.",
     "",
-    thinDivider(),
-    "",
-    "<b>Команды:</b>",
+    "<b>команды</b>",
     "/menu — главное меню",
     "/quick — быстрая сводка",
     "/help — эта справка",
@@ -174,37 +169,31 @@ export async function quickSummary(ctx: Context) {
     ]);
 
     const lines: string[] = [
-      "⚡ <b>Быстрая сводка</b>",
-      divider(),
+      "<b>сводка</b>",
       "",
     ];
 
     // Follow-ups
     const overdueStr = overdueCount > 0 ? ` (${overdueCount} просрочен)` : "";
-    lines.push(`📋 Follow-ups: <b>${pendingCount}</b> активных${overdueStr}`);
+    lines.push(`follow-ups: <b>${pendingCount}</b> активных${overdueStr}`);
 
     // Challenge
     if (challenge) {
       const title = esc(challenge.title);
       if (challenge.status === "completed") {
-        const stars = challenge.rating ? ` ${starsStr(challenge.rating)}` : "";
-        lines.push(`🎯 Челлендж: ${title}`);
-        lines.push(`   ✅ выполнен${stars}`);
+        lines.push(`челлендж: ${title} — выполнен`);
       } else if (challenge.status === "accepted") {
-        lines.push(`🎯 Челлендж: ${title}`);
-        lines.push("   в процессе 💪");
+        lines.push(`челлендж: ${title} — в процессе`);
       } else if (challenge.status === "skipped") {
-        lines.push(`🎯 Челлендж: ${title}`);
-        lines.push("   ⏭ пропущен");
+        lines.push(`челлендж: ${title} — пропущен`);
       } else {
-        lines.push(`🎯 Челлендж: ${title}`);
-        lines.push("   ░░░░░░░░░░ ещё не принят");
+        lines.push(`челлендж: ${title} — не принят`);
       }
     }
 
     // Streak
     if (streak > 0) {
-      lines.push(`🔥 Streak: <b>${streak}</b> ${dayWord(streak)} подряд`);
+      lines.push(`streak: <b>${streak}</b> ${dayWord(streak)} подряд`);
     }
 
     // Contacts breakdown
@@ -214,17 +203,15 @@ export async function quickSummary(ctx: Context) {
     }
 
     lines.push("");
-    lines.push(thinDivider());
-    lines.push("");
-    lines.push(`👥 Контакты: ${totalContacts}`);
+    lines.push(`контакты: ${totalContacts}`);
 
     const statusParts: string[] = [];
     for (const s of ["new", "warming", "warm", "cooling", "paused"]) {
       const count = statusMap[s] || 0;
-      if (count > 0) statusParts.push(`${STATUS_EMOJI[s]} ${count}`);
+      if (count > 0) statusParts.push(`${STATUS_LABEL[s] || s} ${count}`);
     }
     if (statusParts.length > 0) {
-      lines.push(`   ${statusParts.join("  ")}`);
+      lines.push(statusParts.join(" · "));
     }
 
     // Urgent/neglected contact
@@ -233,10 +220,8 @@ export async function quickSummary(ctx: Context) {
         ? Math.floor((Date.now() - urgent.last_interaction_at.getTime()) / 86400000)
         : 999;
       lines.push("");
-      lines.push(thinDivider());
-      lines.push("");
       lines.push(
-        `💡 Напиши <b>${esc(urgent.full_name)}</b> — ${days} ${dayWord(days)} без контакта`,
+        `напиши <b>${esc(urgent.full_name)}</b> — ${days} ${dayWord(days)} без контакта`,
       );
     }
 

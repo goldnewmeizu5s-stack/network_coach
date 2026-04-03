@@ -26,7 +26,7 @@ export const mainMenuKeyboard = Markup.inlineKeyboard([
 ]);
 
 export const MAIN_MENU_TEXT =
-  `🏠 <b>Networking CRM</b>\n\n${divider()}\nВыбери действие:`;
+  `<b>networking crm</b>\n\nвыбери действие:`;
 
 // ── Dynamic main menu ────────────────────────────────────
 
@@ -60,18 +60,16 @@ export async function buildMainMenu(): Promise<{
 
     // Build summary line
     const parts: string[] = [];
-    parts.push(`📇 Контактов: ${totalContacts}`);
-    parts.push(`📋 Follow-ups: ${pendingCount}`);
-    if (streak > 0) parts.push(`🔥 ${streak} ${dayWord(streak)}`);
+    parts.push(`контактов: ${totalContacts}`);
+    parts.push(`follow-ups: ${pendingCount}`);
+    if (streak > 0) parts.push(`streak: ${streak} ${dayWord(streak)}`);
 
-    const summaryLine = parts.join(" | ");
+    const summaryLine = parts.join(" · ");
 
     const text = [
-      "🏠 <b>Networking CRM</b>",
+      "<b>networking crm</b>",
       "",
       summaryLine,
-      divider(),
-      "Выбери действие:",
     ].join("\n");
 
     // Dynamic button labels

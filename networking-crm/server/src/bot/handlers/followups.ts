@@ -67,19 +67,16 @@ function renderFollowupCard(
   index: number,
   total: number,
 ) {
-  const { emoji, label } = urgencyBadge(fu.due_date);
-  const contactName = fu.contact?.full_name || "Неизвестный";
+  const { label } = urgencyBadge(fu.due_date);
+  const contactName = fu.contact?.full_name || "неизвестный";
   const contactStatus = fu.contact?.warmth_status || "new";
 
   const lines = [
-    `📋 <b>Follow-up</b> ${index + 1} из ${total}`,
-    divider(),
+    `<b>follow-up</b> ${index + 1}/${total}`,
     "",
-    `${emoji} <b>${label}</b>`,
-    "",
-    `👤 ${esc(contactName)} · ${warmthEmoji(contactStatus)} ${warmthLabel(contactStatus)}`,
-    `📌 ${esc(fu.suggested_action)}`,
-    `⬆️ Приоритет: ${fu.priority}/10`,
+    `<b>${esc(contactName)}</b> · ${warmthLabel(contactStatus)}`,
+    esc(fu.suggested_action),
+    `${label} · приоритет ${fu.priority}/10`,
   ];
 
   return lines.join("\n");
