@@ -7,20 +7,202 @@ import prisma from "../../lib/prisma";
 import { logger } from "../../lib/logger";
 import { transcribeAudio } from "../../services/transcription";
 import { extractContactData } from "../../services/ai-extraction";
+import { correctTranscript } from "../../services/transcript-correction";
 import { createContact } from "../../services/voice-pipeline";
 import { recalcAndAutoStatus } from "../../services/warmth";
-import { getState } from "../state";
+import { getState, setState, clearState } from "../state";
 import { handleChatVoice } from "./chat";
 import { esc, divider, thinDivider } from "../ui";
 
 const UPLOADS_DIR = path.join(__dirname, "../../../uploads");
 const MAX_FILE_SIZE = 25 * 1024 * 1024; // 25MB
 
+// How many chars of transcript to show in one Telegram message
+const TRANSCRIPT_PREVIEW_LIMIT = 3500;
+
 export function registerVoiceHandlers(bot: Telegraf) {
   bot.on("voice", (ctx) => handleAudio(ctx, ctx.message.voice));
   bot.on("video_note", (ctx) => handleAudio(ctx, ctx.message.video_note));
   bot.on("audio", (ctx) => handleAudio(ctx, ctx.message.audio));
+
+  // Review flow callbacks
+  bot.action("voice_accept", handleVoiceAccept);
+  bot.action("voice_edit", handleVoiceEdit);
 }
+
+/**
+ * Handle text correction when user is in voice_editing state.
+ * Called from the main text handler.
+ */
+export async function handleVoiceCorrectionText(ctx: Context, text: string) {
+  const chatId = ctx.chat!.id;
+  const state = getState(chatId);
+  if (!state || state.action !== "voice_editing") return;
+
+  const originalTranscript = state.data.transcript as string;
+  const interactionId = state.data.interactionId as string;
+
+  const statusMsg = await ctx.reply("🤖 Корректирую текст...");
+
+  try {
+    const corrected = await correctTranscript(originalTranscript, text);
+
+    // Update state with corrected transcript
+    setState(chatId, "voice_review", {
+      transcript: corrected,
+      interactionId,
+    });
+
+    const preview = corrected.length > TRANSCRIPT_PREVIEW_LIMIT
+      ? corrected.slice(0, TRANSCRIPT_PREVIEW_LIMIT) + "..."
+      : corrected;
+
+    await ctx.telegram.editMessageText(
+      chatId,
+      statusMsg.message_id,
+      undefined,
+      [
+        "📝 <b>Исправленная транскрипция</b>",
+        divider(),
+        "",
+        `<i>${esc(preview)}</i>`,
+        "",
+        thinDivider(),
+        "Всё верно? Или хочешь ещё поправить?",
+      ].join("\n"),
+      {
+        parse_mode: "HTML",
+        ...Markup.inlineKeyboard([
+          [
+            Markup.button.callback("✅ Принять", "voice_accept"),
+            Markup.button.callback("✏️ Ещё правка", "voice_edit"),
+          ],
+        ]),
+      },
+    );
+  } catch (err) {
+    logger.error("Voice correction failed", { error: String(err) });
+    // Keep the original transcript in review state
+    setState(chatId, "voice_review", {
+      transcript: originalTranscript,
+      interactionId,
+    });
+    await ctx.telegram.editMessageText(
+      chatId,
+      statusMsg.message_id,
+      undefined,
+      "❌ Не удалось скорректировать. Попробуй ещё раз или нажми «Принять».",
+      {
+        parse_mode: "HTML",
+        ...Markup.inlineKeyboard([
+          [
+            Markup.button.callback("✅ Принять как есть", "voice_accept"),
+            Markup.button.callback("✏️ Попробовать снова", "voice_edit"),
+          ],
+        ]),
+      },
+    ).catch(() => {});
+  }
+}
+
+/**
+ * Handle voice correction — user sends another voice to correct the transcript.
+ * Called from handleAudio when state is voice_editing.
+ */
+async function handleVoiceCorrectionVoice(
+  ctx: Context,
+  fileInfo: { file_id: string; file_size?: number; duration?: number },
+) {
+  const chatId = ctx.chat!.id;
+  const state = getState(chatId);
+  if (!state || state.action !== "voice_editing") return;
+
+  const statusMsg = await ctx.reply("🎤 Распознаю правку...");
+  const fileName = `tg-correction-${Date.now()}.ogg`;
+  const filePath = path.join(UPLOADS_DIR, fileName);
+
+  try {
+    fs.mkdirSync(UPLOADS_DIR, { recursive: true });
+
+    const fileLink = await ctx.telegram.getFileLink(fileInfo.file_id);
+    const res = await fetch(fileLink.href);
+    if (!res.ok || !res.body) {
+      throw new Error(`Failed to download file: ${res.status}`);
+    }
+    const fileStream = fs.createWriteStream(filePath);
+    await pipeline(res.body as unknown as NodeJS.ReadableStream, fileStream);
+
+    const correctionText = await transcribeAudio(filePath);
+
+    await ctx.telegram.editMessageText(
+      chatId,
+      statusMsg.message_id,
+      undefined,
+      `🎤 <i>${esc(correctionText)}</i>\n\n🤖 Корректирую...`,
+      { parse_mode: "HTML" },
+    );
+
+    // Now apply correction
+    const originalTranscript = state.data.transcript as string;
+    const interactionId = state.data.interactionId as string;
+
+    const corrected = await correctTranscript(originalTranscript, correctionText);
+
+    setState(chatId, "voice_review", {
+      transcript: corrected,
+      interactionId,
+    });
+
+    const preview = corrected.length > TRANSCRIPT_PREVIEW_LIMIT
+      ? corrected.slice(0, TRANSCRIPT_PREVIEW_LIMIT) + "..."
+      : corrected;
+
+    await ctx.telegram.editMessageText(
+      chatId,
+      statusMsg.message_id,
+      undefined,
+      [
+        "📝 <b>Исправленная транскрипция</b>",
+        divider(),
+        "",
+        `<i>${esc(preview)}</i>`,
+        "",
+        thinDivider(),
+        "Всё верно? Или хочешь ещё поправить?",
+      ].join("\n"),
+      {
+        parse_mode: "HTML",
+        ...Markup.inlineKeyboard([
+          [
+            Markup.button.callback("✅ Принять", "voice_accept"),
+            Markup.button.callback("✏️ Ещё правка", "voice_edit"),
+          ],
+        ]),
+      },
+    );
+  } catch (err) {
+    logger.error("Voice correction (voice) failed", { error: String(err) });
+    await ctx.telegram.editMessageText(
+      chatId,
+      statusMsg.message_id,
+      undefined,
+      "❌ Не удалось распознать правку. Попробуй текстом или нажми «Принять».",
+      {
+        parse_mode: "HTML",
+        ...Markup.inlineKeyboard([
+          [
+            Markup.button.callback("✅ Принять как есть", "voice_accept"),
+            Markup.button.callback("✏️ Попробовать снова", "voice_edit"),
+          ],
+        ]),
+      },
+    ).catch(() => {});
+  } finally {
+    try { fs.unlinkSync(filePath); } catch { /* ignore */ }
+  }
+}
+
+// ── Main voice handler ──────────────────────────────────
 
 async function handleAudio(
   ctx: Context,
@@ -33,21 +215,26 @@ async function handleAudio(
     return;
   }
 
-  // Check if we're in AI chat mode — if so, transcribe and send to chat
-  const state = getState(ctx.chat!.id);
+  const chatId = ctx.chat!.id;
+  const state = getState(chatId);
+
+  // AI chat mode — transcribe and send to chat
   if (state?.action === "ai_chat") {
     return handleChatVoiceMessage(ctx, fileInfo);
   }
 
+  // Voice correction mode — transcribe correction voice
+  if (state?.action === "voice_editing") {
+    return handleVoiceCorrectionVoice(ctx, fileInfo);
+  }
+
   const statusMsg = await ctx.reply("⏳ Загружаю файл...");
-  const chatId = ctx.chat!.id;
   const messageId = statusMsg.message_id;
 
   const fileName = `tg-${Date.now()}.ogg`;
   const filePath = path.join(UPLOADS_DIR, fileName);
 
   try {
-    // Ensure uploads dir exists
     fs.mkdirSync(UPLOADS_DIR, { recursive: true });
 
     // Download file from Telegram
@@ -96,17 +283,96 @@ async function handleAudio(
       return;
     }
 
-    // Progress: analyzing
-    await editMessage(ctx, chatId, messageId, "🤖 Анализирую контакт...").catch(() => {});
-
-    // Save transcript, clean up file marker
+    // Save transcript
     await prisma.interaction.update({
       where: { id: interaction.id },
       data: { transcript },
     });
     await prisma.audioFile.update({
       where: { interaction_id: interaction.id },
-      data: { file_path: "deleted" },
+      data: { file_path: "deleted", transcription_status: "completed" },
+    });
+
+    // ── Show transcript for review ──────────────────────
+    setState(chatId, "voice_review", {
+      transcript,
+      interactionId: interaction.id,
+    });
+
+    const preview = transcript.length > TRANSCRIPT_PREVIEW_LIMIT
+      ? transcript.slice(0, TRANSCRIPT_PREVIEW_LIMIT) + "..."
+      : transcript;
+
+    await ctx.telegram.editMessageText(
+      chatId,
+      messageId,
+      undefined,
+      [
+        "📝 <b>Транскрипция</b>",
+        divider(),
+        "",
+        `<i>${esc(preview)}</i>`,
+        "",
+        thinDivider(),
+        "Проверь текст. Если всё верно — нажми «Принять».",
+        "Если есть ошибки — нажми «Редактировать» и опиши,",
+        "что исправить (текстом или голосовым).",
+      ].join("\n"),
+      {
+        parse_mode: "HTML",
+        ...Markup.inlineKeyboard([
+          [
+            Markup.button.callback("✅ Принять", "voice_accept"),
+            Markup.button.callback("✏️ Редактировать", "voice_edit"),
+          ],
+        ]),
+      },
+    );
+  } catch (err) {
+    logger.error("Telegram voice handler error", { error: String(err) });
+    await editMessage(
+      ctx,
+      chatId,
+      messageId,
+      "❌ Произошла ошибка при обработке записи.",
+    ).catch(() => {});
+  } finally {
+    try { fs.unlinkSync(filePath); } catch { /* ignore */ }
+  }
+}
+
+// ── Review callbacks ─────────────────────────────────────
+
+async function handleVoiceAccept(ctx: Context) {
+  const chatId = ctx.chat!.id;
+  const state = getState(chatId);
+
+  if (!state || state.action !== "voice_review") {
+    await ctx.answerCbQuery("Сессия истекла. Запиши голосовое заново.");
+    return;
+  }
+
+  const transcript = state.data.transcript as string;
+  const interactionId = state.data.interactionId as string;
+  clearState(chatId);
+
+  try {
+    await ctx.answerCbQuery("🤖 Анализирую...");
+  } catch { /* ignore */ }
+
+  // Update the message to show progress
+  try {
+    await ctx.editMessageText(
+      "🤖 Анализирую контакт из транскрипции...",
+      { parse_mode: "HTML" },
+    );
+  } catch { /* ignore */ }
+
+  try {
+    // Update transcript in DB (may have been corrected)
+    await prisma.interaction.update({
+      where: { id: interactionId },
+      data: { transcript },
     });
 
     // Extract contact data
@@ -114,18 +380,12 @@ async function handleAudio(
     try {
       extracted = await extractContactData(transcript);
     } catch (err) {
-      await prisma.audioFile.update({
-        where: { interaction_id: interaction.id },
-        data: { transcription_status: "completed" },
-      });
       logger.error("Telegram voice: extraction failed", {
         error: String(err),
       });
-      await editMessage(
-        ctx,
-        chatId,
-        messageId,
+      await ctx.editMessageText(
         "⚠️ Запись сохранена, но не удалось извлечь контакт автоматически.",
+        { parse_mode: "HTML" },
       );
       return;
     }
@@ -133,23 +393,17 @@ async function handleAudio(
     // No person detected
     if (extracted.is_update === null) {
       await prisma.interaction.update({
-        where: { id: interaction.id },
+        where: { id: interactionId },
         data: { ai_summary: "Voice note (no contact detected)" },
       });
-      await prisma.audioFile.update({
-        where: { interaction_id: interaction.id },
-        data: { transcription_status: "completed" },
-      });
-      await editMessage(
-        ctx,
-        chatId,
-        messageId,
+      await ctx.editMessageText(
         "📝 Запись сохранена (контакт не распознан).",
+        { parse_mode: "HTML" },
       );
       return;
     }
 
-    // Resolve or create contact (same logic as voice-pipeline.ts)
+    // Resolve or create contact
     let contactId: string;
     let isNew = false;
 
@@ -175,7 +429,7 @@ async function handleAudio(
 
     // Link interaction
     await prisma.interaction.update({
-      where: { id: interaction.id },
+      where: { id: interactionId },
       data: { contact_id: contactId, ai_summary: extracted.memory_summary },
     });
 
@@ -195,11 +449,6 @@ async function handleAudio(
 
     await recalcAndAutoStatus(contactId);
 
-    await prisma.audioFile.update({
-      where: { interaction_id: interaction.id },
-      data: { transcription_status: "completed" },
-    });
-
     // Format response
     const text = formatContactMessage(extracted, isNew);
     const keyboard = Markup.inlineKeyboard([
@@ -210,30 +459,54 @@ async function handleAudio(
       [Markup.button.callback("🗑 Удалить", `contact_delete:${contactId}`)],
     ]);
 
-    await ctx.telegram.editMessageText(
-      chatId,
-      messageId,
-      undefined,
-      text,
-      { parse_mode: "HTML", ...keyboard },
-    );
+    await ctx.editMessageText(text, { parse_mode: "HTML", ...keyboard });
   } catch (err) {
-    logger.error("Telegram voice handler error", { error: String(err) });
-    await editMessage(
-      ctx,
-      chatId,
-      messageId,
-      "❌ Произошла ошибка при обработке записи.",
+    logger.error("Voice accept error", { error: String(err) });
+    await ctx.editMessageText(
+      "❌ Произошла ошибка при создании контакта.",
+      { parse_mode: "HTML" },
     ).catch(() => {});
-  } finally {
-    // Always clean up temp file
-    try {
-      fs.unlinkSync(filePath);
-    } catch {
-      // file already deleted or never created
-    }
   }
 }
+
+async function handleVoiceEdit(ctx: Context) {
+  const chatId = ctx.chat!.id;
+  const state = getState(chatId);
+
+  if (!state || state.action !== "voice_review") {
+    await ctx.answerCbQuery("Сессия истекла. Запиши голосовое заново.");
+    return;
+  }
+
+  try {
+    await ctx.answerCbQuery();
+  } catch { /* ignore */ }
+
+  // Switch to editing state (keep transcript and interactionId)
+  setState(chatId, "voice_editing", {
+    transcript: state.data.transcript,
+    interactionId: state.data.interactionId,
+  });
+
+  await ctx.editMessageText(
+    [
+      "✏️ <b>Режим редактирования</b>",
+      divider(),
+      "",
+      "Опиши, что нужно исправить — текстом или голосовым.",
+      "",
+      "Примеры:",
+      '· «Его зовут Алексей, а не Александр»',
+      '· «Он работает в Яндексе, не в Гугле»',
+      '· «Добавь, что мы познакомились на конференции»',
+      "",
+      "<i>Я учту твои правки и покажу обновлённый текст.</i>",
+    ].join("\n"),
+    { parse_mode: "HTML" },
+  );
+}
+
+// ── Helpers ──────────────────────────────────────────────
 
 async function updateContact(
   contactId: string,
@@ -360,10 +633,6 @@ async function handleChatVoiceMessage(
       "❌ Не удалось распознать речь. Попробуй ещё раз.",
     ).catch(() => {});
   } finally {
-    try {
-      fs.unlinkSync(filePath);
-    } catch {
-      // ignore
-    }
+    try { fs.unlinkSync(filePath); } catch { /* ignore */ }
   }
 }
