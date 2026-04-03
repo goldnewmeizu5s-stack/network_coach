@@ -119,12 +119,16 @@ export default function FollowUpCard({ item, onRemoved, compact }: Props) {
           onClick={() => navigate(`/people/${item.contact_id}`)}
         >
           <div
-            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-xs font-bold text-white"
+            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-xs font-bold text-white overflow-hidden"
             style={{
               backgroundColor: getWarmthColor(item.contact.warmth_status),
             }}
           >
-            {getInitials(item.contact.full_name)}
+            {item.contact.photo_url ? (
+              <img src={item.contact.photo_url} alt={item.contact.full_name} className="h-full w-full object-cover" />
+            ) : (
+              getInitials(item.contact.full_name)
+            )}
           </div>
           <div className="min-w-0 flex-1">
             <p className="truncate text-sm font-medium text-white">
