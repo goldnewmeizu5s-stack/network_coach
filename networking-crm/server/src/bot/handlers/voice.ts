@@ -6,6 +6,7 @@ import type { Context } from "telegraf";
 import prisma from "../../lib/prisma";
 import { logger } from "../../lib/logger";
 import { transcribeAudio } from "../../services/transcription";
+import { polishTranscript } from "../../services/transcript-polish";
 import { extractContactData } from "../../services/ai-extraction";
 import { correctTranscript } from "../../services/transcript-correction";
 import { createContact } from "../../services/voice-pipeline";
@@ -28,6 +29,9 @@ export function registerVoiceHandlers(bot: Telegraf) {
   // Review flow callbacks
   bot.action("voice_accept", handleVoiceAccept);
   bot.action("voice_edit", handleVoiceEdit);
+
+  // Social links collection
+  bot.action(/^socials_skip:(.+)$/, handleSocialsSkip);
 }
 
 /**
@@ -283,19 +287,24 @@ async function handleAudio(
       return;
     }
 
-    // Save transcript
+    // Polish transcript with AI (fix speech-to-text errors)
+    await editMessage(ctx, chatId, messageId, "✨ Причёсываю текст...").catch(() => {});
+
+    const polished = await polishTranscript(transcript);
+
+    // Save polished transcript
     await prisma.interaction.update({
       where: { id: interaction.id },
-      data: { transcript },
+      data: { transcript: polished },
     });
     await prisma.audioFile.update({
       where: { interaction_id: interaction.id },
       data: { file_path: "deleted", transcription_status: "completed" },
     });
 
-    // ── Show transcript for review ──────────────────────
+    // ── Show polished transcript for review ─────────────
     setState(chatId, "voice_review", {
-      transcript,
+      transcript: polished,
       interactionId: interaction.id,
     });
 
@@ -449,17 +458,29 @@ async function handleVoiceAccept(ctx: Context) {
 
     await recalcAndAutoStatus(contactId);
 
-    // Format response
+    // Show contact card
     const text = formatContactMessage(extracted, isNew);
-    const keyboard = Markup.inlineKeyboard([
-      [
-        Markup.button.callback("👤 Открыть", `contact_view:${contactId}`),
-        Markup.button.callback("📋 Follow-ups", `contact_fups:${contactId}`),
-      ],
-      [Markup.button.callback("🗑 Удалить", `contact_delete:${contactId}`)],
-    ]);
+    await ctx.editMessageText(text, { parse_mode: "HTML" });
 
-    await ctx.editMessageText(text, { parse_mode: "HTML", ...keyboard });
+    // Ask for social links in a SEPARATE message (so it's clearly visible)
+    setState(chatId, "awaiting_socials", { contactId });
+
+    await ctx.reply(
+      [
+        "📲 <b>Есть контакт этого человека?</b>",
+        "",
+        "Вставь ссылку или юзернейм (Telegram, WhatsApp,",
+        "Instagram, LinkedIn — что угодно).",
+        "",
+        "Можно несколько — каждый с новой строки.",
+      ].join("\n"),
+      {
+        parse_mode: "HTML",
+        ...Markup.inlineKeyboard([
+          [Markup.button.callback("⏭ Пропустить", `socials_skip:${contactId}`)],
+        ]),
+      },
+    );
   } catch (err) {
     logger.error("Voice accept error", { error: String(err) });
     await ctx.editMessageText(
@@ -504,6 +525,212 @@ async function handleVoiceEdit(ctx: Context) {
     ].join("\n"),
     { parse_mode: "HTML" },
   );
+}
+
+// ── Social links collection ──────────────────────────────
+
+async function handleSocialsSkip(ctx: Context) {
+  const match = (ctx as any).match as RegExpMatchArray;
+  const contactId = match[1];
+  clearState(ctx.chat!.id);
+
+  try {
+    await ctx.answerCbQuery();
+  } catch { /* ignore */ }
+
+  await ctx.editMessageText(
+    "✅ Готово!",
+    {
+      parse_mode: "HTML",
+      ...Markup.inlineKeyboard([
+        [
+          Markup.button.callback("👤 Открыть", `contact_view:${contactId}`),
+          Markup.button.callback("📋 Follow-ups", `contact_fups:${contactId}`),
+        ],
+        [Markup.button.callback("🏠 Меню", "main_menu")],
+      ]),
+    },
+  );
+}
+
+/**
+ * Handle text input when user is in awaiting_socials state.
+ * Parses links/usernames and saves as social_links.
+ * Called from the main text handler.
+ */
+export async function handleSocialsText(ctx: Context, text: string) {
+  const chatId = ctx.chat!.id;
+  const state = getState(chatId);
+  if (!state || state.action !== "awaiting_socials") return;
+
+  const contactId = state.data.contactId as string;
+  clearState(chatId);
+
+  const links = parseSocialLinks(text);
+
+  if (Object.keys(links).length === 0) {
+    // Couldn't parse — save as raw note
+    await prisma.interaction.create({
+      data: {
+        contact_id: contactId,
+        type: "note",
+        content: `Contact info: ${text}`,
+      },
+    });
+    await ctx.reply(
+      "📝 Сохранил как заметку к контакту.",
+      {
+        parse_mode: "HTML",
+        ...Markup.inlineKeyboard([
+          [
+            Markup.button.callback("👤 Открыть", `contact_view:${contactId}`),
+            Markup.button.callback("📋 Follow-ups", `contact_fups:${contactId}`),
+          ],
+          [Markup.button.callback("🏠 Меню", "main_menu")],
+        ]),
+      },
+    );
+    return;
+  }
+
+  // Merge with existing social_links
+  try {
+    const contact = await prisma.contact.findUnique({
+      where: { id: contactId },
+      select: { social_links: true },
+    });
+    const existing = (contact?.social_links as Record<string, string>) || {};
+    const merged = { ...existing, ...links };
+
+    const { Prisma } = await import("@prisma/client");
+    await prisma.contact.update({
+      where: { id: contactId },
+      data: { social_links: merged },
+    });
+
+    const saved = Object.entries(merged)
+      .map(([k, v]) => `${platformLabel(k)}: ${v}`)
+      .join("\n");
+
+    await ctx.reply(
+      `✅ Контакты сохранены!\n\n${saved}`,
+      {
+        parse_mode: "HTML",
+        ...Markup.inlineKeyboard([
+          [
+            Markup.button.callback("👤 Открыть", `contact_view:${contactId}`),
+            Markup.button.callback("📋 Follow-ups", `contact_fups:${contactId}`),
+          ],
+          [Markup.button.callback("🏠 Меню", "main_menu")],
+        ]),
+      },
+    );
+  } catch (err) {
+    logger.error("Failed to save social links", { error: String(err) });
+    await ctx.reply("❌ Не удалось сохранить контакты.");
+  }
+}
+
+function platformLabel(key: string): string {
+  const labels: Record<string, string> = {
+    telegram: "Telegram",
+    whatsapp: "WhatsApp",
+    instagram: "Instagram",
+    linkedin: "LinkedIn",
+    facebook: "Facebook",
+    twitter: "Twitter / X",
+    phone: "Телефон",
+    email: "Email",
+  };
+  return labels[key] || key;
+}
+
+/**
+ * Parse social links from user input.
+ * Handles URLs, @usernames, phone numbers, emails.
+ */
+function parseSocialLinks(text: string): Record<string, string> {
+  const links: Record<string, string> = {};
+  const lines = text.split(/\n/).map((l) => l.trim()).filter(Boolean);
+
+  for (const line of lines) {
+    // Telegram links
+    if (/t\.me\//i.test(line) || /telegram/i.test(line)) {
+      const match = line.match(/t\.me\/([a-zA-Z0-9_]+)/i);
+      links.telegram = match ? `@${match[1]}` : line.trim();
+      continue;
+    }
+
+    // WhatsApp links
+    if (/wa\.me\//i.test(line) || /whatsapp/i.test(line)) {
+      const match = line.match(/wa\.me\/(\+?\d+)/i);
+      links.whatsapp = match ? match[1] : line.trim();
+      continue;
+    }
+
+    // Instagram
+    if (/instagram\.com/i.test(line) || /instagr\.am/i.test(line) || /^@?[a-zA-Z0-9_.]+$/i.test(line) && /inst/i.test(line)) {
+      const match = line.match(/instagram\.com\/([a-zA-Z0-9_.]+)/i);
+      links.instagram = match ? `@${match[1]}` : line.trim();
+      continue;
+    }
+
+    // LinkedIn
+    if (/linkedin\.com/i.test(line)) {
+      links.linkedin = line.trim();
+      continue;
+    }
+
+    // Facebook
+    if (/facebook\.com/i.test(line) || /fb\.com/i.test(line)) {
+      links.facebook = line.trim();
+      continue;
+    }
+
+    // Twitter / X
+    if (/twitter\.com/i.test(line) || /x\.com\//i.test(line)) {
+      const match = line.match(/(?:twitter|x)\.com\/([a-zA-Z0-9_]+)/i);
+      links.twitter = match ? `@${match[1]}` : line.trim();
+      continue;
+    }
+
+    // Email
+    if (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(line)) {
+      links.email = line.trim();
+      continue;
+    }
+
+    // Phone number
+    if (/^\+?\d[\d\s\-()]{6,}$/.test(line.replace(/\s/g, ""))) {
+      links.phone = line.trim();
+      continue;
+    }
+
+    // @username — assume Telegram if single username without context
+    if (/^@[a-zA-Z0-9_]{3,}$/.test(line)) {
+      links.telegram = line.trim();
+      continue;
+    }
+
+    // Generic URL — store as-is under "other"
+    if (/^https?:\/\//i.test(line)) {
+      links.other = line.trim();
+      continue;
+    }
+
+    // If nothing matched but looks like a username/handle
+    if (/^[a-zA-Z0-9_.]{3,30}$/.test(line)) {
+      // Could be anything — don't guess, save as first empty platform
+      if (!links.telegram) {
+        links.telegram = `@${line.trim()}`;
+      } else if (!links.instagram) {
+        links.instagram = `@${line.trim()}`;
+      }
+      continue;
+    }
+  }
+
+  return links;
 }
 
 // ── Helpers ──────────────────────────────────────────────

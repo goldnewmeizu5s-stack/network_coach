@@ -11,7 +11,7 @@ import {
 import { suggestActions, Suggestion } from "../../services/message-drafting";
 import { handleReflectionText } from "./challenges";
 import { handleChatMessage } from "./chat";
-import { handleVoiceCorrectionText } from "./voice";
+import { handleVoiceCorrectionText, handleSocialsText } from "./voice";
 import { handleProfileFieldInput } from "./settings";
 import { setState, getState, clearState } from "../state";
 import {
@@ -85,6 +85,13 @@ export function registerTextHandler(bot: Telegraf) {
       await handleVoiceCorrectionText(ctx, text);
       return;
     }
+
+    // Social links collection after contact creation
+    if (state?.action === "awaiting_socials") {
+      await handleSocialsText(ctx, text);
+      return;
+    }
+
 
     // Handle awaiting_note state
     if (state?.action === "awaiting_note") {
@@ -393,6 +400,22 @@ async function showContactCard(ctx: Context, contactId: string) {
       }
       if (contact.personality_notes) {
         lines.push(`📝 Заметки: ${esc(contact.personality_notes)}`);
+      }
+    }
+
+    // Social links
+    const socialLinks = contact.social_links as Record<string, string> | null;
+    if (socialLinks && Object.keys(socialLinks).length > 0) {
+      lines.push("", thinDivider(), "");
+      lines.push("📲 <b>Контакты:</b>");
+      const platformLabels: Record<string, string> = {
+        telegram: "TG", whatsapp: "WA", instagram: "IG",
+        linkedin: "LI", facebook: "FB", twitter: "X",
+        phone: "📞", email: "✉️",
+      };
+      for (const [key, value] of Object.entries(socialLinks)) {
+        const label = platformLabels[key] || key;
+        lines.push(`  ${label}: ${esc(value)}`);
       }
     }
 
