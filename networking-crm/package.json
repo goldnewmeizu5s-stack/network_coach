@@ -16,7 +16,8 @@
     "db:seed": "npx ts-node --transpile-only server/src/seed/methodologies.ts",
     "start": "node server/dist/index.js",
     "docker:build": "docker build -t networking-crm .",
-    "docker:run": "docker run -p 3001:3001 --env-file .env networking-crm"
+    "docker:run": "docker run -p 3001:3001 --env-file .env networking-crm",
+    "import:methods": "npx ts-node scripts/import-methodologies.ts"
   },
   "dependencies": {
     "@prisma/client": "^5.22.0"
