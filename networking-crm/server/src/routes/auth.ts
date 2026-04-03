@@ -96,6 +96,53 @@ router.put("/change-pin", async (req: Request, res: Response) => {
   }
 });
 
+// ── Telegram Mini App auth ───────────────────────────────
+
+function validateTelegramInitData(initData: string, botToken: string): boolean {
+  if (!botToken) return false;
+
+  const params = new URLSearchParams(initData);
+  const hash = params.get("hash");
+  if (!hash) return false;
+
+  params.delete("hash");
+  const dataCheckString = Array.from(params.entries())
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([key, value]) => `${key}=${value}`)
+    .join("\n");
+
+  const secretKey = crypto
+    .createHmac("sha256", "WebAppData")
+    .update(botToken)
+    .digest();
+
+  const calculatedHash = crypto
+    .createHmac("sha256", secretKey)
+    .update(dataCheckString)
+    .digest("hex");
+
+  return calculatedHash === hash;
+}
+
+router.post("/telegram", async (req: Request, res: Response) => {
+  try {
+    const { initData } = req.body;
+    if (!initData || !config.telegramBotToken) {
+      res.json({ valid: false });
+      return;
+    }
+
+    const valid = validateTelegramInitData(initData, config.telegramBotToken);
+    if (valid) {
+      const token = await createSession();
+      setAuthCookie(res, token);
+    }
+    res.json({ valid });
+  } catch {
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
 router.post("/logout", async (req: Request, res: Response) => {
   try {
     const token = req.cookies?.[COOKIE_NAME];

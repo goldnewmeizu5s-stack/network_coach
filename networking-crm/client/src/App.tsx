@@ -23,6 +23,8 @@ const Challenge = lazy(() => import("./pages/Challenge"));
 const Chat = lazy(() => import("./pages/Chat"));
 const Settings = lazy(() => import("./pages/Settings"));
 
+const isTelegramWebApp = !!window.Telegram?.WebApp?.initData;
+
 type Tab = "home" | "people" | "challenge" | "chat" | "followups";
 
 const TAB_ICONS = {
@@ -261,6 +263,29 @@ function AnimatedRoutes() {
   );
 }
 
+function TelegramBackButton() {
+  const navigate = useNavigate();
+  const location = useLocation();
+
+  useEffect(() => {
+    const tg = window.Telegram?.WebApp;
+    if (!tg) return;
+
+    // Show back button on sub-pages, hide on main tabs
+    const isSubPage = location.pathname.match(/^\/people\/[^/]+$/);
+    if (isSubPage) {
+      tg.BackButton.show();
+      const handler = () => navigate(-1);
+      tg.BackButton.onClick(handler);
+      return () => tg.BackButton.hide();
+    } else {
+      tg.BackButton.hide();
+    }
+  }, [navigate, location.pathname]);
+
+  return null;
+}
+
 function AuthedLayout() {
   const [showOnboarding, setShowOnboarding] = useState(false);
   const [onboardingChecked, setOnboardingChecked] = useState(false);
@@ -289,10 +314,11 @@ function AuthedLayout() {
   }, [checkOnboarding]);
 
   return (
-    <div className="mx-auto flex h-full max-w-[430px] flex-col">
+    <div className={`mx-auto flex h-full max-w-[430px] flex-col ${isTelegramWebApp ? "pt-1" : ""}`}>
       <main className="flex flex-1 flex-col overflow-y-auto content-pb">
         <ScrollToTop />
-        <InstallBanner />
+        {isTelegramWebApp && <TelegramBackButton />}
+        {!isTelegramWebApp && <InstallBanner />}
         <AnimatedRoutes />
       </main>
       <BottomNav />
@@ -307,9 +333,44 @@ function App() {
   const [authed, setAuthed] = useState(() => !!sessionStorage.getItem("authed"));
   const [checking, setChecking] = useState(!sessionStorage.getItem("authed"));
 
+  // Initialize Telegram WebApp
+  useEffect(() => {
+    const tg = window.Telegram?.WebApp;
+    if (tg) {
+      tg.ready();
+      tg.expand();
+      tg.setHeaderColor("#0f0f0f");
+      tg.setBackgroundColor("#0f0f0f");
+    }
+  }, []);
+
   // On mount, verify session cookie is still valid
   useEffect(() => {
     if (sessionStorage.getItem("authed")) return;
+
+    const tg = window.Telegram?.WebApp;
+
+    // If opened from Telegram — try Telegram auth
+    if (tg?.initData) {
+      fetch("/api/auth/telegram", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "same-origin",
+        body: JSON.stringify({ initData: tg.initData }),
+      })
+        .then((res) => res.json())
+        .then((data) => {
+          if (data.valid) {
+            sessionStorage.setItem("authed", "1");
+            setAuthed(true);
+          }
+        })
+        .catch(() => {})
+        .finally(() => setChecking(false));
+      return; // Don't do regular session check
+    }
+
+    // Regular cookie session check
     fetch("/api/auth/verify", {
       method: "POST",
       headers: { "Content-Type": "application/json" },

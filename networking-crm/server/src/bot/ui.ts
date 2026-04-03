@@ -1,5 +1,10 @@
 import { Markup } from "telegraf";
 import type { Context } from "telegraf";
+import type { InlineKeyboardButton } from "telegraf/types";
+
+type Hideable<B> = B & { hide?: boolean };
+export type InlineButtonRow = Hideable<InlineKeyboardButton>[];
+export type InlineButtons = InlineButtonRow[];
 
 // ── Текстовые утилиты ────────────────────────────────────
 
@@ -186,7 +191,7 @@ export function navRow(
 export async function editOrReply(
   ctx: Context,
   text: string,
-  buttons: ReturnType<typeof Markup.button.callback>[][],
+  buttons: InlineButtons,
 ): Promise<unknown> {
   const keyboard = Markup.inlineKeyboard(buttons);
   try {
