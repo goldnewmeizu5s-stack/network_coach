@@ -10,6 +10,7 @@ import {
 import { suggestActions, Suggestion } from "../../services/message-drafting";
 import { handleReflectionText } from "./challenges";
 import { handleChatMessage } from "./chat";
+import { handleProfileFieldInput } from "./settings";
 import { setState, getState, clearState } from "../state";
 
 const PAGE_SIZE = 10;
@@ -161,6 +162,14 @@ export function registerTextHandler(bot: Telegraf) {
       return;
     }
 
+    // Handle awaiting_profile_* states
+    if (state?.action?.startsWith("awaiting_profile_")) {
+      const field = state.action.replace("awaiting_profile_", "");
+      clearState(chatId);
+      await handleProfileFieldInput(ctx, field, text);
+      return;
+    }
+
     // Contact search: 1-3 words, no special chars
     if (/^[\p{L}\s]{1,60}$/u.test(text) && text.trim().split(/\s+/).length <= 3) {
       const query = text.trim();
@@ -191,8 +200,11 @@ export function registerTextHandler(bot: Telegraf) {
       }
     }
 
-    // Not a contact search — pass to next handler
-    return next();
+    // No match — show hint
+    await ctx.reply(
+      "Отправь голосовое 🎤 чтобы добавить контакт,\nили напиши /menu для главного меню.\n\nИли просто напиши имя контакта для быстрого поиска.",
+      { parse_mode: "HTML" },
+    );
   });
 }
 

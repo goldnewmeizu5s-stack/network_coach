@@ -9,6 +9,7 @@ import { registerContactHandlers, registerTextHandler } from "./handlers/contact
 import { registerFollowupHandlers } from "./handlers/followups";
 import { registerChallengeHandlers } from "./handlers/challenges";
 import { registerChatHandlers } from "./handlers/chat";
+import { registerSettingsHandlers } from "./handlers/settings";
 
 let bot: Telegraf | null = null;
 
@@ -36,6 +37,7 @@ export function startBot(): void {
   registerFollowupHandlers(bot);
   registerChallengeHandlers(bot);
   registerChatHandlers(bot);
+  registerSettingsHandlers(bot);
   registerVoiceHandlers(bot);
 
   // Text handler must be last (catch-all for notes & search)

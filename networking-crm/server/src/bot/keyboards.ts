@@ -1,14 +1,17 @@
 import { Markup } from "telegraf";
 
 export const mainMenuKeyboard = Markup.inlineKeyboard([
-  [Markup.button.callback("🎤 Голосовое", "voice_info")],
   [
+    Markup.button.callback("🎤 Голосовое", "voice_info"),
     Markup.button.callback("👥 Контакты", "contacts"),
-    Markup.button.callback("📋 Follow-ups", "followups"),
   ],
   [
-    Markup.button.callback("🎯 Челлендж дня", "challenge"),
+    Markup.button.callback("📋 Follow-ups", "followups"),
+    Markup.button.callback("🎯 Челлендж", "challenge"),
+  ],
+  [
     Markup.button.callback("💬 AI-чат", "ai_chat"),
+    Markup.button.callback("📊 Стата", "settings_stats"),
   ],
   [Markup.button.callback("⚙️ Настройки", "settings")],
 ]);
@@ -36,15 +39,6 @@ export function registerCallbackHandlers(bot: import("telegraf").Telegraf) {
     });
   });
 
-  // Stubs for features not yet implemented
-  const stubs = ["settings"] as const;
-
-  for (const action of stubs) {
-    bot.action(action, (ctx) =>
-      ctx.answerCbQuery("В разработке 🚧")
-    );
-  }
-
   // contact_edit stub (not yet implemented)
   bot.action(/^contact_edit:/, (ctx) => ctx.answerCbQuery("В разработке 🚧"));
 
@@ -52,7 +46,7 @@ export function registerCallbackHandlers(bot: import("telegraf").Telegraf) {
   bot.action(/^voice_for:/, async (ctx) => {
     await ctx.answerCbQuery();
     await ctx.reply(
-      "🎤 Отправьте голосовое сообщение — оно будет привязано к это��у контакту.",
+      "🎤 Отправьте голосовое сообщение — оно будет привязано к этому контакту.",
       { parse_mode: "HTML" },
     );
   });
