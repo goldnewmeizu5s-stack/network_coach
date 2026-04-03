@@ -28,7 +28,7 @@ export function registerChallengeHandlers(bot: Telegraf) {
   bot.action(/^challenge_too_hard:(.+)$/, handleTooHard);
   bot.action(/^challenge_complete:(.+)$/, handleComplete);
   bot.action(/^challenge_rate:(.+):(\d)$/, handleRate);
-  bot.action(/^challenge_finish:(.+):(\d):noreflection$/, handleFinishNoReflection);
+  bot.action(/^ch_fin:(.+):(\d):nr$/, handleFinishNoReflection);
   bot.action(/^challenge_skip_rate:(.+)$/, handleSkipRate);
   bot.action(/^challenge_skip:(.+)$/, handleSkip);
   bot.action("challenge_stats", handleStats);
@@ -371,7 +371,7 @@ async function handleRate(ctx: Context) {
       ctx,
       `${ratingText} Отлично!\n\n✍️ Напиши пару слов — что заметил, что узнал?\n<i>(или пропусти)</i>`,
       [
-        [Markup.button.callback("Пропустить →", `challenge_finish:${id}:${rating}:noreflection`)],
+        [Markup.button.callback("Пропустить →", `ch_fin:${id}:${rating}:nr`)],
       ],
     );
   } catch (err) {

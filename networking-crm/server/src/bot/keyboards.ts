@@ -137,7 +137,12 @@ export function registerCallbackHandlers(bot: import("telegraf").Telegraf) {
         "🎤 <b>Голосовые заметки</b>\n\n" +
           "Просто отправьте голосовое сообщение, кружочек или аудиофайл — " +
           "бот автоматически распознает речь и создаст контакт.",
-        { parse_mode: "HTML" },
+        {
+          parse_mode: "HTML",
+          ...Markup.inlineKeyboard([
+            [Markup.button.callback("🏠 Меню", "main_menu")],
+          ]),
+        },
       );
     } catch (err) {
       logger.error("voice_info callback error", { error: String(err) });
@@ -182,9 +187,17 @@ export function registerCallbackHandlers(bot: import("telegraf").Telegraf) {
   bot.action(/^voice_for:/, async (ctx) => {
     try {
       await ctx.answerCbQuery();
+      const match = (ctx as any).match as RegExpMatchArray;
+      const contactId = match ? match[0].replace("voice_for:", "") : "";
+      const backButton = contactId
+        ? Markup.button.callback("← К контакту", `contact_view:${contactId}`)
+        : Markup.button.callback("🏠 Меню", "main_menu");
       await ctx.reply(
         "🎤 Отправьте голосовое сообщение — оно будет привязано к этому контакту.",
-        { parse_mode: "HTML" },
+        {
+          parse_mode: "HTML",
+          ...Markup.inlineKeyboard([[backButton]]),
+        },
       );
     } catch (err) {
       logger.error("voice_for callback error", { error: String(err) });
