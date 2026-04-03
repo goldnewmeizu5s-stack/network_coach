@@ -147,15 +147,14 @@ export async function processVoiceNote(
       },
     });
 
-    // h. Create follow-up
-    if (extracted.suggested_next_steps.length > 0) {
+    // h. Create follow-ups (all, with AI-determined due dates)
+    for (const step of extracted.suggested_next_steps) {
       const dueDate = new Date();
-      dueDate.setDate(dueDate.getDate() + 2);
-
+      dueDate.setDate(dueDate.getDate() + step.due_days);
       await prisma.followUp.create({
         data: {
           contact_id: contactId,
-          suggested_action: extracted.suggested_next_steps[0],
+          suggested_action: step.action,
           due_date: dueDate,
           priority: extracted.urgency_score,
         },

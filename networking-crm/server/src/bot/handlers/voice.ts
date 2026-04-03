@@ -442,14 +442,14 @@ async function handleVoiceAccept(ctx: Context) {
       data: { contact_id: contactId, ai_summary: extracted.memory_summary },
     });
 
-    // Create follow-up
-    if (extracted.suggested_next_steps.length > 0) {
+    // Create follow-ups (all of them, with AI-determined due dates)
+    for (const step of extracted.suggested_next_steps) {
       const dueDate = new Date();
-      dueDate.setDate(dueDate.getDate() + 2);
+      dueDate.setDate(dueDate.getDate() + step.due_days);
       await prisma.followUp.create({
         data: {
           contact_id: contactId,
-          suggested_action: extracted.suggested_next_steps[0],
+          suggested_action: step.action,
           due_date: dueDate,
           priority: extracted.urgency_score,
         },
@@ -801,7 +801,10 @@ function formatContactMessage(
     lines.push("", thinDivider(), "");
     lines.push("📌 <b>Следующие шаги:</b>");
     extracted.suggested_next_steps.forEach((step, i) => {
-      lines.push(`${i + 1}. ${esc(step)}`);
+      const daysLabel = step.due_days === 0 ? "сегодня"
+        : step.due_days === 1 ? "завтра"
+        : `через ${step.due_days} дн.`;
+      lines.push(`${i + 1}. ${esc(step.action)} <i>(${daysLabel})</i>`);
     });
   }
 
