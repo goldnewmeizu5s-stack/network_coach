@@ -100,10 +100,11 @@ async function handleExitChat(ctx: Context) {
     await ctx.answerCbQuery();
     clearState(ctx.chat!.id);
 
-    const { mainMenuKeyboard, MAIN_MENU_TEXT } = await import("../keyboards");
-    await ctx.editMessageText(MAIN_MENU_TEXT, {
+    const { buildMainMenu } = await import("../keyboards");
+    const { text, keyboard } = await buildMainMenu();
+    await ctx.editMessageText(text, {
       parse_mode: "HTML",
-      ...mainMenuKeyboard,
+      ...keyboard,
     });
   } catch (err) {
     logger.error("exit chat error", { error: String(err) });
