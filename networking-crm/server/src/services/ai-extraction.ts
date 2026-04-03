@@ -1,5 +1,6 @@
 import { anthropic } from "../lib/ai";
 import { config } from "../config";
+import prisma from "../lib/prisma";
 import { ExtractedContact, FollowUpSuggestion } from "../types";
 import { logger } from "../lib/logger";
 
@@ -64,12 +65,23 @@ export async function extractContactData(
   const maxRetries = 2;
   const backoff = [2000, 6000];
 
+  // Load user context for smarter extraction
+  let systemPrompt = SYSTEM_PROMPT;
+  try {
+    const user = await prisma.user.findFirst();
+    const prefs = (user?.preferences as Record<string, unknown>) || {};
+    const navigatorPrompt = prefs.navigator_prompt as string | undefined;
+    if (navigatorPrompt) {
+      systemPrompt = `${SYSTEM_PROMPT}\n\n--- USER CONTEXT ---\n${navigatorPrompt}`;
+    }
+  } catch { /* use default prompt if DB fails */ }
+
   for (let attempt = 0; attempt < maxRetries; attempt++) {
     try {
       const message = await anthropic.messages.create({
         model: config.claudeModel,
         max_tokens: 1024,
-        system: SYSTEM_PROMPT,
+        system: systemPrompt,
         messages: [{ role: "user", content: transcript }],
       });
 

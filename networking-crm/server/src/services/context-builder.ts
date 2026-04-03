@@ -10,12 +10,20 @@ export async function buildChatContext(): Promise<string> {
   // a. User Profile (always kept)
   const user = await prisma.user.findFirst();
   if (user) {
-    const lines = ["## USER PROFILE"];
-    if (user.goals) lines.push(`Goals: ${user.goals}`);
-    if (user.fears) lines.push(`Fears: ${user.fears}`);
-    if (user.strengths) lines.push(`Strengths: ${user.strengths}`);
-    if (user.weaknesses) lines.push(`Weaknesses: ${user.weaknesses}`);
-    if (lines.length > 1) sections.set("profile", lines.join("\n"));
+    const prefs = (user.preferences as Record<string, unknown>) || {};
+    const navigatorPrompt = prefs.navigator_prompt as string | undefined;
+
+    if (navigatorPrompt) {
+      // Full navigator profile — use as-is
+      sections.set("profile", navigatorPrompt);
+    } else {
+      const lines = ["## USER PROFILE"];
+      if (user.goals) lines.push(`Goals: ${user.goals}`);
+      if (user.fears) lines.push(`Fears: ${user.fears}`);
+      if (user.strengths) lines.push(`Strengths: ${user.strengths}`);
+      if (user.weaknesses) lines.push(`Weaknesses: ${user.weaknesses}`);
+      if (lines.length > 1) sections.set("profile", lines.join("\n"));
+    }
   }
 
   // b. Activity Summary (last 7 days) — trimmable
