@@ -1,5 +1,18 @@
 #!/bin/sh
 
+# Fix DATABASE_URL protocol if needed (Railway sometimes provides mysql:// or other formats)
+if [ -n "$DATABASE_URL" ]; then
+  case "$DATABASE_URL" in
+    postgresql://*|postgres://*)
+      ;; # already correct
+    *)
+      # Replace everything before :// with postgresql
+      export DATABASE_URL="postgresql://${DATABASE_URL#*://}"
+      echo "Fixed DATABASE_URL protocol to postgresql://"
+      ;;
+  esac
+fi
+
 echo "Running prisma db push..."
 npx prisma db push --schema=prisma/schema.prisma --accept-data-loss 2>&1 || echo "DB push warning, continuing..."
 
