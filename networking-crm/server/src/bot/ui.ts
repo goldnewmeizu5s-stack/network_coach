@@ -209,6 +209,56 @@ export async function safeAnswer(ctx: Context, text: string): Promise<void> {
   }
 }
 
+// ── Markdown → Telegram HTML ─────────────────────────────
+
+/**
+ * Convert markdown (from Claude/AI) to Telegram-safe HTML.
+ * Handles bold, italic, headings, lists, and escapes everything else.
+ */
+export function markdownToTelegramHtml(text: string): string {
+  let result = text;
+
+  // Remove ### headings → bold text
+  result = result.replace(/^#{1,6}\s+(.+)$/gm, "<b>$1</b>");
+
+  // Convert **bold** → <b>bold</b> (before single *)
+  result = result.replace(/\*\*(.+?)\*\*/g, "<b>$1</b>");
+
+  // Convert __bold__ → <b>bold</b>
+  result = result.replace(/__(.+?)__/g, "<b>$1</b>");
+
+  // Convert *italic* → <i>italic</i> (but not ** which is already handled)
+  result = result.replace(/(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)/g, "<i>$1</i>");
+
+  // Convert _italic_ → <i>italic</i> (but not __ which is already handled)
+  result = result.replace(/(?<!_)_(?!_)(.+?)(?<!_)_(?!_)/g, "<i>$1</i>");
+
+  // Convert `code` → <code>code</code>
+  result = result.replace(/`([^`]+)`/g, "<code>$1</code>");
+
+  // Convert - list items → • (at line start)
+  result = result.replace(/^[-*]\s+/gm, "• ");
+
+  // Now escape HTML in non-tag parts
+  // Split by existing tags to preserve them
+  const TAG_RE = /(<\/?(?:b|i|u|s|code|pre|a(?:\s[^>]*)?)>)/g;
+  const parts = result.split(TAG_RE);
+  result = parts
+    .map((part) => {
+      if (TAG_RE.test(part)) {
+        TAG_RE.lastIndex = 0;
+        return part;
+      }
+      return part
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;");
+    })
+    .join("");
+
+  return result;
+}
+
 // ── Константы ────────────────────────────────────────────
 
 export const STATUS_EMOJI: Record<string, string> = {

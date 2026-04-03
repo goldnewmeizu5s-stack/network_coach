@@ -3,7 +3,7 @@ import type { Context } from "telegraf";
 import { logger } from "../../lib/logger";
 import { processChat } from "../../services/chat-service";
 import { setState, clearState } from "../state";
-import { esc } from "../ui";
+import { esc, divider, markdownToTelegramHtml } from "../ui";
 
 const CHAT_EXPIRE_MS = 30 * 60 * 1000; // 30 minutes
 
@@ -15,9 +15,6 @@ const QUICK_QUESTIONS: Record<string, string> = {
 };
 
 const TG_MSG_LIMIT = 4096;
-
-// Allowed HTML tags in Telegram
-const ALLOWED_TAGS = /(<\/?(?:b|i|u|s|code|pre|a(?:\s[^>]*)?)>)/g;
 
 export function registerChatHandlers(bot: Telegraf) {
   bot.action("ai_chat", handleActivateChat);
@@ -75,15 +72,15 @@ async function handleActivateChat(ctx: Context) {
     setState(ctx.chat!.id, "ai_chat", {});
 
     const text = [
-      "💬 <b>AI-чат активирован</b>",
+      "💬 <b>AI-чат</b>",
+      divider(),
       "",
-      "Просто пиши мне — я отвечу с учётом всех твоих контактов и данных.",
+      "Пиши или отправляй голосовые —",
+      "я отвечу с учётом всех твоих контактов.",
       "",
-      "Примеры вопросов:",
-      "• Что мне делать сегодня?",
-      "• С кем давно не общался?",
-      "• Как подготовиться к конференции?",
-      "• Помоги написать сообщение для [Имя]",
+      "<i>Примеры: «Что делать с Алексеем?»,",
+      "«Подготовь меня к конференции»,",
+      "«Кому давно не писал?»</i>",
     ].join("\n");
 
     await ctx.editMessageText(text, {
@@ -100,10 +97,12 @@ async function handleExitChat(ctx: Context) {
     await ctx.answerCbQuery();
     clearState(ctx.chat!.id);
 
-    const { mainMenuKeyboard, MAIN_MENU_TEXT } = await import("../keyboards");
-    await ctx.editMessageText(MAIN_MENU_TEXT, {
+    const { buildMainMenu } = await import("../keyboards");
+    const { text: menuText, keyboard } = await buildMainMenu();
+
+    await ctx.editMessageText(`💬 Чат завершён.\n\n${menuText}`, {
       parse_mode: "HTML",
-      ...mainMenuKeyboard,
+      ...keyboard,
     });
   } catch (err) {
     logger.error("exit chat error", { error: String(err) });
@@ -129,15 +128,24 @@ async function handleContactChat(ctx: Context) {
 
     setState(ctx.chat!.id, "ai_chat", { contactId });
 
-    await ctx.reply(
-      `💬 Чат в контексте <b>${esc(contact.full_name)}</b>.\nСпрашивай что угодно об этом контакте.`,
-      {
-        parse_mode: "HTML",
-        ...Markup.inlineKeyboard([
-          [Markup.button.callback("🏠 Выйти из чата", "chat_exit")],
-        ]),
-      },
-    );
+    const text = [
+      `💬 <b>Чат · ${esc(contact.full_name)}</b>`,
+      divider(),
+      "",
+      "Спрашивай что угодно об этом контакте.",
+      "Я вижу всю его историю и данные.",
+    ].join("\n");
+
+    await ctx.reply(text, {
+      parse_mode: "HTML",
+      ...Markup.inlineKeyboard([
+        [
+          Markup.button.callback("🤔 Что делать?", "quick_what_today"),
+          Markup.button.callback("✉️ Написать ему", "quick_advice"),
+        ],
+        [Markup.button.callback("🚪 Выйти", "chat_exit")],
+      ]),
+    });
   } catch (err) {
     logger.error("contact chat error", { error: String(err) });
   }
@@ -153,6 +161,11 @@ async function handleQuickQuestion(ctx: Context) {
 
     // Make sure we're in chat mode
     setState(ctx.chat!.id, "ai_chat", {});
+
+    // Show the question from user before AI response
+    await ctx.reply(`🙋 <i>${esc(question)}</i>`, {
+      parse_mode: "HTML",
+    });
 
     await sendAiResponse(ctx, question);
   } catch (err) {
@@ -171,10 +184,13 @@ async function sendAiResponse(
     await ctx.sendChatAction("typing");
 
     const response = await processChat(message, contactId);
-    const sanitized = sanitizeHtmlForTelegram(response);
+    const sanitized = markdownToTelegramHtml(response);
+
+    // Wrap in AI visual frame
+    const framed = `🤖 ${sanitized}`;
 
     // Split long messages
-    const parts = splitMessage(sanitized);
+    const parts = splitMessage(framed);
 
     for (let i = 0; i < parts.length; i++) {
       const isLast = i === parts.length - 1;
@@ -204,31 +220,8 @@ function chatKeyboard() {
       Markup.button.callback("👥 Кого вспомнить?", "quick_neglected"),
       Markup.button.callback("💡 Совет", "quick_advice"),
     ],
-    [Markup.button.callback("🏠 Выйти из чата", "chat_exit")],
+    [Markup.button.callback("🚪 Выйти", "chat_exit")],
   ]);
-}
-
-/**
- * Escape HTML special chars but preserve allowed Telegram HTML tags.
- */
-function sanitizeHtmlForTelegram(text: string): string {
-  // Split by allowed tags to preserve them
-  const parts = text.split(ALLOWED_TAGS);
-  return parts
-    .map((part) => {
-      // If this part matches an allowed tag, keep it as-is
-      if (ALLOWED_TAGS.test(part)) {
-        // Reset regex lastIndex
-        ALLOWED_TAGS.lastIndex = 0;
-        return part;
-      }
-      // Otherwise escape HTML entities
-      return part
-        .replace(/&/g, "&amp;")
-        .replace(/</g, "&lt;")
-        .replace(/>/g, "&gt;");
-    })
-    .join("");
 }
 
 /**

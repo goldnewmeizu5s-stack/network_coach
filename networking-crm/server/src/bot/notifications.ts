@@ -2,7 +2,14 @@ import { Markup } from "telegraf";
 import prisma from "../lib/prisma";
 import { logger } from "../lib/logger";
 import { getBotInstance } from "./index";
-import { esc, dayWord } from "./ui";
+import {
+  esc,
+  dayWord,
+  divider,
+  thinDivider,
+  progressBar,
+  difficultyDots,
+} from "./ui";
 
 // ── Core send function ────────────────────────────────────
 
@@ -65,6 +72,28 @@ async function isQuietHours(): Promise<boolean> {
   }
 }
 
+async function getStreak(): Promise<number> {
+  const yearAgo = new Date(Date.now() - 365 * 86400000);
+  const completed = await prisma.challenge.findMany({
+    where: { status: "completed", date: { gte: yearAgo } },
+    select: { date: true },
+  });
+  const completedDays = new Set(
+    completed.map((c: { date: Date }) => c.date.toISOString().slice(0, 10)),
+  );
+  let streak = 0;
+  const now = new Date();
+  now.setHours(0, 0, 0, 0);
+  for (let i = 0; i < 365; i++) {
+    const day = new Date(now.getTime() - i * 86400000);
+    if (completedDays.has(day.toISOString().slice(0, 10))) {
+      streak++;
+    } else {
+      break;
+    }
+  }
+  return streak;
+}
 
 // ── Morning briefing ──────────────────────────────────────
 
@@ -74,90 +103,79 @@ export async function sendMorningBriefing(): Promise<void> {
   if (await isQuietHours()) return;
 
   try {
-    // Today's challenge
     const todayStart = new Date();
     todayStart.setHours(0, 0, 0, 0);
     const todayEnd = new Date(todayStart.getTime() + 86400000);
 
-    const challenge = await prisma.challenge.findFirst({
-      where: { date: { gte: todayStart, lt: todayEnd } },
-      orderBy: { created_at: "asc" },
-      select: { title: true, category: true },
-    });
-
-    // Follow-ups
     const now = new Date();
-    const [pendingCount, overdueCount, urgent] = await Promise.all([
-      prisma.followUp.count({
-        where: {
-          OR: [
-            { status: "pending" },
-            { status: "snoozed", snoozed_until: { lte: now } },
-          ],
-        },
-      }),
-      prisma.followUp.count({
-        where: { status: "pending", due_date: { lt: todayStart } },
-      }),
-      prisma.followUp.findFirst({
-        where: {
-          OR: [
-            { status: "pending" },
-            { status: "snoozed", snoozed_until: { lte: now } },
-          ],
-        },
-        orderBy: { due_date: "asc" },
-        include: { contact: { select: { full_name: true } } },
-      }),
-    ]);
+    const [challenge, pendingCount, overdueCount, urgent, streak] =
+      await Promise.all([
+        prisma.challenge.findFirst({
+          where: { date: { gte: todayStart, lt: todayEnd } },
+          orderBy: { created_at: "asc" },
+          select: { title: true, category: true, difficulty: true },
+        }),
+        prisma.followUp.count({
+          where: {
+            OR: [
+              { status: "pending" },
+              { status: "snoozed", snoozed_until: { lte: now } },
+            ],
+          },
+        }),
+        prisma.followUp.count({
+          where: { status: "pending", due_date: { lt: todayStart } },
+        }),
+        prisma.followUp.findFirst({
+          where: {
+            OR: [
+              { status: "pending" },
+              { status: "snoozed", snoozed_until: { lte: now } },
+            ],
+          },
+          orderBy: { due_date: "asc" },
+          include: { contact: { select: { full_name: true } } },
+        }),
+        getStreak(),
+      ]);
 
-    // Streak
-    const yearAgo = new Date(Date.now() - 365 * 86400000);
-    const completed = await prisma.challenge.findMany({
-      where: { status: "completed", date: { gte: yearAgo } },
-      select: { date: true },
-    });
-    const completedDays = new Set(
-      completed.map((c: { date: Date }) => c.date.toISOString().slice(0, 10)),
-    );
-    let streak = 0;
-    const streakStart = new Date();
-    streakStart.setHours(0, 0, 0, 0);
-    for (let i = 0; i < 365; i++) {
-      const day = new Date(streakStart.getTime() - i * 86400000);
-      if (completedDays.has(day.toISOString().slice(0, 10))) {
-        streak++;
-      } else {
-        break;
-      }
-    }
+    const lines = [
+      "☀️ <b>Доброе утро!</b>",
+      divider(),
+      "",
+    ];
 
-    // Build message
-    const lines = ["☀️ <b>Доброе утро!</b>", ""];
-
+    // Challenge
     if (challenge) {
       lines.push(`🎯 <b>Челлендж:</b> ${esc(challenge.title)}`);
+      lines.push(`   ${difficultyDots(challenge.difficulty)} сложность ${challenge.difficulty}/10`);
+      lines.push("");
+    } else {
+      lines.push("🎯 Челлендж ещё не готов");
       lines.push("");
     }
 
+    // Follow-ups
     if (pendingCount > 0) {
-      const overdueStr =
-        overdueCount > 0 ? ` (${overdueCount} просрочен)` : "";
-      lines.push(`📋 Follow-ups: ${pendingCount} активных${overdueStr}`);
-    }
+      const overdueStr = overdueCount > 0
+        ? `\n   ⚠️ ${overdueCount} просроченных!`
+        : "";
+      lines.push(`📋 <b>Follow-ups:</b> ${pendingCount} активных${overdueStr}`);
 
-    if (urgent?.contact) {
-      lines.push(
-        `⚡ Срочно: ${esc(urgent.suggested_action)} — ${esc(urgent.contact.full_name)}`,
-      );
-    }
-
-    if (streak > 0) {
+      if (urgent?.contact) {
+        lines.push(`   ⚡ Срочно: написать ${esc(urgent.contact.full_name)}`);
+      }
       lines.push("");
-      lines.push(`🔥 Streak: ${streak} ${dayWord(streak)}`);
     }
 
-    lines.push("", "Удачного дня! 💪");
+    // Streak
+    if (streak > 0) {
+      lines.push(`🔥 Streak: ${streak} ${dayWord(streak)}`);
+      lines.push("");
+    }
+
+    lines.push(thinDivider());
+    lines.push("Удачного дня! 💪");
 
     const keyboard = Markup.inlineKeyboard([
       [
@@ -196,23 +214,6 @@ export async function sendFollowUpReminders(): Promise<void> {
       take: 5,
     });
 
-    if (dueToday.length > 0) {
-      const lines = ["⏰ <b>Напоминание</b>", "", "У тебя на сегодня:"];
-      for (const fu of dueToday) {
-        const name = fu.contact?.full_name || "Контакт";
-        lines.push(
-          `📌 ${esc(name)} — "${esc(fu.suggested_action)}"`,
-        );
-      }
-      lines.push("", "Начни с одного! 💪");
-
-      const keyboard = Markup.inlineKeyboard([
-        [Markup.button.callback("📋 Follow-ups", "followups")],
-      ]);
-
-      await sendTelegramNotification(chatId, lines.join("\n"), keyboard);
-    }
-
     // Overdue > 3 days
     const threeDaysAgo = new Date();
     threeDaysAgo.setDate(threeDaysAgo.getDate() - 3);
@@ -227,32 +228,54 @@ export async function sendFollowUpReminders(): Promise<void> {
       take: 3,
     });
 
+    // Nothing to send
+    if (dueToday.length === 0 && overdue.length === 0) return;
+
+    const lines = [
+      "⏰ <b>Напоминание</b>",
+      divider(),
+      "",
+    ];
+
+    // Overdue section
     if (overdue.length > 0) {
-      const lines = ["⚠️ <b>Есть просроченные follow-ups</b>", ""];
+      lines.push("🔴 <b>Просрочено:</b>");
       for (const fu of overdue) {
         const name = fu.contact?.full_name || "Контакт";
         const days = Math.floor(
           (Date.now() - fu.due_date.getTime()) / 86400000,
         );
         lines.push(
-          `🔴 ${esc(name)} — просрочено на ${days} ${dayWord(days)}`,
+          `   · ${esc(name)} — ${esc(fu.suggested_action)} (${days} дн.)`,
         );
       }
-      lines.push("", "Сделай сейчас или отложи, чтобы не забыть.");
-
-      const keyboard = Markup.inlineKeyboard([
-        [Markup.button.callback("📋 Follow-ups", "followups")],
-      ]);
-
-      await sendTelegramNotification(chatId, lines.join("\n"), keyboard);
+      lines.push("");
     }
 
-    if (dueToday.length > 0 || overdue.length > 0) {
-      logger.info("[notifications] Follow-up reminders sent", {
-        dueToday: dueToday.length,
-        overdue: overdue.length,
-      });
+    // Due today section
+    if (dueToday.length > 0) {
+      lines.push("🟡 <b>На сегодня:</b>");
+      for (const fu of dueToday) {
+        const name = fu.contact?.full_name || "Контакт";
+        lines.push(
+          `   · ${esc(name)} — ${esc(fu.suggested_action)}`,
+        );
+      }
+      lines.push("");
     }
+
+    lines.push(thinDivider());
+    lines.push("Начни с одного — это уже победа! 💪");
+
+    const keyboard = Markup.inlineKeyboard([
+      [Markup.button.callback("📋 К follow-ups", "followups")],
+    ]);
+
+    await sendTelegramNotification(chatId, lines.join("\n"), keyboard);
+    logger.info("[notifications] Follow-up reminders sent", {
+      dueToday: dueToday.length,
+      overdue: overdue.length,
+    });
   } catch (err) {
     logger.error("Follow-up reminders failed", { error: String(err) });
   }
@@ -268,7 +291,7 @@ export async function sendWeeklyDigest(): Promise<void> {
   try {
     const weekAgo = new Date(Date.now() - 7 * 86400000);
 
-    const [followUpsDone, newContacts, challenges, coolingContacts] =
+    const [followUpsDone, newContacts, challenges, coolingContacts, streak] =
       await Promise.all([
         prisma.followUp.count({
           where: { status: "done", completed_at: { gte: weekAgo } },
@@ -286,6 +309,7 @@ export async function sendWeeklyDigest(): Promise<void> {
           orderBy: { last_interaction_at: "asc" },
           take: 5,
         }),
+        getStreak(),
       ]);
 
     const challengesDone = challenges.filter(
@@ -293,40 +317,27 @@ export async function sendWeeklyDigest(): Promise<void> {
     ).length;
     const challengesTotal = challenges.length;
 
-    // Streak
-    const yearAgo = new Date(Date.now() - 365 * 86400000);
-    const completedChallenges = await prisma.challenge.findMany({
-      where: { status: "completed", date: { gte: yearAgo } },
-      select: { date: true },
-    });
-    const completedDays = new Set(
-      completedChallenges.map((c: { date: Date }) =>
-        c.date.toISOString().slice(0, 10),
-      ),
-    );
-    let streak = 0;
-    const now = new Date();
-    now.setHours(0, 0, 0, 0);
-    for (let i = 0; i < 365; i++) {
-      const day = new Date(now.getTime() - i * 86400000);
-      if (completedDays.has(day.toISOString().slice(0, 10))) {
-        streak++;
-      } else {
-        break;
-      }
-    }
-
     const lines = [
       "📊 <b>Итоги недели</b>",
+      divider(),
       "",
-      `✅ Follow-ups выполнено: ${followUpsDone}`,
-      `👥 Новых контактов: ${newContacts}`,
-      `🎯 Челленджей: ${challengesDone}/${challengesTotal}`,
-      `🔥 Streak: ${streak} ${dayWord(streak)}`,
+      `✅ Follow-ups: <b>${followUpsDone}</b> выполнено`,
+      `👥 Новых контактов: <b>${newContacts}</b>`,
+      `🎯 Челленджей: <b>${challengesDone}</b>/${challengesTotal}`,
     ];
 
+    if (streak > 0) {
+      lines.push(`🔥 Streak: <b>${streak}</b> ${dayWord(streak)}`);
+    }
+
+    if (challengesTotal > 0) {
+      lines.push("");
+      lines.push(progressBar(challengesDone, challengesTotal) + " челленджей");
+    }
+
     if (coolingContacts.length > 0) {
-      lines.push("", "⚠️ Остывают:");
+      lines.push("", thinDivider(), "");
+      lines.push("⚠️ <b>Остывают:</b>");
       for (const c of coolingContacts) {
         const days = c.last_interaction_at
           ? Math.floor(
@@ -334,15 +345,16 @@ export async function sendWeeklyDigest(): Promise<void> {
             )
           : 0;
         lines.push(
-          `• ${esc(c.full_name)} (${days} ${dayWord(days)} без контакта)`,
+          `   · ${esc(c.full_name)} — ${days} ${dayWord(days)} без контакта`,
         );
       }
-      lines.push("", "Напиши хотя бы одному из них! 💙");
+      lines.push("");
+      lines.push("<i>💡 Напиши хотя бы одному — 5 минут\nсохранят ценную связь.</i>");
     }
 
     const keyboard = Markup.inlineKeyboard([
       [
-        Markup.button.callback("👥 Cooling", "contacts_filter:cooling"),
+        Markup.button.callback("🟠 Cooling", "contacts_filter:cooling"),
         Markup.button.callback("📋 Follow-ups", "followups"),
       ],
       [Markup.button.callback("🏠 Меню", "main_menu")],
@@ -363,6 +375,7 @@ export async function notifyNewContact(contact: {
   occupation?: string | null;
   company?: string | null;
   city?: string | null;
+  memory_summary?: string | null;
 }): Promise<void> {
   const chatId = await getAdminChatId();
   if (!chatId) return;
@@ -370,17 +383,26 @@ export async function notifyNewContact(contact: {
   // Don't check quiet hours for this — it's triggered by user action
 
   const lines = [
-    "✅ <b>Новый контакт из web</b>",
+    "✅ <b>Новый контакт</b>",
+    divider(),
     "",
-    `👤 ${esc(contact.full_name)}`,
+    `👤 <b>${esc(contact.full_name)}</b>`,
   ];
 
   const job = [contact.occupation, contact.company].filter(Boolean).join(" @ ");
   if (job) lines.push(`💼 ${esc(job)}`);
   if (contact.city) lines.push(`📍 ${esc(contact.city)}`);
 
+  if (contact.memory_summary) {
+    lines.push("");
+    lines.push(`💡 <i>${esc(contact.memory_summary)}</i>`);
+  }
+
   const keyboard = Markup.inlineKeyboard([
-    [Markup.button.callback("👤 Открыть", `contact_view:${contact.id}`)],
+    [
+      Markup.button.callback("👤 Открыть", `contact_view:${contact.id}`),
+      Markup.button.callback("📋 Follow-ups", `contact_fups:${contact.id}`),
+    ],
   ]);
 
   await sendTelegramNotification(chatId, lines.join("\n"), keyboard);

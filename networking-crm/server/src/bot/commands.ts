@@ -1,143 +1,259 @@
 import { Telegraf, Markup } from "telegraf";
+import type { Context } from "telegraf";
 import prisma from "../lib/prisma";
 import { logger } from "../lib/logger";
-import { mainMenuKeyboard, MAIN_MENU_TEXT } from "./keyboards";
+import { buildMainMenu, mainMenuKeyboard, getStreak } from "./keyboards";
 import { clearState } from "./state";
-import { esc, dayWord } from "./ui";
-
-const HELP_TEXT = `<b>Доступные команды:</b>
-
-/start — запуск бота и главное меню
-/menu — показать главное меню
-/quick — быстрая сводка
-/help — справка по командам
-
-<b>Возможности:</b>
-• Отправьте голосовое сообщение — бот его обработает
-• Управляйте контактами и follow-ups
-• Получайте челлендж дня
-• Общайтесь с AI-ассистентом
-• Напишите имя контакта для быстрого поиска`;
+import {
+  esc,
+  dayWord,
+  divider,
+  thinDivider,
+  starsStr,
+  editOrReply,
+  STATUS_EMOJI,
+} from "./ui";
 
 export function registerCommands(bot: Telegraf) {
-  bot.command("start", (ctx) =>
-    ctx.reply(
-      `Привет! Я — твой нетворкинг-ассистент.\n\n${MAIN_MENU_TEXT}`,
-      { parse_mode: "HTML", ...mainMenuKeyboard },
-    )
-  );
+  bot.command("start", handleStart);
+  bot.command("help", handleHelp);
+  bot.command("menu", handleMenu);
+  bot.command("quick", handleQuick);
+}
 
-  bot.command("help", (ctx) =>
-    ctx.reply(HELP_TEXT, { parse_mode: "HTML" })
-  );
+// ── /start ───────────────────────────────────────────────
 
-  bot.command("menu", (ctx) => {
-    clearState(ctx.chat.id);
-    return ctx.reply(MAIN_MENU_TEXT, {
+async function handleStart(ctx: Context) {
+  try {
+    const totalContacts = await prisma.contact
+      .count({ where: { warmth_status: { not: "archived" } } })
+      .catch(() => 0);
+
+    const intro = [
+      "🤝 <b>Привет! Я — твой нетворкинг-ассистент.</b>",
+      "",
+      "Я помогу тебе:",
+      "📇 Записывать знакомства голосом",
+      "🔔 Не забывать про follow-ups",
+      "🎯 Расти через ежедневные челленджи",
+      "🤖 Получать AI-советы по нетворкингу",
+      "",
+      "Просто отправь мне голосовое 🎤",
+      "о человеке, которого встретил — и я сделаю остальное.",
+      "",
+      "💡 Напиши имя контакта для быстрого поиска",
+    ];
+
+    if (totalContacts === 0) {
+      intro.push("");
+      intro.push(
+        "✨ <i>Начни с голосового: расскажи о ком-то,\nкого недавно встретил, и я создам контакт.</i>",
+      );
+    }
+
+    intro.push(divider());
+
+    const { text: menuText, keyboard } = await buildMainMenu();
+
+    // Append menu text after intro
+    await ctx.reply(intro.join("\n") + "\n" + menuText, {
+      parse_mode: "HTML",
+      ...keyboard,
+    });
+  } catch (err) {
+    logger.error("start command error", { error: String(err) });
+    await ctx.reply("🤝 Привет! Я — твой нетворкинг-ассистент.\n\nОтправь /menu для начала.", {
       parse_mode: "HTML",
       ...mainMenuKeyboard,
     });
+  }
+}
+
+// ── /help ────────────────────────────────────────────────
+
+async function handleHelp(ctx: Context) {
+  const text = [
+    "📖 <b>Справка</b>",
+    divider(),
+    "",
+    "<b>🎤 Голосовые</b>",
+    "Отправь голосовое, кружочек или аудио —",
+    "я распознаю речь и создам контакт.",
+    "",
+    "<b>🔍 Быстрый поиск</b>",
+    "Просто напиши имя — я найду контакт.",
+    "",
+    "<b>💬 AI-чат</b>",
+    "Нажми «AI-чат» в меню и спрашивай",
+    "что угодно о своём нетворкинге.",
+    "",
+    thinDivider(),
+    "",
+    "<b>Команды:</b>",
+    "/menu — главное меню",
+    "/quick — быстрая сводка",
+    "/help — эта справка",
+  ].join("\n");
+
+  await ctx.reply(text, {
+    parse_mode: "HTML",
+    ...Markup.inlineKeyboard([[Markup.button.callback("🏠 Меню", "main_menu")]]),
   });
+}
 
-  bot.command("quick", async (ctx) => {
-    try {
-      const now = new Date();
-      const todayStart = new Date();
-      todayStart.setHours(0, 0, 0, 0);
-      const todayEnd = new Date(todayStart.getTime() + 86400000);
+// ── /menu ────────────────────────────────────────────────
 
-      const [pendingCount, overdueCount, challenge, urgent] = await Promise.all([
-        prisma.followUp.count({
-          where: {
-            OR: [
-              { status: "pending" },
-              { status: "snoozed", snoozed_until: { lte: now } },
-            ],
-          },
-        }),
-        prisma.followUp.count({
-          where: { status: "pending", due_date: { lt: todayStart } },
-        }),
-        prisma.challenge.findFirst({
-          where: { date: { gte: todayStart, lt: todayEnd } },
-          orderBy: { created_at: "asc" },
-          select: { title: true, status: true },
-        }),
-        prisma.contact.findFirst({
-          where: {
-            warmth_status: { notIn: ["archived", "paused"] },
-            last_interaction_at: {
-              lt: new Date(Date.now() - 14 * 86400000),
-            },
-          },
-          orderBy: { last_interaction_at: { sort: "asc", nulls: "first" } },
-          select: { full_name: true },
-        }),
-      ]);
+async function handleMenu(ctx: Context) {
+  clearState(ctx.chat!.id);
+  try {
+    const { text, keyboard } = await buildMainMenu();
+    await ctx.reply(text, { parse_mode: "HTML", ...keyboard });
+  } catch (err) {
+    logger.error("menu command error", { error: String(err) });
+    await ctx.reply("🏠 <b>Networking CRM</b>\n\nВыбери действие:", {
+      parse_mode: "HTML",
+      ...mainMenuKeyboard,
+    });
+  }
+}
 
-      // Streak
-      const yearAgo = new Date(Date.now() - 365 * 86400000);
-      const completed = await prisma.challenge.findMany({
-        where: { status: "completed", date: { gte: yearAgo } },
-        select: { date: true },
-      });
-      const completedDays = new Set(
-        completed.map((c: { date: Date }) => c.date.toISOString().slice(0, 10)),
-      );
-      let streak = 0;
-      const streakNow = new Date();
-      streakNow.setHours(0, 0, 0, 0);
-      for (let i = 0; i < 365; i++) {
-        const day = new Date(streakNow.getTime() - i * 86400000);
-        if (completedDays.has(day.toISOString().slice(0, 10))) {
-          streak++;
-        } else {
-          break;
-        }
-      }
+// ── /quick (also used as callback from menu) ─────────────
 
-      const overdueStr =
-        overdueCount > 0 ? ` (${overdueCount} просрочен)` : "";
+async function handleQuick(ctx: Context) {
+  await quickSummary(ctx);
+}
 
-      const statusEmoji: Record<string, string> = {
-        pending: "",
-        accepted: "💪 принят",
-        completed: "✅ выполнен",
-        skipped: "⏭ пропущен",
-        too_hard: "😰",
-      };
+export async function quickSummary(ctx: Context) {
+  try {
+    const now = new Date();
+    const todayStart = new Date();
+    todayStart.setHours(0, 0, 0, 0);
+    const todayEnd = new Date(todayStart.getTime() + 86400000);
 
-      const lines = ["⚡ <b>Быстрая сводка</b>", ""];
-      lines.push(`📋 ${pendingCount} follow-ups${overdueStr}`);
-
-      if (challenge) {
-        const st = statusEmoji[challenge.status] || "";
-        lines.push(
-          `🎯 Челлендж: ${esc(challenge.title)}${st ? ` (${st})` : ""}`,
-        );
-      }
-
-      lines.push(`🔥 Streak: ${streak} ${dayWord(streak)}`);
-
-      if (urgent) {
-        lines.push(
-          `💡 Напиши ${esc(urgent.full_name)} — давно не общались!`,
-        );
-      }
-
-      await ctx.reply(lines.join("\n"), {
-        parse_mode: "HTML",
-        ...Markup.inlineKeyboard([
-          [
-            Markup.button.callback("📋 Follow-ups", "followups"),
-            Markup.button.callback("🎯 Челлендж", "challenge"),
+    const [
+      pendingCount,
+      overdueCount,
+      challenge,
+      totalContacts,
+      byStatus,
+      urgent,
+      streak,
+    ] = await Promise.all([
+      prisma.followUp.count({
+        where: {
+          OR: [
+            { status: "pending" },
+            { status: "snoozed", snoozed_until: { lte: now } },
           ],
-          [Markup.button.callback("🏠 Меню", "main_menu")],
-        ]),
-      });
-    } catch (err) {
-      logger.error("quick command error", { error: String(err) });
-      await ctx.reply("❌ Ошибка загрузки.");
+        },
+      }),
+      prisma.followUp.count({
+        where: { status: "pending", due_date: { lt: todayStart } },
+      }),
+      prisma.challenge.findFirst({
+        where: { date: { gte: todayStart, lt: todayEnd } },
+        orderBy: { created_at: "asc" },
+        select: { title: true, status: true, rating: true },
+      }),
+      prisma.contact.count({ where: { warmth_status: { not: "archived" } } }),
+      prisma.contact.groupBy({
+        by: ["warmth_status"],
+        _count: true,
+        where: { warmth_status: { not: "archived" } },
+      }),
+      prisma.contact.findFirst({
+        where: {
+          warmth_status: { notIn: ["archived", "paused"] },
+          last_interaction_at: { lt: new Date(Date.now() - 14 * 86400000) },
+        },
+        orderBy: { last_interaction_at: { sort: "asc", nulls: "first" } },
+        select: { full_name: true, last_interaction_at: true },
+      }),
+      getStreak(),
+    ]);
+
+    const lines: string[] = [
+      "⚡ <b>Быстрая сводка</b>",
+      divider(),
+      "",
+    ];
+
+    // Follow-ups
+    const overdueStr = overdueCount > 0 ? ` (${overdueCount} просрочен)` : "";
+    lines.push(`📋 Follow-ups: <b>${pendingCount}</b> активных${overdueStr}`);
+
+    // Challenge
+    if (challenge) {
+      const title = esc(challenge.title);
+      if (challenge.status === "completed") {
+        const stars = challenge.rating ? ` ${starsStr(challenge.rating)}` : "";
+        lines.push(`🎯 Челлендж: ${title}`);
+        lines.push(`   ✅ выполнен${stars}`);
+      } else if (challenge.status === "accepted") {
+        lines.push(`🎯 Челлендж: ${title}`);
+        lines.push("   в процессе 💪");
+      } else if (challenge.status === "skipped") {
+        lines.push(`🎯 Челлендж: ${title}`);
+        lines.push("   ⏭ пропущен");
+      } else {
+        lines.push(`🎯 Челлендж: ${title}`);
+        lines.push("   ░░░░░░░░░░ ещё не принят");
+      }
     }
-  });
+
+    // Streak
+    if (streak > 0) {
+      lines.push(`🔥 Streak: <b>${streak}</b> ${dayWord(streak)} подряд`);
+    }
+
+    // Contacts breakdown
+    const statusMap: Record<string, number> = {};
+    for (const row of byStatus) {
+      statusMap[row.warmth_status] = row._count;
+    }
+
+    lines.push("");
+    lines.push(thinDivider());
+    lines.push("");
+    lines.push(`👥 Контакты: ${totalContacts}`);
+
+    const statusParts: string[] = [];
+    for (const s of ["new", "warming", "warm", "cooling", "paused"]) {
+      const count = statusMap[s] || 0;
+      if (count > 0) statusParts.push(`${STATUS_EMOJI[s]} ${count}`);
+    }
+    if (statusParts.length > 0) {
+      lines.push(`   ${statusParts.join("  ")}`);
+    }
+
+    // Urgent/neglected contact
+    if (urgent) {
+      const days = urgent.last_interaction_at
+        ? Math.floor((Date.now() - urgent.last_interaction_at.getTime()) / 86400000)
+        : 999;
+      lines.push("");
+      lines.push(thinDivider());
+      lines.push("");
+      lines.push(
+        `💡 Напиши <b>${esc(urgent.full_name)}</b> — ${days} ${dayWord(days)} без контакта`,
+      );
+    }
+
+    const buttons = [
+      [
+        Markup.button.callback("📋 Follow-ups", "followups"),
+        Markup.button.callback("🎯 Челлендж", "challenge"),
+      ],
+      [
+        Markup.button.callback("👥 Контакты", "contacts"),
+        Markup.button.callback("💬 AI-чат", "ai_chat"),
+      ],
+      [Markup.button.callback("🏠 Меню", "main_menu")],
+    ];
+
+    await editOrReply(ctx, lines.join("\n"), buttons);
+  } catch (err) {
+    logger.error("quick summary error", { error: String(err) });
+    await ctx.reply("❌ Ошибка загрузки сводки.", { parse_mode: "HTML" });
+  }
 }

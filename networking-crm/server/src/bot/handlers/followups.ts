@@ -9,6 +9,10 @@ import {
   esc,
   dayWord,
   fmtDateShort,
+  divider,
+  thinDivider,
+  warmthEmoji,
+  warmthLabel,
   urgencyBadge,
   editOrReply,
   safeAnswer,
@@ -55,7 +59,6 @@ async function loadPendingFollowups() {
   });
 }
 
-
 // ── Card rendering ────────────────────────────────────────
 
 function renderFollowupCard(
@@ -65,35 +68,39 @@ function renderFollowupCard(
 ) {
   const { emoji, label } = urgencyBadge(fu.due_date);
   const contactName = fu.contact?.full_name || "Неизвестный";
+  const contactStatus = fu.contact?.warmth_status || "new";
 
   const lines = [
-    `📋 <b>Follow-up ${index + 1} из ${total}</b>`,
+    `📋 <b>Follow-up</b> ${index + 1} из ${total}`,
+    divider(),
     "",
-    `👤 <b>${esc(contactName)}</b> ${emoji}`,
+    `${emoji} <b>${label}</b>`,
+    "",
+    `👤 ${esc(contactName)} · ${warmthEmoji(contactStatus)} ${warmthLabel(contactStatus)}`,
     `📌 ${esc(fu.suggested_action)}`,
-    `📅 ${label} | Приоритет: ${fu.priority}/10`,
+    `⬆️ Приоритет: ${fu.priority}/10`,
   ];
 
   return lines.join("\n");
 }
 
-function followupKeyboard(
+function followupButtons(
   fu: Awaited<ReturnType<typeof loadPendingFollowups>>[number],
   index: number,
   total: number,
-) {
+): ReturnType<typeof Markup.button.callback>[][] {
   const id = fu.id;
-  const rows = [
+  const rows: ReturnType<typeof Markup.button.callback>[][] = [
     [
       Markup.button.callback("✅ Готово", `fu_done:${id}`),
-      Markup.button.callback("⏭ Пропустить", `fu_skip:${id}`),
+      Markup.button.callback("✉️ Написать", `fu_draft:${id}`),
     ],
     [
-      Markup.button.callback("⏰ 2 дня", `fu_snooze:${id}:2`),
-      Markup.button.callback("⏰ Неделя", `fu_snooze:${id}:7`),
-      Markup.button.callback("⏰ 2 недели", `fu_snooze:${id}:14`),
+      Markup.button.callback("⏰ 2д", `fu_snooze:${id}:2`),
+      Markup.button.callback("⏰ 7д", `fu_snooze:${id}:7`),
+      Markup.button.callback("⏰ 14д", `fu_snooze:${id}:14`),
+      Markup.button.callback("⏭ Пропустить", `fu_skip:${id}`),
     ],
-    [Markup.button.callback("✉️ Написать", `fu_draft:${id}`)],
   ];
 
   // Navigation
@@ -109,7 +116,7 @@ function followupKeyboard(
   bottom.push(Markup.button.callback("🏠 Меню", "main_menu"));
   rows.push(bottom);
 
-  return Markup.inlineKeyboard(rows);
+  return rows;
 }
 
 // ── Handlers ──────────────────────────────────────────────
@@ -149,20 +156,9 @@ async function showFollowupByIndex(ctx: Context, index: number) {
   const safeIndex = Math.min(index, followups.length - 1);
   const fu = followups[safeIndex];
   const text = renderFollowupCard(fu, safeIndex, followups.length);
-  const keyboard = followupKeyboard(fu, safeIndex, followups.length);
+  const buttons = followupButtons(fu, safeIndex, followups.length);
 
-  try {
-    if (ctx.callbackQuery) {
-      await ctx.editMessageText(text, {
-        parse_mode: "HTML",
-        ...keyboard,
-      });
-      return;
-    }
-  } catch {
-    // fallback to reply
-  }
-  await ctx.reply(text, { parse_mode: "HTML", ...keyboard });
+  await editOrReply(ctx, text, buttons);
 }
 
 async function handleDone(ctx: Context) {
@@ -279,29 +275,42 @@ async function handleDraft(ctx: Context) {
     }
 
     const contactName = esc(fu.contact.full_name);
+    const actionText = esc(fu.suggested_action);
 
-    // Edit status message to show header
+    // Build single message with all drafts
+    const lines = [
+      "✉️ <b>Варианты сообщения</b>",
+      divider(),
+      `👤 Для: ${contactName}`,
+      `📌 Действие: ${actionText}`,
+      "",
+      thinDivider(),
+    ];
+
+    drafts.forEach((draft, i) => {
+      lines.push("");
+      lines.push(`<b>${i + 1}.</b> ${esc(draft)}`);
+      if (i < drafts.length - 1) {
+        lines.push("");
+        lines.push(thinDivider());
+      }
+    });
+
+    lines.push("");
+    lines.push("<i>Скопируй понравившийся вариант</i>");
+
+    const buttons = [
+      [Markup.button.callback("✅ Отметить как сделано", `fu_mark_done_after_draft:${fuId}`)],
+      [Markup.button.callback("← К follow-ups", "followups")],
+    ];
+
     await ctx.telegram.editMessageText(
       ctx.chat!.id,
       statusMsg.message_id,
       undefined,
-      `✉️ <b>Варианты сообщения для ${contactName}:</b>`,
-      { parse_mode: "HTML" },
+      lines.join("\n"),
+      { parse_mode: "HTML", ...Markup.inlineKeyboard(buttons) },
     );
-
-    // Send each draft as separate plain text for easy copying
-    for (let i = 0; i < drafts.length; i++) {
-      await ctx.reply(`${i + 1}. ${drafts[i]}`);
-    }
-
-    // Action buttons
-    await ctx.reply("Выберите действие:", {
-      parse_mode: "HTML",
-      ...Markup.inlineKeyboard([
-        [Markup.button.callback("✅ Отметить как сделано", `fu_mark_done_after_draft:${fuId}`)],
-        [Markup.button.callback("← К follow-ups", "followups")],
-      ]),
-    });
   } catch (err) {
     logger.error("fu draft error", { error: String(err) });
     await ctx.reply("❌ Ошибка генерации сообщения.");
@@ -382,7 +391,7 @@ async function handleContactFollowups(ctx: Context) {
     if (followups.length === 0) {
       await editOrReply(
         ctx,
-        `📋 <b>${esc(contact.full_name)}</b> — нет активных follow-ups.`,
+        `📋 <b>Follow-ups — ${esc(contact.full_name)}</b>\n${divider()}\n\nНет активных follow-ups.`,
         [
           [Markup.button.callback("➕ Создать", `fu_create:${contactId}`)],
           [Markup.button.callback("← К контакту", `contact_view:${contactId}`)],
@@ -391,20 +400,29 @@ async function handleContactFollowups(ctx: Context) {
       return;
     }
 
-    const lines = [`📋 <b>Follow-ups — ${esc(contact.full_name)}</b>\n`];
+    const lines = [
+      `📋 <b>Follow-ups — ${esc(contact.full_name)}</b>`,
+      divider(),
+      "",
+    ];
+
     followups.forEach((fu, i) => {
       const { emoji, label } = urgencyBadge(fu.due_date);
-      lines.push(`${i + 1}. ${emoji} ${esc(fu.suggested_action)}`);
-      lines.push(`   📅 ${label}`);
+      lines.push(`${emoji} ${esc(fu.suggested_action)}`);
+      lines.push(`   ${label}`);
+      if (i < followups.length - 1) lines.push("");
     });
 
-    const buttons = followups.map((fu) => [
-      Markup.button.callback("✅", `fu_done:${fu.id}`),
-      Markup.button.callback("⏰", `fu_snooze:${fu.id}:2`),
-      Markup.button.callback("⏭", `fu_skip:${fu.id}`),
-    ]);
-    buttons.push([Markup.button.callback("➕ Создать", `fu_create:${contactId}`)]);
-    buttons.push([Markup.button.callback("← К контакту", `contact_view:${contactId}`)]);
+    // Quick-done buttons row + management
+    const doneRow = followups.map((fu, i) =>
+      Markup.button.callback(`✅ ${i + 1}`, `fu_done:${fu.id}`),
+    );
+
+    const buttons: ReturnType<typeof Markup.button.callback>[][] = [
+      doneRow,
+      [Markup.button.callback("➕ Создать новый", `fu_create:${contactId}`)],
+      [Markup.button.callback("← К контакту", `contact_view:${contactId}`)],
+    ];
 
     await editOrReply(ctx, lines.join("\n"), buttons);
   } catch (err) {
@@ -485,4 +503,3 @@ async function handleSetDate(ctx: Context) {
     await ctx.reply("❌ Не удалось создать follow-up.");
   }
 }
-

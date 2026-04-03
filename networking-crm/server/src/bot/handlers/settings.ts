@@ -3,7 +3,14 @@ import type { Context } from "telegraf";
 import prisma from "../../lib/prisma";
 import { logger } from "../../lib/logger";
 import { setState } from "../state";
-import { esc, dayWord, editOrReply } from "../ui";
+import {
+  esc,
+  dayWord,
+  divider,
+  thinDivider,
+  editOrReply,
+  STATUS_EMOJI,
+} from "../ui";
 
 const PROFILE_FIELDS: Record<
   string,
@@ -65,12 +72,23 @@ export async function handleProfileFieldInput(
 async function handleSettingsMenu(ctx: Context) {
   try {
     await ctx.answerCbQuery();
-    await editOrReply(ctx, "⚙️ <b>Настройки</b>", [
+
+    const text = [
+      "⚙️ <b>Настройки</b>",
+      divider(),
+      "",
+      "Управление профилем, данными",
+      "и поведением бота.",
+    ].join("\n");
+
+    await editOrReply(ctx, text, [
       [Markup.button.callback("👤 Мой профиль", "settings_profile")],
-      [Markup.button.callback("🔕 Тихие часы", "settings_quiet_hours")],
-      [Markup.button.callback("📊 Статистика", "settings_stats")],
+      [
+        Markup.button.callback("🔕 Тихие часы", "settings_quiet_hours"),
+        Markup.button.callback("📊 Статистика", "settings_stats"),
+      ],
       [Markup.button.callback("📤 Экспорт данных", "settings_export")],
-      [Markup.button.callback("← Главное меню", "main_menu")],
+      [Markup.button.callback("🏠 Меню", "main_menu")],
     ]);
   } catch (err) {
     logger.error("settings menu error", { error: String(err) });
@@ -89,25 +107,31 @@ async function handleProfile(ctx: Context) {
 
     const lines = [
       "👤 <b>Мой профиль</b>",
+      divider(),
       "",
-      `📛 Имя: ${esc(user.name || "—")}`,
-      `🎯 Цели: ${esc(user.goals || "—")}`,
-      `😰 Страхи: ${esc(user.fears || "—")}`,
-      `💪 Сильные стороны: ${esc(user.strengths || "—")}`,
-      `📉 Слабые стороны: ${esc(user.weaknesses || "—")}`,
+      `📛 <b>Имя:</b> ${esc(user.name || "—")}`,
+      `🎯 <b>Цели:</b> ${esc(user.goals || "—")}`,
+      `😰 <b>Страхи:</b> ${esc(user.fears || "—")}`,
+      `💪 <b>Сильные:</b> ${esc(user.strengths || "—")}`,
+      `📉 <b>Слабые:</b> ${esc(user.weaknesses || "—")}`,
+      "",
+      thinDivider(),
+      "",
+      "<i>Эти данные использует AI для",
+      "персонализации челленджей и советов.</i>",
     ];
 
     await editOrReply(ctx, lines.join("\n"), [
       [
         Markup.button.callback("✏️ Имя", "profile_edit:name"),
         Markup.button.callback("✏️ Цели", "profile_edit:goals"),
-        Markup.button.callback("✏️ Страхи", "profile_edit:fears"),
       ],
       [
+        Markup.button.callback("✏️ Страхи", "profile_edit:fears"),
         Markup.button.callback("✏️ Сильные", "profile_edit:strengths"),
-        Markup.button.callback("✏️ Слабые", "profile_edit:weaknesses"),
       ],
-      [Markup.button.callback("← Назад", "settings")],
+      [Markup.button.callback("✏️ Слабые", "profile_edit:weaknesses")],
+      [Markup.button.callback("← Настройки", "settings")],
     ]);
   } catch (err) {
     logger.error("profile error", { error: String(err) });
@@ -128,15 +152,22 @@ async function handleProfileEdit(ctx: Context) {
 
     setState(ctx.chat!.id, `awaiting_profile_${field}`, {});
 
-    await ctx.reply(
-      `✏️ ${meta.emoji} <b>${meta.label}</b>\n\nТекущее: ${esc(String(currentValue))}\n\nВведи новое значение:`,
-      {
-        parse_mode: "HTML",
-        ...Markup.inlineKeyboard([
-          [Markup.button.callback("Отмена", "profile_cancel")],
-        ]),
-      },
-    );
+    const text = [
+      `✏️ <b>Редактирование: ${meta.label}</b>`,
+      divider(),
+      "",
+      "Сейчас:",
+      `<i>${esc(String(currentValue))}</i>`,
+      "",
+      "Напиши новое значение:",
+    ].join("\n");
+
+    await ctx.reply(text, {
+      parse_mode: "HTML",
+      ...Markup.inlineKeyboard([
+        [Markup.button.callback("Отмена", "profile_cancel")],
+      ]),
+    });
   } catch (err) {
     logger.error("profile edit error", { error: String(err) });
   }
@@ -153,24 +184,27 @@ async function handleQuietHours(ctx: Context) {
       end: 8,
     };
 
-    const status =
-      qh.start === -1
-        ? "Выключены"
-        : `${String(qh.start).padStart(2, "0")}:00 — ${String(qh.end).padStart(2, "0")}:00 (UTC)`;
+    const isOff = qh.start === -1;
+    const statusLine = isOff
+      ? "Статус: ❌ Выключены\nБот может писать в любое время."
+      : `Статус: ✅ Включены\n⏰ ${String(qh.start).padStart(2, "0")}:00 — ${String(qh.end).padStart(2, "0")}:00 (UTC)\n\nВ это время бот не отправляет\nуведомления и напоминания.`;
 
-    await editOrReply(
-      ctx,
-      `🔕 <b>Тихие часы</b>\n\nСейчас: ${status}\nВ это время бот не отправляет уведомления.`,
+    const text = [
+      "🔕 <b>Тихие часы</b>",
+      divider(),
+      "",
+      statusLine,
+    ].join("\n");
+
+    await editOrReply(ctx, text, [
       [
-        [
-          Markup.button.callback("22–08", "quiet_set:22:8"),
-          Markup.button.callback("23–09", "quiet_set:23:9"),
-          Markup.button.callback("00–10", "quiet_set:0:10"),
-        ],
-        [Markup.button.callback("Выключить", "quiet_off")],
-        [Markup.button.callback("← Назад", "settings")],
+        Markup.button.callback("22–08", "quiet_set:22:8"),
+        Markup.button.callback("23–09", "quiet_set:23:9"),
+        Markup.button.callback("00–10", "quiet_set:0:10"),
       ],
-    );
+      [Markup.button.callback("❌ Выключить", "quiet_off")],
+      [Markup.button.callback("← Настройки", "settings")],
+    ]);
   } catch (err) {
     logger.error("quiet hours error", { error: String(err) });
   }
@@ -300,25 +334,40 @@ async function handleStats(ctx: Context) {
 
     const avgScore = Math.round(avgWarmth._avg?.warmth_score ?? 0);
 
+    // Compact status line
+    const statusParts: string[] = [];
+    for (const s of ["new", "warming", "warm", "cooling", "paused"]) {
+      const count = statusMap[s] || 0;
+      if (count > 0) statusParts.push(`${STATUS_EMOJI[s]} ${count}`);
+    }
+
     const lines = [
       "📊 <b>Статистика</b>",
+      divider(),
       "",
-      `👥 Контакты: ${totalContacts}`,
-      `   🔴 Новые: ${statusMap["new"] || 0}`,
-      `   🟡 Тёплые: ${statusMap["warming"] || 0}`,
-      `   🟢 Горячие: ${statusMap["warm"] || 0}`,
-      `   🟠 Остывают: ${statusMap["cooling"] || 0}`,
-      `   ⚪ Пауза: ${statusMap["paused"] || 0}`,
-      "",
-      `📋 Follow-ups (7 дней): ${followupsDoneWeek} выполнено`,
-      `📋 Pending: ${pendingFollowups}`,
-      `🎯 Челленджей: ${challengesDone}/${weekChallenges.length}`,
-      `🔥 Streak: ${streak} ${dayWord(streak)}`,
-      `📈 Средний warmth: ${avgScore}`,
+      `👥 <b>Контакты: ${totalContacts}</b>`,
     ];
+    if (statusParts.length > 0) {
+      lines.push(`   ${statusParts.join("  ")}`);
+    }
+
+    lines.push("", thinDivider(), "");
+    lines.push(`📋 <b>Follow-ups (7 дней)</b>`);
+    lines.push(`   Выполнено: ${followupsDoneWeek}`);
+    lines.push(`   Ожидают: ${pendingFollowups}`);
+    lines.push("");
+    lines.push(`🎯 <b>Челленджи (7 дней)</b>`);
+    lines.push(`   Выполнено: ${challengesDone}/${weekChallenges.length}`);
+    if (streak > 0) {
+      lines.push(`   Streak: 🔥 ${streak} ${dayWord(streak)}`);
+    }
+
+    lines.push("", thinDivider(), "");
+    lines.push(`📈 <b>Средний warmth:</b> ${avgScore}/100`);
 
     if (neglected.length > 0) {
-      lines.push("", "⚠️ Самые забытые:");
+      lines.push("");
+      lines.push("⚠️ <b>Самые забытые:</b>");
       for (const c of neglected) {
         const days = c.last_interaction_at
           ? Math.floor(
@@ -326,13 +375,16 @@ async function handleStats(ctx: Context) {
             )
           : 999;
         lines.push(
-          `• ${esc(c.full_name)} (${days} ${dayWord(days)})`,
+          `   · ${esc(c.full_name)} — ${days} ${dayWord(days)}`,
         );
       }
     }
 
     await editOrReply(ctx, lines.join("\n"), [
-      [Markup.button.callback("← Назад", "settings")],
+      [
+        Markup.button.callback("← Настройки", "settings"),
+        Markup.button.callback("🏠 Меню", "main_menu"),
+      ],
     ]);
   } catch (err) {
     logger.error("stats error", { error: String(err) });
@@ -343,17 +395,26 @@ async function handleStats(ctx: Context) {
 async function handleExportMenu(ctx: Context) {
   try {
     await ctx.answerCbQuery();
-    await editOrReply(
-      ctx,
-      "📤 <b>Экспорт данных</b>\n\nВыбери что экспортировать:",
+
+    const text = [
+      "📤 <b>Экспорт данных</b>",
+      divider(),
+      "",
+      "Скачай свои данные в формате JSON.",
+      "",
+      "📇 Контакты — все контакты с историей",
+      "   взаимодействий и follow-ups",
+      "📦 Все данные — полный бэкап включая",
+      "   челленджи, чат и методологии",
+    ].join("\n");
+
+    await editOrReply(ctx, text, [
       [
-        [
-          Markup.button.callback("📥 Контакты", "export_contacts"),
-          Markup.button.callback("📥 Все данные", "export_all"),
-        ],
-        [Markup.button.callback("← Назад", "settings")],
+        Markup.button.callback("📇 Контакты", "export_contacts"),
+        Markup.button.callback("📦 Все данные", "export_all"),
       ],
-    );
+      [Markup.button.callback("← Настройки", "settings")],
+    ]);
   } catch (err) {
     logger.error("export menu error", { error: String(err) });
   }
@@ -378,6 +439,12 @@ async function handleExportContacts(ctx: Context) {
     await ctx.replyWithDocument({
       source: Buffer.from(json, "utf-8"),
       filename: "contacts.json",
+    });
+    await ctx.reply("✅ Экспорт готов! Файл отправлен выше ⬆️", {
+      parse_mode: "HTML",
+      ...Markup.inlineKeyboard([
+        [Markup.button.callback("← Настройки", "settings")],
+      ]),
     });
   } catch (err) {
     logger.error("export contacts error", { error: String(err) });
@@ -428,9 +495,14 @@ async function handleExportAll(ctx: Context) {
       source: Buffer.from(json, "utf-8"),
       filename: "crm-export.json",
     });
+    await ctx.reply("✅ Экспорт готов! Файл отправлен выше ⬆️", {
+      parse_mode: "HTML",
+      ...Markup.inlineKeyboard([
+        [Markup.button.callback("← Настройки", "settings")],
+      ]),
+    });
   } catch (err) {
     logger.error("export all error", { error: String(err) });
     await ctx.reply("❌ Ошибка экспорта.");
   }
 }
-

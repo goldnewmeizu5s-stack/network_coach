@@ -11,7 +11,7 @@ import { createContact } from "../../services/voice-pipeline";
 import { recalcAndAutoStatus } from "../../services/warmth";
 import { getState } from "../state";
 import { handleChatVoice } from "./chat";
-import { esc } from "../ui";
+import { esc, divider, thinDivider } from "../ui";
 
 const UPLOADS_DIR = path.join(__dirname, "../../../uploads");
 const MAX_FILE_SIZE = 25 * 1024 * 1024; // 25MB
@@ -39,7 +39,7 @@ async function handleAudio(
     return handleChatVoiceMessage(ctx, fileInfo);
   }
 
-  const statusMsg = await ctx.reply("⏳ Обрабатываю запись...");
+  const statusMsg = await ctx.reply("⏳ Загружаю файл...");
   const chatId = ctx.chat!.id;
   const messageId = statusMsg.message_id;
 
@@ -58,6 +58,9 @@ async function handleAudio(
     }
     const fileStream = fs.createWriteStream(filePath);
     await pipeline(res.body as unknown as NodeJS.ReadableStream, fileStream);
+
+    // Progress: transcribing
+    await editMessage(ctx, chatId, messageId, "🎤 Распознаю речь...").catch(() => {});
 
     // Create Interaction + AudioFile
     const interaction = await prisma.interaction.create({
@@ -92,6 +95,9 @@ async function handleAudio(
       );
       return;
     }
+
+    // Progress: analyzing
+    await editMessage(ctx, chatId, messageId, "🤖 Анализирую контакт...").catch(() => {});
 
     // Save transcript, clean up file marker
     await prisma.interaction.update({
@@ -199,7 +205,7 @@ async function handleAudio(
     const keyboard = Markup.inlineKeyboard([
       [
         Markup.button.callback("👤 Открыть", `contact_view:${contactId}`),
-        Markup.button.callback("✏️ Редактировать", `contact_edit:${contactId}`),
+        Markup.button.callback("📋 Follow-ups", `contact_fups:${contactId}`),
       ],
       [Markup.button.callback("🗑 Удалить", `contact_delete:${contactId}`)],
     ]);
@@ -268,8 +274,12 @@ function formatContactMessage(
   extracted: Awaited<ReturnType<typeof extractContactData>>,
   isNew: boolean,
 ): string {
-  const header = isNew ? "✅ Контакт создан!" : "♻️ Контакт обновлён!";
-  const lines: string[] = [header, ""];
+  const header = isNew ? "✅ <b>Контакт создан!</b>" : "♻️ <b>Контакт обновлён!</b>";
+  const lines: string[] = [
+    header,
+    divider(),
+    "",
+  ];
 
   if (extracted.full_name) {
     lines.push(`👤 <b>${esc(extracted.full_name)}</b>`);
@@ -288,8 +298,8 @@ function formatContactMessage(
   }
 
   if (extracted.suggested_next_steps.length > 0) {
-    lines.push("");
-    lines.push("Следующие шаги:");
+    lines.push("", thinDivider(), "");
+    lines.push("📌 <b>Следующие шаги:</b>");
     extracted.suggested_next_steps.forEach((step, i) => {
       lines.push(`${i + 1}. ${esc(step)}`);
     });
