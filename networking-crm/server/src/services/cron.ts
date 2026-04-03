@@ -7,6 +7,11 @@ import {
   generateDailyChallenge,
   generateAlternativeChallenges,
 } from "./challenge-engine";
+import {
+  sendMorningBriefing,
+  sendFollowUpReminders,
+  sendWeeklyDigest,
+} from "../bot/notifications";
 
 export async function runDailyJob(): Promise<void> {
   logger.info(`[cron] Running daily job at ${new Date().toISOString()}`);
@@ -26,6 +31,13 @@ export async function runDailyJob(): Promise<void> {
 
     // e. Cleanup expired sessions
     await prisma.session.deleteMany({ where: { expires_at: { lt: new Date() } } });
+
+    // f. Send morning briefing via Telegram
+    try {
+      await sendMorningBriefing();
+    } catch (err) {
+      logger.error("[cron] Morning briefing failed", { error: String(err) });
+    }
 
     logger.info(`[cron] Daily job completed`);
   } catch (err) {
@@ -302,5 +314,20 @@ export function startCron(): void {
   cron.schedule("0 8 * * *", () => {
     runDailyJob().catch((err) => logger.error("Cron error", { error: String(err) }));
   });
-  logger.info("[cron] Scheduled daily job at 08:00 UTC");
+
+  // Follow-up reminders at 12:00 and 18:00 UTC
+  cron.schedule("0 12,18 * * *", () => {
+    sendFollowUpReminders().catch((err) =>
+      logger.error("Follow-up reminders cron error", { error: String(err) }),
+    );
+  });
+
+  // Weekly digest on Mondays at 10:00 UTC
+  cron.schedule("0 10 * * 1", () => {
+    sendWeeklyDigest().catch((err) =>
+      logger.error("Weekly digest cron error", { error: String(err) }),
+    );
+  });
+
+  logger.info("[cron] Scheduled: daily 08:00, reminders 12:00/18:00, weekly Mon 10:00 UTC");
 }

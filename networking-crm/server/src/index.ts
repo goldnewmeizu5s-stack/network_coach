@@ -23,6 +23,7 @@ import insightsRoutes from "./routes/insights";
 import statsRoutes from "./routes/stats";
 import exportRoutes from "./routes/export";
 import { startCron, runDailyJob } from "./services/cron";
+import { startBot, stopBot } from "./bot";
 
 const app = express();
 const startTime = Date.now();
@@ -151,6 +152,12 @@ const server = app.listen(config.port, () => {
 
     startCron();
     logger.info("Cron started");
+
+    try {
+      startBot();
+    } catch (botErr) {
+      logger.error("Telegram bot init failed", { error: String(botErr) });
+    }
   } catch (err) {
     logger.error("Background init failed", { error: String(err) });
     // Do NOT process.exit — server keeps running, health endpoint responds,
@@ -161,6 +168,7 @@ const server = app.listen(config.port, () => {
 // Graceful shutdown
 function shutdown() {
   logger.info("Shutting down...");
+  stopBot();
   server.close(async () => {
     await prisma.$disconnect();
     process.exit(0);
