@@ -1,8 +1,10 @@
 import { Context } from "telegraf";
 import { config } from "../config";
 import { logger } from "../lib/logger";
+import prisma from "../lib/prisma";
 
 let dynamicAdminChatId: string = config.telegramAdminChatId;
+let chatIdPersisted = false;
 
 export function adminOnly(ctx: Context, next: () => Promise<void>) {
   const chatId = String(ctx.chat?.id ?? "");
@@ -18,6 +20,14 @@ export function adminOnly(ctx: Context, next: () => Promise<void>) {
     logger.info("Telegram: auto-assigned admin", { chatId });
   }
 
+  // Persist chat_id to User on first interaction (fire-and-forget)
+  if (!chatIdPersisted) {
+    chatIdPersisted = true;
+    persistChatId(chatId).catch((err) =>
+      logger.error("Failed to persist chat_id", { error: String(err) }),
+    );
+  }
+
   return next();
 }
 
@@ -29,4 +39,15 @@ export function logMessage(ctx: Context, next: () => Promise<void>) {
     text,
   });
   return next();
+}
+
+async function persistChatId(chatId: string): Promise<void> {
+  const user = await prisma.user.findFirst();
+  if (!user) return;
+  if (user.telegram_chat_id === chatId) return;
+  await prisma.user.update({
+    where: { id: user.id },
+    data: { telegram_chat_id: chatId },
+  });
+  logger.info("Telegram: chat_id persisted to User", { chatId });
 }

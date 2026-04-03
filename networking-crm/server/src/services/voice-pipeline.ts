@@ -4,6 +4,7 @@ import { logger } from "../lib/logger";
 import { transcribeAudio } from "./transcription";
 import { extractContactData } from "./ai-extraction";
 import { recalcAndAutoStatus } from "./warmth";
+import { notifyNewContact } from "../bot/notifications";
 
 export async function processVoiceNote(
   interactionId: string,
@@ -163,6 +164,15 @@ export async function processVoiceNote(
 
     // Recalculate warmth score
     await recalcAndAutoStatus(contactId);
+
+    // Notify via Telegram (fire-and-forget)
+    notifyNewContact({
+      id: contactId,
+      full_name: extracted.full_name || "Unknown",
+      occupation: extracted.occupation,
+      company: extracted.company,
+      city: extracted.city,
+    }).catch(() => {});
 
     // i. Mark as completed
     await prisma.audioFile.update({

@@ -12,6 +12,11 @@ import { registerChatHandlers } from "./handlers/chat";
 
 let bot: Telegraf | null = null;
 
+/** Get the bot instance for sending notifications */
+export function getBotInstance(): Telegraf | null {
+  return bot;
+}
+
 export function startBot(): void {
   if (!config.telegramBotToken) {
     logger.info("Telegram bot: no token, skipping");
