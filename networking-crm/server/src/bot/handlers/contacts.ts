@@ -92,6 +92,7 @@ export function registerTextHandler(bot: Telegraf) {
       return;
     }
 
+
     // Handle awaiting_note state
     if (state?.action === "awaiting_note") {
       clearState(chatId);

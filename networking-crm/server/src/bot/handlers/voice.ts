@@ -292,7 +292,7 @@ async function handleAudio(
 
     const polished = await polishTranscript(transcript);
 
-    // Save both raw and polished transcript
+    // Save polished transcript
     await prisma.interaction.update({
       where: { id: interaction.id },
       data: { transcript: polished },

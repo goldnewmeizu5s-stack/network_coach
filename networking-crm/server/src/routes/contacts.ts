@@ -433,6 +433,7 @@ const photoUpload = multer({
 
 router.post("/:id/photo", photoUpload.single("photo"), async (req, res, next) => {
   try {
+    const contactId = req.params.id as string;
     const file = req.file;
     if (!file) {
       res.status(400).json({ error: "No image file provided" });
@@ -440,7 +441,7 @@ router.post("/:id/photo", photoUpload.single("photo"), async (req, res, next) =>
     }
 
     const contact = await prisma.contact.findUnique({
-      where: { id: req.params.id },
+      where: { id: contactId },
       select: { id: true, photo_url: true },
     });
     if (!contact) {
@@ -456,7 +457,7 @@ router.post("/:id/photo", photoUpload.single("photo"), async (req, res, next) =>
 
     const photoUrl = `/api/contacts/photos/${file.filename}`;
     await prisma.contact.update({
-      where: { id: req.params.id },
+      where: { id: contactId },
       data: { photo_url: photoUrl },
     });
 
