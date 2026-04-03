@@ -16,6 +16,11 @@ import {
   esc,
   relDate,
   fmtDate,
+  divider,
+  thinDivider,
+  progressBar,
+  warmthEmoji,
+  warmthLabel,
   STATUS_EMOJI,
   STATUS_LABEL,
   editOrReply,
@@ -197,20 +202,37 @@ async function handleContactsMenu(ctx: Context) {
       total += row._count;
     }
 
+    // Compact status summary line
+    const statusParts: string[] = [];
+    for (const s of ["new", "warming", "warm", "cooling", "paused"]) {
+      const count = countMap[s] || 0;
+      if (count > 0) statusParts.push(`${STATUS_EMOJI[s]} ${count}`);
+    }
+    const summaryLine = statusParts.length > 0 ? statusParts.join("  ") : "Пока пусто";
+
+    const text = [
+      `👥 <b>Контакты</b> — ${total} чел.`,
+      divider(),
+      summaryLine,
+    ].join("\n");
+
     const buttons = [
       [
         btn("🔴", "Новые", countMap["new"], "contacts_filter:new"),
         btn("🟡", "Тёплые", countMap["warming"], "contacts_filter:warming"),
-        btn("🟢", "Горячие", countMap["warm"], "contacts_filter:warm"),
       ],
       [
-        btn("🟠", "Остыв.", countMap["cooling"], "contacts_filter:cooling"),
+        btn("🟢", "Горячие", countMap["warm"], "contacts_filter:warm"),
+        btn("🟠", "Остывают", countMap["cooling"], "contacts_filter:cooling"),
+      ],
+      [
         btn("⚪", "Пауза", countMap["paused"], "contacts_filter:paused"),
         btn("📋", "Все", total, "contacts_filter:all"),
       ],
+      [Markup.button.callback("🏠 Меню", "main_menu")],
     ];
 
-    await editOrReply(ctx, "<b>👥 Контакты</b>\n\nВыберите фильтр:", buttons);
+    await editOrReply(ctx, text, buttons);
   } catch (err) {
     logger.error("contacts menu error", { error: String(err) });
     await ctx.answerCbQuery("Ошибка загрузки").catch(() => {});
@@ -249,34 +271,43 @@ async function showContactsList(ctx: Context, status: string, offset: number) {
       prisma.contact.count({ where }),
     ]);
 
+    const statusTitle = STATUS_LABEL[status] || status;
+
     if (contacts.length === 0) {
       await editOrReply(
         ctx,
-        `👥 <b>Контакты — ${STATUS_LABEL[status] || status}</b>\n\nСписок пуст.`,
-        [[Markup.button.callback("← Назад", "contacts")]],
+        `👥 <b>${statusTitle}</b> — 0 контактов\n${divider()}\n\nСписок пуст.`,
+        [
+          [Markup.button.callback("← Фильтры", "contacts")],
+          [Markup.button.callback("🏠 Меню", "main_menu")],
+        ],
       );
       return;
     }
 
-    const lines = [`👥 <b>Контакты — ${STATUS_LABEL[status] || status}</b>\n`];
-    contacts.forEach((c, i) => {
+    const lines = [
+      `👥 <b>${statusTitle}</b> — ${total} контактов`,
+      divider(),
+      "",
+    ];
+
+    contacts.forEach((c) => {
       const emoji = STATUS_EMOJI[c.warmth_status] || "⚪";
       const job = [c.occupation, c.company].filter(Boolean).join(" @ ");
-      const jobStr = job ? ` — ${esc(job)}` : "";
-      lines.push(
-        `${offset + i + 1}. ${emoji} <b>${esc(c.full_name)}</b>${jobStr}`,
-      );
-      lines.push(`   Последний контакт: ${relDate(c.last_interaction_at)}`);
+      const jobStr = job ? `\n   💼 ${esc(job)}` : "";
+      lines.push(`${emoji} <b>${esc(c.full_name)}</b>${jobStr}`);
+      lines.push(`   📅 ${relDate(c.last_interaction_at)}`);
+      lines.push("");
     });
 
     const buttons = contacts.map((c) => [
       Markup.button.callback(
-        `${esc(c.full_name)} →`,
+        `${c.full_name} →`,
         `contact_view:${c.id}`,
       ),
     ]);
 
-    // Pagination row
+    // Pagination + navigation
     const navRow: ReturnType<typeof Markup.button.callback>[] = [];
     navRow.push(Markup.button.callback("← Фильтры", "contacts"));
     if (offset + PAGE_SIZE < total) {
@@ -285,6 +316,7 @@ async function showContactsList(ctx: Context, status: string, offset: number) {
       );
     }
     buttons.push(navRow);
+    buttons.push([Markup.button.callback("🏠 Меню", "main_menu")]);
 
     await editOrReply(ctx, lines.join("\n"), buttons);
   } catch (err) {
@@ -319,16 +351,17 @@ async function showContactCard(ctx: Context, contactId: string) {
       return;
     }
 
-    const emoji = STATUS_EMOJI[contact.warmth_status] || "⚪";
-    const statusLabel = STATUS_LABEL[contact.warmth_status] || contact.warmth_status;
     const score = Math.round(contact.warmth_score);
 
+    // Header
     const lines: string[] = [
       `👤 <b>${esc(contact.full_name)}</b>`,
-      `${emoji} ${statusLabel} • Score: ${score}/100`,
+      `${warmthEmoji(contact.warmth_status)} ${warmthLabel(contact.warmth_status)} · Score: ${progressBar(score, 100)}`,
+      divider(),
       "",
     ];
 
+    // Basic info
     const job = [contact.occupation, contact.company].filter(Boolean).join(" @ ");
     if (job) lines.push(`💼 ${esc(job)}`);
     if (contact.city) lines.push(`📍 ${esc(contact.city)}`);
@@ -338,30 +371,37 @@ async function showContactCard(ctx: Context, contactId: string) {
       );
     }
 
+    // Memory summary
     if (contact.memory_summary) {
-      lines.push("", `💡 <i>${esc(contact.memory_summary)}</i>`);
+      lines.push("", thinDivider(), "");
+      lines.push(`💡 <i>${esc(contact.memory_summary)}</i>`);
     }
 
-    if (contact.key_interests.length > 0) {
-      lines.push(
-        "",
-        `🏷 Интересы: ${contact.key_interests.map(esc).join(", ")}`,
-      );
-    }
-    if (contact.personality_notes) {
-      lines.push(`📝 Заметки: ${esc(contact.personality_notes)}`);
+    // Interests & notes
+    if (contact.key_interests.length > 0 || contact.personality_notes) {
+      lines.push("", thinDivider(), "");
+      if (contact.key_interests.length > 0) {
+        lines.push(`🏷 Интересы: ${contact.key_interests.map(esc).join(", ")}`);
+      }
+      if (contact.personality_notes) {
+        lines.push(`📝 Заметки: ${esc(contact.personality_notes)}`);
+      }
     }
 
+    // Stats
     const interactionCount = await prisma.interaction.count({
       where: { contact_id: contactId },
     });
-    lines.push("", `📊 Взаимодействий: ${interactionCount}`);
+    lines.push("");
+    lines.push(`📊 Взаимодействий: ${interactionCount}`);
     lines.push(`📅 Последний контакт: ${relDate(contact.last_interaction_at)}`);
 
+    // Active follow-ups
     if (contact.follow_ups.length > 0) {
-      lines.push("", "<b>📋 Активные follow-ups:</b>");
+      lines.push("");
+      lines.push("<b>📋 Активные follow-ups:</b>");
       contact.follow_ups.forEach((f) => {
-        lines.push(`• ${esc(f.suggested_action)}`);
+        lines.push(`  · ${esc(f.suggested_action)}`);
       });
     }
 
@@ -379,8 +419,8 @@ async function showContactCard(ctx: Context, contactId: string) {
         Markup.button.callback("💬 Чат", `contact_chat:${contactId}`),
       ],
       [
-        Markup.button.callback("🗑 Архив", `contact_delete:${contactId}`),
-        Markup.button.callback("← К списку", "contacts"),
+        Markup.button.callback("← Контакты", "contacts"),
+        Markup.button.callback("🏠 Меню", "main_menu"),
       ],
     ];
 
@@ -408,15 +448,14 @@ async function handleStatusMenu(ctx: Context) {
     }
 
     const allowed = getAllowedTransitions(contact.warmth_status);
-    if (allowed.length === 0) {
-      await editOrReply(ctx, "Нет доступных переходов.", [
-        [Markup.button.callback("← Назад", `contact_view:${contactId}`)],
-      ]);
-      return;
-    }
 
-    const currentEmoji = STATUS_EMOJI[contact.warmth_status] || "⚪";
-    const currentLabel = STATUS_LABEL[contact.warmth_status] || contact.warmth_status;
+    const text = [
+      `🔄 <b>Статус: ${esc(contact.full_name)}</b>`,
+      divider(),
+      `Сейчас: ${warmthEmoji(contact.warmth_status)} ${warmthLabel(contact.warmth_status)}`,
+      "",
+      "Доступные переходы:",
+    ].join("\n");
 
     const buttons = allowed.map((s) => [
       Markup.button.callback(
@@ -424,15 +463,14 @@ async function handleStatusMenu(ctx: Context) {
         `contact_set_status:${contactId}:${s}`,
       ),
     ]);
-    buttons.push([Markup.button.callback("← Назад", `contact_view:${contactId}`)]);
+    buttons.push([
+      Markup.button.callback("📦 Архивировать", `contact_delete:${contactId}`),
+    ]);
+    buttons.push([
+      Markup.button.callback("← К контакту", `contact_view:${contactId}`),
+    ]);
 
-    await editOrReply(
-      ctx,
-      `🔄 <b>Смена статуса</b>\n\n` +
-        `${esc(contact.full_name)}: ${currentEmoji} ${currentLabel}\n\n` +
-        `Выберите новый статус:`,
-      buttons,
-    );
+    await editOrReply(ctx, text, buttons);
   } catch (err) {
     logger.error("status menu error", { error: String(err) });
     await ctx.answerCbQuery("Ошибка").catch(() => {});
@@ -565,21 +603,30 @@ async function handleSuggest(ctx: Context) {
       medium: "🟡",
       low: "🟢",
     };
-    const urgencyLabel: Record<string, string> = {
+    const urgencyLabelMap: Record<string, string> = {
       high: "Срочно",
       medium: "Важно",
       low: "Можно позже",
     };
 
-    const lines = [`🤖 <b>Рекомендации для ${esc(contact.full_name)}:</b>\n`];
+    const lines = [
+      `🤖 <b>Рекомендации — ${esc(contact.full_name)}</b>`,
+      divider(),
+      "",
+    ];
 
     suggestions.forEach((s, i) => {
       const em = urgencyEmoji[s.urgency] || "⚪";
-      const label = urgencyLabel[s.urgency] || s.urgency;
-      lines.push(`${em} <b>${label}:</b> ${esc(s.action)}`);
-      if (s.reasoning) lines.push(`Почему: ${esc(s.reasoning)}`);
+      const label = urgencyLabelMap[s.urgency] || s.urgency;
+      lines.push(`${em} <b>${label}</b>`);
+      lines.push(esc(s.action));
       if (s.timeframe) lines.push(`⏰ ${esc(s.timeframe)}`);
-      if (i < suggestions.length - 1) lines.push("");
+      if (s.reasoning) lines.push(`<i>${esc(s.reasoning)}</i>`);
+      if (i < suggestions.length - 1) {
+        lines.push("");
+        lines.push(thinDivider());
+        lines.push("");
+      }
     });
 
     // Store suggestions for follow-up creation
@@ -588,12 +635,18 @@ async function handleSuggest(ctx: Context) {
       suggestions: suggestions.map((s) => s.action),
     });
 
-    const buttons = suggestions.map((_, i) => [
-      Markup.button.callback(
-        `📋 Follow-up #${i + 1}`,
-        `fu_from_suggest:${contactId}:${i}`,
-      ),
-    ]);
+    // Truncate action text for button labels (Telegram limit)
+    const buttons = suggestions.map((s, i) => {
+      const shortAction = s.action.length > 30
+        ? s.action.slice(0, 27) + "..."
+        : s.action;
+      return [
+        Markup.button.callback(
+          `📋 ${shortAction}`,
+          `fu_from_suggest:${contactId}:${i}`,
+        ),
+      ];
+    });
     buttons.push([
       Markup.button.callback("← К контакту", `contact_view:${contactId}`),
     ]);
@@ -670,7 +723,7 @@ async function handleArchiveConfirm(ctx: Context) {
 
     await editOrReply(
       ctx,
-      `Архивировать <b>${esc(contact.full_name)}</b>?`,
+      `📦 Архивировать <b>${esc(contact.full_name)}</b>?\n\nКонтакт будет скрыт из списков.`,
       [
         [
           Markup.button.callback("Да, архивировать", `contact_archive_yes:${contactId}`),
