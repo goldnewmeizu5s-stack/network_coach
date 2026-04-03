@@ -11,6 +11,7 @@ import {
 import { suggestActions, Suggestion } from "../../services/message-drafting";
 import { handleReflectionText } from "./challenges";
 import { handleChatMessage } from "./chat";
+import { handleVoiceCorrectionText } from "./voice";
 import { handleProfileFieldInput } from "./settings";
 import { setState, getState, clearState } from "../state";
 import {
@@ -76,6 +77,12 @@ export function registerTextHandler(bot: Telegraf) {
     // AI chat mode — highest priority after commands
     if (state?.action === "ai_chat") {
       await handleChatMessage(ctx, text);
+      return;
+    }
+
+    // Voice transcript correction — user describes what to fix
+    if (state?.action === "voice_editing") {
+      await handleVoiceCorrectionText(ctx, text);
       return;
     }
 
