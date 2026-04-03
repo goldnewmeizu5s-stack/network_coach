@@ -774,37 +774,32 @@ function formatContactMessage(
   extracted: Awaited<ReturnType<typeof extractContactData>>,
   isNew: boolean,
 ): string {
-  const header = isNew ? "✅ <b>Контакт создан!</b>" : "♻️ <b>Контакт обновлён!</b>";
-  const lines: string[] = [
-    header,
-    divider(),
-    "",
-  ];
+  const header = isNew ? "<b>Контакт создан</b>" : "<b>Контакт обновлён</b>";
+  const lines: string[] = [header, ""];
 
+  // Block 1 — who
   if (extracted.full_name) {
-    lines.push(`👤 <b>${esc(extracted.full_name)}</b>`);
+    lines.push(`<b>${esc(extracted.full_name)}</b>`);
   }
 
-  const jobParts: string[] = [];
-  if (extracted.occupation) jobParts.push(esc(extracted.occupation));
-  if (extracted.company) jobParts.push(`@ ${esc(extracted.company)}`);
-  if (jobParts.length) lines.push(`💼 ${jobParts.join(" ")}`);
+  const role: string[] = [];
+  if (extracted.occupation) role.push(esc(extracted.occupation));
+  if (extracted.company) role.push(esc(extracted.company));
+  if (role.length) lines.push(role.join(", "));
+  if (extracted.city) lines.push(esc(extracted.city));
 
-  if (extracted.city) lines.push(`📍 ${esc(extracted.city)}`);
-
+  // Block 2 — portrait
   if (extracted.memory_summary) {
     lines.push("");
-    lines.push(`💡 <i>${esc(extracted.memory_summary)}</i>`);
+    lines.push(esc(extracted.memory_summary));
   }
 
+  // Block 3 — next steps
   if (extracted.suggested_next_steps.length > 0) {
-    lines.push("", thinDivider(), "");
-    lines.push("📌 <b>Следующие шаги:</b>");
+    lines.push("");
+    lines.push("<b>Следующие шаги</b>");
     extracted.suggested_next_steps.forEach((step, i) => {
-      const daysLabel = step.due_days === 0 ? "сегодня"
-        : step.due_days === 1 ? "завтра"
-        : `через ${step.due_days} дн.`;
-      lines.push(`${i + 1}. ${esc(step.action)} <i>(${daysLabel})</i>`);
+      lines.push(`${i + 1}. ${esc(step.action)}`);
     });
   }
 
