@@ -1,4 +1,5 @@
 import { Markup } from "telegraf";
+import { logger } from "../lib/logger";
 
 export const mainMenuKeyboard = Markup.inlineKeyboard([
   [
@@ -21,33 +22,51 @@ export const MAIN_MENU_TEXT =
 
 export function registerCallbackHandlers(bot: import("telegraf").Telegraf) {
   bot.action("voice_info", async (ctx) => {
-    await ctx.answerCbQuery();
-    await ctx.reply(
-      "🎤 <b>Голосовые заметки</b>\n\n" +
-        "Просто отправьте голосовое сообщение, кружочек или аудиофайл — " +
-        "бот автоматически распознает речь и создаст контакт.",
-      { parse_mode: "HTML" },
-    );
+    try {
+      await ctx.answerCbQuery();
+      await ctx.reply(
+        "🎤 <b>Голосовые заметки</b>\n\n" +
+          "Просто отправьте голосовое сообщение, кружочек или аудиофайл — " +
+          "бот автоматически распознает речь и создаст контакт.",
+        { parse_mode: "HTML" },
+      );
+    } catch (err) {
+      logger.error("voice_info callback error", { error: String(err) });
+    }
   });
 
   // Main menu callback (return to menu from any screen)
   bot.action("main_menu", async (ctx) => {
-    await ctx.answerCbQuery();
-    await ctx.editMessageText(MAIN_MENU_TEXT, {
-      parse_mode: "HTML",
-      ...mainMenuKeyboard,
-    });
+    try {
+      await ctx.answerCbQuery();
+      await ctx.editMessageText(MAIN_MENU_TEXT, {
+        parse_mode: "HTML",
+        ...mainMenuKeyboard,
+      });
+    } catch (err) {
+      logger.error("main_menu callback error", { error: String(err) });
+    }
   });
 
   // contact_edit stub (not yet implemented)
-  bot.action(/^contact_edit:/, (ctx) => ctx.answerCbQuery("В разработке 🚧"));
+  bot.action(/^contact_edit:/, async (ctx) => {
+    try {
+      await ctx.answerCbQuery("В разработке 🚧");
+    } catch (err) {
+      logger.error("contact_edit callback error", { error: String(err) });
+    }
+  });
 
   // voice_for stub — placeholder for recording voice for specific contact
   bot.action(/^voice_for:/, async (ctx) => {
-    await ctx.answerCbQuery();
-    await ctx.reply(
-      "🎤 Отправьте голосовое сообщение — оно будет привязано к этому контакту.",
-      { parse_mode: "HTML" },
-    );
+    try {
+      await ctx.answerCbQuery();
+      await ctx.reply(
+        "🎤 Отправьте голосовое сообщение — оно будет привязано к этому контакту.",
+        { parse_mode: "HTML" },
+      );
+    } catch (err) {
+      logger.error("voice_for callback error", { error: String(err) });
+    }
   });
 }
