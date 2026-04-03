@@ -27,13 +27,8 @@ export function registerCallbackHandlers(bot: import("telegraf").Telegraf) {
     );
   });
 
-  const stubs = [
-    "contacts",
-    "followups",
-    "challenge",
-    "ai_chat",
-    "settings",
-  ] as const;
+  // Stubs for features not yet implemented
+  const stubs = ["followups", "challenge", "ai_chat", "settings"] as const;
 
   for (const action of stubs) {
     bot.action(action, (ctx) =>
@@ -41,8 +36,18 @@ export function registerCallbackHandlers(bot: import("telegraf").Telegraf) {
     );
   }
 
-  // Contact action stubs from voice handler results
-  bot.action(/^contact_view:/, (ctx) => ctx.answerCbQuery("В разработке 🚧"));
+  // contact_edit stub (not yet implemented)
   bot.action(/^contact_edit:/, (ctx) => ctx.answerCbQuery("В разработке 🚧"));
-  bot.action(/^contact_delete:/, (ctx) => ctx.answerCbQuery("В разработке 🚧"));
+
+  // voice_for stub — placeholder for recording voice for specific contact
+  bot.action(/^voice_for:/, async (ctx) => {
+    await ctx.answerCbQuery();
+    await ctx.reply(
+      "🎤 Отправьте голосовое сообщение — оно будет привязано к этому контакту.",
+      { parse_mode: "HTML" },
+    );
+  });
+
+  // contact_fups stub
+  bot.action(/^contact_fups:/, (ctx) => ctx.answerCbQuery("В разработке 🚧"));
 }
