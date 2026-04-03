@@ -75,11 +75,9 @@ async function handleSettingsMenu(ctx: Context) {
     await ctx.answerCbQuery();
 
     const text = [
-      "⚙️ <b>Настройки</b>",
-      divider(),
+      "<b>настройки</b>",
       "",
-      "Управление профилем, данными",
-      "и поведением бота.",
+      "профиль, данные, поведение бота.",
     ].join("\n");
 
     await editOrReply(ctx, text, [
@@ -110,19 +108,15 @@ async function handleProfile(ctx: Context) {
     }
 
     const lines = [
-      "👤 <b>Мой профиль</b>",
-      divider(),
+      "<b>профиль</b>",
       "",
-      `📛 <b>Имя:</b> ${esc(user.name || "—")}`,
-      `🎯 <b>Цели:</b> ${esc(user.goals || "—")}`,
-      `😰 <b>Страхи:</b> ${esc(user.fears || "—")}`,
-      `💪 <b>Сильные:</b> ${esc(user.strengths || "—")}`,
-      `📉 <b>Слабые:</b> ${esc(user.weaknesses || "—")}`,
+      `имя: ${esc(user.name || "—")}`,
+      `цели: ${esc(user.goals || "—")}`,
+      `страхи: ${esc(user.fears || "—")}`,
+      `сильные: ${esc(user.strengths || "—")}`,
+      `слабые: ${esc(user.weaknesses || "—")}`,
       "",
-      thinDivider(),
-      "",
-      "<i>Эти данные использует AI для",
-      "персонализации челленджей и советов.</i>",
+      "<i>AI использует это для персонализации.</i>",
     ];
 
     await editOrReply(ctx, lines.join("\n"), [
@@ -346,32 +340,30 @@ async function handleStats(ctx: Context) {
     }
 
     const lines = [
-      "📊 <b>Статистика</b>",
-      divider(),
+      "<b>статистика</b>",
       "",
-      `👥 <b>Контакты: ${totalContacts}</b>`,
+      `контакты: ${totalContacts}`,
     ];
     if (statusParts.length > 0) {
-      lines.push(`   ${statusParts.join("  ")}`);
+      lines.push(statusParts.join(" · "));
     }
 
-    lines.push("", thinDivider(), "");
-    lines.push(`📋 <b>Follow-ups (7 дней)</b>`);
-    lines.push(`   Выполнено: ${followupsDoneWeek}`);
-    lines.push(`   Ожидают: ${pendingFollowups}`);
     lines.push("");
-    lines.push(`🎯 <b>Челленджи (7 дней)</b>`);
-    lines.push(`   Выполнено: ${challengesDone}/${weekChallenges.length}`);
+    lines.push(`<b>follow-ups (7 дней)</b>`);
+    lines.push(`выполнено: ${followupsDoneWeek} · ожидают: ${pendingFollowups}`);
+    lines.push("");
+    lines.push(`<b>челленджи (7 дней)</b>`);
+    lines.push(`выполнено: ${challengesDone}/${weekChallenges.length}`);
     if (streak > 0) {
-      lines.push(`   Streak: 🔥 ${streak} ${dayWord(streak)}`);
+      lines.push(`streak: ${streak} ${dayWord(streak)}`);
     }
 
-    lines.push("", thinDivider(), "");
-    lines.push(`📈 <b>Средний warmth:</b> ${avgScore}/100`);
+    lines.push("");
+    lines.push(`средний warmth: ${avgScore}/100`);
 
     if (neglected.length > 0) {
       lines.push("");
-      lines.push("⚠️ <b>Самые забытые:</b>");
+      lines.push("<b>забытые контакты</b>");
       for (const c of neglected) {
         const days = c.last_interaction_at
           ? Math.floor(
@@ -379,7 +371,7 @@ async function handleStats(ctx: Context) {
             )
           : 999;
         lines.push(
-          `   · ${esc(c.full_name)} — ${days} ${dayWord(days)}`,
+          `· ${esc(c.full_name)} — ${days} ${dayWord(days)}`,
         );
       }
     }
