@@ -1,3 +1,9 @@
+export interface FollowUpSuggestion {
+  action: string;
+  due_days: number;
+  reason: string;
+}
+
 export interface ExtractedContact {
   full_name: string | null;
   nickname: string | null;
@@ -10,7 +16,7 @@ export interface ExtractedContact {
   what_impressed_me: string | null;
   potential_synergies: string | null;
   personality_notes: string | null;
-  suggested_next_steps: string[];
+  suggested_next_steps: FollowUpSuggestion[];
   urgency_score: number;
   relationship_category: string;
   memory_summary: string | null;
