@@ -9,6 +9,7 @@ import {
 } from "../../services/warmth";
 import { suggestActions, Suggestion } from "../../services/message-drafting";
 import { handleReflectionText } from "./challenges";
+import { handleChatMessage } from "./chat";
 import { setState, getState, clearState } from "../state";
 
 const PAGE_SIZE = 10;
@@ -98,6 +99,12 @@ export function registerTextHandler(bot: Telegraf) {
 
     const chatId = ctx.chat.id;
     const state = getState(chatId);
+
+    // AI chat mode — highest priority after commands
+    if (state?.action === "ai_chat") {
+      await handleChatMessage(ctx, text);
+      return;
+    }
 
     // Handle awaiting_note state
     if (state?.action === "awaiting_note") {
@@ -387,9 +394,12 @@ async function showContactCard(ctx: Context, contactId: string) {
       ],
       [
         Markup.button.callback("🤖 Что делать?", `contact_suggest:${contactId}`),
-        Markup.button.callback("🗑 Архив", `contact_delete:${contactId}`),
+        Markup.button.callback("💬 Чат", `contact_chat:${contactId}`),
       ],
-      [Markup.button.callback("← К списку", "contacts")],
+      [
+        Markup.button.callback("🗑 Архив", `contact_delete:${contactId}`),
+        Markup.button.callback("← К списку", "contacts"),
+      ],
     ];
 
     await editOrReply(ctx, lines.join("\n"), buttons);

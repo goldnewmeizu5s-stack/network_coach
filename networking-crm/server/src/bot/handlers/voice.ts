@@ -9,6 +9,8 @@ import { transcribeAudio } from "../../services/transcription";
 import { extractContactData } from "../../services/ai-extraction";
 import { createContact } from "../../services/voice-pipeline";
 import { recalcAndAutoStatus } from "../../services/warmth";
+import { getState } from "../state";
+import { handleChatVoice } from "./chat";
 
 const UPLOADS_DIR = path.join(__dirname, "../../../uploads");
 const MAX_FILE_SIZE = 25 * 1024 * 1024; // 25MB
@@ -28,6 +30,12 @@ async function handleAudio(
       parse_mode: "HTML",
     });
     return;
+  }
+
+  // Check if we're in AI chat mode — if so, transcribe and send to chat
+  const state = getState(ctx.chat!.id);
+  if (state?.action === "ai_chat") {
+    return handleChatVoiceMessage(ctx, fileInfo);
   }
 
   const statusMsg = await ctx.reply("⏳ Обрабатываю запись...");
@@ -305,4 +313,53 @@ function editMessage(
   return ctx.telegram.editMessageText(chatId, messageId, undefined, text, {
     parse_mode: "HTML",
   });
+}
+
+/** Handle voice in AI chat mode: transcribe → send to chat pipeline */
+async function handleChatVoiceMessage(
+  ctx: Context,
+  fileInfo: { file_id: string; file_size?: number; duration?: number },
+) {
+  const statusMsg = await ctx.reply("🎤 Распознаю речь...");
+  const chatId = ctx.chat!.id;
+  const fileName = `tg-chat-${Date.now()}.ogg`;
+  const filePath = path.join(UPLOADS_DIR, fileName);
+
+  try {
+    fs.mkdirSync(UPLOADS_DIR, { recursive: true });
+
+    const fileLink = await ctx.telegram.getFileLink(fileInfo.file_id);
+    const res = await fetch(fileLink.href);
+    if (!res.ok || !res.body) {
+      throw new Error(`Failed to download file: ${res.status}`);
+    }
+    const fileStream = fs.createWriteStream(filePath);
+    await pipeline(res.body as unknown as NodeJS.ReadableStream, fileStream);
+
+    const transcript = await transcribeAudio(filePath);
+
+    await ctx.telegram.editMessageText(
+      chatId,
+      statusMsg.message_id,
+      undefined,
+      `🎤 <i>${escapeHtml(transcript)}</i>`,
+      { parse_mode: "HTML" },
+    );
+
+    await handleChatVoice(ctx, transcript);
+  } catch (err) {
+    logger.error("Chat voice transcription failed", { error: String(err) });
+    await ctx.telegram.editMessageText(
+      chatId,
+      statusMsg.message_id,
+      undefined,
+      "❌ Не удалось распознать речь. Попробуй ещё раз.",
+    ).catch(() => {});
+  } finally {
+    try {
+      fs.unlinkSync(filePath);
+    } catch {
+      // ignore
+    }
+  }
 }

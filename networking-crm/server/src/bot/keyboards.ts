@@ -37,7 +37,7 @@ export function registerCallbackHandlers(bot: import("telegraf").Telegraf) {
   });
 
   // Stubs for features not yet implemented
-  const stubs = ["ai_chat", "settings"] as const;
+  const stubs = ["settings"] as const;
 
   for (const action of stubs) {
     bot.action(action, (ctx) =>
