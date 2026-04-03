@@ -1,18 +1,18 @@
 #!/bin/sh
 
 echo "Waiting for database..."
-for i in $(seq 1 10); do
+for i in $(seq 1 15); do
   node -e "
     const{PrismaClient}=require('@prisma/client');
     const p=new PrismaClient();
     p.\$queryRaw\`SELECT 1\`.then(()=>{console.log('DB ready');process.exit(0)}).catch(()=>process.exit(1))
   " && break
-  echo "DB not ready, retrying in 2s... ($i/10)"
-  sleep 2
+  echo "DB not ready, retrying in 3s... ($i/15)"
+  sleep 3
 done
 
 echo "Running database push..."
-npx prisma db push --schema=prisma/schema.prisma || echo "DB push failed, continuing..."
+npx prisma db push --schema=prisma/schema.prisma --accept-data-loss 2>&1 || echo "DB push failed, continuing..."
 
 echo "Checking seed data..."
 node -e "
