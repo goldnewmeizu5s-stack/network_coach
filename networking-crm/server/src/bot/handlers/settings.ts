@@ -3,6 +3,7 @@ import type { Context } from "telegraf";
 import prisma from "../../lib/prisma";
 import { logger } from "../../lib/logger";
 import { setState } from "../state";
+import { esc, dayWord, editOrReply } from "../ui";
 
 const PROFILE_FIELDS: Record<
   string,
@@ -14,21 +15,6 @@ const PROFILE_FIELDS: Record<
   strengths: { label: "Сильные стороны", dbField: "strengths", emoji: "💪" },
   weaknesses: { label: "Слабые стороны", dbField: "weaknesses", emoji: "📉" },
 };
-
-function escapeHtml(text: string): string {
-  return text
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;");
-}
-
-function dayWord(n: number): string {
-  const abs = Math.abs(n);
-  if (abs % 10 === 1 && abs % 100 !== 11) return "день";
-  if (abs % 10 >= 2 && abs % 10 <= 4 && (abs % 100 < 10 || abs % 100 >= 20))
-    return "дня";
-  return "дней";
-}
 
 export function registerSettingsHandlers(bot: Telegraf) {
   bot.action("settings", handleSettingsMenu);
@@ -104,11 +90,11 @@ async function handleProfile(ctx: Context) {
     const lines = [
       "👤 <b>Мой профиль</b>",
       "",
-      `📛 Имя: ${escapeHtml(user.name || "—")}`,
-      `🎯 Цели: ${escapeHtml(user.goals || "—")}`,
-      `😰 Страхи: ${escapeHtml(user.fears || "—")}`,
-      `💪 Сильные стороны: ${escapeHtml(user.strengths || "—")}`,
-      `📉 Слабые стороны: ${escapeHtml(user.weaknesses || "—")}`,
+      `📛 Имя: ${esc(user.name || "—")}`,
+      `🎯 Цели: ${esc(user.goals || "—")}`,
+      `😰 Страхи: ${esc(user.fears || "—")}`,
+      `💪 Сильные стороны: ${esc(user.strengths || "—")}`,
+      `📉 Слабые стороны: ${esc(user.weaknesses || "—")}`,
     ];
 
     await editOrReply(ctx, lines.join("\n"), [
@@ -143,7 +129,7 @@ async function handleProfileEdit(ctx: Context) {
     setState(ctx.chat!.id, `awaiting_profile_${field}`, {});
 
     await ctx.reply(
-      `✏️ ${meta.emoji} <b>${meta.label}</b>\n\nТекущее: ${escapeHtml(String(currentValue))}\n\nВведи новое значение:`,
+      `✏️ ${meta.emoji} <b>${meta.label}</b>\n\nТекущее: ${esc(String(currentValue))}\n\nВведи новое значение:`,
       {
         parse_mode: "HTML",
         ...Markup.inlineKeyboard([
@@ -340,7 +326,7 @@ async function handleStats(ctx: Context) {
             )
           : 999;
         lines.push(
-          `• ${escapeHtml(c.full_name)} (${days} ${dayWord(days)})`,
+          `• ${esc(c.full_name)} (${days} ${dayWord(days)})`,
         );
       }
     }
@@ -448,21 +434,3 @@ async function handleExportAll(ctx: Context) {
   }
 }
 
-// ── Helpers ───────────────────────────────────────────────
-
-async function editOrReply(
-  ctx: Context,
-  text: string,
-  buttons: ReturnType<typeof Markup.button.callback>[][],
-) {
-  const keyboard = Markup.inlineKeyboard(buttons);
-  try {
-    if (ctx.callbackQuery) {
-      await ctx.editMessageText(text, { parse_mode: "HTML", ...keyboard });
-      return;
-    }
-  } catch {
-    // fallback
-  }
-  await ctx.reply(text, { parse_mode: "HTML", ...keyboard });
-}

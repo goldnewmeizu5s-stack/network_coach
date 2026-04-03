@@ -11,6 +11,7 @@ import { createContact } from "../../services/voice-pipeline";
 import { recalcAndAutoStatus } from "../../services/warmth";
 import { getState } from "../state";
 import { handleChatVoice } from "./chat";
+import { esc } from "../ui";
 
 const UPLOADS_DIR = path.join(__dirname, "../../../uploads");
 const MAX_FILE_SIZE = 25 * 1024 * 1024; // 25MB
@@ -271,37 +272,30 @@ function formatContactMessage(
   const lines: string[] = [header, ""];
 
   if (extracted.full_name) {
-    lines.push(`👤 <b>${escapeHtml(extracted.full_name)}</b>`);
+    lines.push(`👤 <b>${esc(extracted.full_name)}</b>`);
   }
 
   const jobParts: string[] = [];
-  if (extracted.occupation) jobParts.push(escapeHtml(extracted.occupation));
-  if (extracted.company) jobParts.push(`@ ${escapeHtml(extracted.company)}`);
+  if (extracted.occupation) jobParts.push(esc(extracted.occupation));
+  if (extracted.company) jobParts.push(`@ ${esc(extracted.company)}`);
   if (jobParts.length) lines.push(`💼 ${jobParts.join(" ")}`);
 
-  if (extracted.city) lines.push(`📍 ${escapeHtml(extracted.city)}`);
+  if (extracted.city) lines.push(`📍 ${esc(extracted.city)}`);
 
   if (extracted.memory_summary) {
     lines.push("");
-    lines.push(`💡 <i>${escapeHtml(extracted.memory_summary)}</i>`);
+    lines.push(`💡 <i>${esc(extracted.memory_summary)}</i>`);
   }
 
   if (extracted.suggested_next_steps.length > 0) {
     lines.push("");
     lines.push("Следующие шаги:");
     extracted.suggested_next_steps.forEach((step, i) => {
-      lines.push(`${i + 1}. ${escapeHtml(step)}`);
+      lines.push(`${i + 1}. ${esc(step)}`);
     });
   }
 
   return lines.join("\n");
-}
-
-function escapeHtml(text: string): string {
-  return text
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;");
 }
 
 function editMessage(
@@ -342,7 +336,7 @@ async function handleChatVoiceMessage(
       chatId,
       statusMsg.message_id,
       undefined,
-      `🎤 <i>${escapeHtml(transcript)}</i>`,
+      `🎤 <i>${esc(transcript)}</i>`,
       { parse_mode: "HTML" },
     );
 

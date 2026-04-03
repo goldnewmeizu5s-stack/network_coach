@@ -2,6 +2,7 @@ import { Markup } from "telegraf";
 import prisma from "../lib/prisma";
 import { logger } from "../lib/logger";
 import { getBotInstance } from "./index";
+import { esc, dayWord } from "./ui";
 
 // ── Core send function ────────────────────────────────────
 
@@ -64,17 +65,6 @@ async function isQuietHours(): Promise<boolean> {
   }
 }
 
-function escapeHtml(text: string): string {
-  return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-}
-
-function dayWord(n: number): string {
-  const abs = Math.abs(n);
-  if (abs % 10 === 1 && abs % 100 !== 11) return "день";
-  if (abs % 10 >= 2 && abs % 10 <= 4 && (abs % 100 < 10 || abs % 100 >= 20))
-    return "дня";
-  return "дней";
-}
 
 // ── Morning briefing ──────────────────────────────────────
 
@@ -146,7 +136,7 @@ export async function sendMorningBriefing(): Promise<void> {
     const lines = ["☀️ <b>Доброе утро!</b>", ""];
 
     if (challenge) {
-      lines.push(`🎯 <b>Челлендж:</b> ${escapeHtml(challenge.title)}`);
+      lines.push(`🎯 <b>Челлендж:</b> ${esc(challenge.title)}`);
       lines.push("");
     }
 
@@ -158,7 +148,7 @@ export async function sendMorningBriefing(): Promise<void> {
 
     if (urgent?.contact) {
       lines.push(
-        `⚡ Срочно: ${escapeHtml(urgent.suggested_action)} — ${escapeHtml(urgent.contact.full_name)}`,
+        `⚡ Срочно: ${esc(urgent.suggested_action)} — ${esc(urgent.contact.full_name)}`,
       );
     }
 
@@ -211,7 +201,7 @@ export async function sendFollowUpReminders(): Promise<void> {
       for (const fu of dueToday) {
         const name = fu.contact?.full_name || "Контакт";
         lines.push(
-          `📌 ${escapeHtml(name)} — "${escapeHtml(fu.suggested_action)}"`,
+          `📌 ${esc(name)} — "${esc(fu.suggested_action)}"`,
         );
       }
       lines.push("", "Начни с одного! 💪");
@@ -245,7 +235,7 @@ export async function sendFollowUpReminders(): Promise<void> {
           (Date.now() - fu.due_date.getTime()) / 86400000,
         );
         lines.push(
-          `🔴 ${escapeHtml(name)} — просрочено на ${days} ${dayWord(days)}`,
+          `🔴 ${esc(name)} — просрочено на ${days} ${dayWord(days)}`,
         );
       }
       lines.push("", "Сделай сейчас или отложи, чтобы не забыть.");
@@ -344,7 +334,7 @@ export async function sendWeeklyDigest(): Promise<void> {
             )
           : 0;
         lines.push(
-          `• ${escapeHtml(c.full_name)} (${days} ${dayWord(days)} без контакта)`,
+          `• ${esc(c.full_name)} (${days} ${dayWord(days)} без контакта)`,
         );
       }
       lines.push("", "Напиши хотя бы одному из них! 💙");
@@ -382,12 +372,12 @@ export async function notifyNewContact(contact: {
   const lines = [
     "✅ <b>Новый контакт из web</b>",
     "",
-    `👤 ${escapeHtml(contact.full_name)}`,
+    `👤 ${esc(contact.full_name)}`,
   ];
 
   const job = [contact.occupation, contact.company].filter(Boolean).join(" @ ");
-  if (job) lines.push(`💼 ${escapeHtml(job)}`);
-  if (contact.city) lines.push(`📍 ${escapeHtml(contact.city)}`);
+  if (job) lines.push(`💼 ${esc(job)}`);
+  if (contact.city) lines.push(`📍 ${esc(contact.city)}`);
 
   const keyboard = Markup.inlineKeyboard([
     [Markup.button.callback("👤 Открыть", `contact_view:${contact.id}`)],

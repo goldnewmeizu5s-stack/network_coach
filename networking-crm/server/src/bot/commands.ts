@@ -3,18 +3,7 @@ import prisma from "../lib/prisma";
 import { logger } from "../lib/logger";
 import { mainMenuKeyboard, MAIN_MENU_TEXT } from "./keyboards";
 import { clearState } from "./state";
-
-function escapeHtml(text: string): string {
-  return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-}
-
-function dayWord(n: number): string {
-  const abs = Math.abs(n);
-  if (abs % 10 === 1 && abs % 100 !== 11) return "день";
-  if (abs % 10 >= 2 && abs % 10 <= 4 && (abs % 100 < 10 || abs % 100 >= 20))
-    return "дня";
-  return "дней";
-}
+import { esc, dayWord } from "./ui";
 
 const HELP_TEXT = `<b>Доступные команды:</b>
 
@@ -124,7 +113,7 @@ export function registerCommands(bot: Telegraf) {
       if (challenge) {
         const st = statusEmoji[challenge.status] || "";
         lines.push(
-          `🎯 Челлендж: ${escapeHtml(challenge.title)}${st ? ` (${st})` : ""}`,
+          `🎯 Челлендж: ${esc(challenge.title)}${st ? ` (${st})` : ""}`,
         );
       }
 
@@ -132,7 +121,7 @@ export function registerCommands(bot: Telegraf) {
 
       if (urgent) {
         lines.push(
-          `💡 Напиши ${escapeHtml(urgent.full_name)} — давно не общались!`,
+          `💡 Напиши ${esc(urgent.full_name)} — давно не общались!`,
         );
       }
 

@@ -5,6 +5,14 @@ import { logger } from "../../lib/logger";
 import { recalcAndAutoStatus } from "../../services/warmth";
 import { draftFollowUpMessage } from "../../services/message-drafting";
 import { setState } from "../state";
+import {
+  esc,
+  dayWord,
+  fmtDateShort,
+  urgencyBadge,
+  editOrReply,
+  safeAnswer,
+} from "../ui";
 
 export function registerFollowupHandlers(bot: Telegraf) {
   // Main menu entry
@@ -47,34 +55,6 @@ async function loadPendingFollowups() {
   });
 }
 
-function urgencyInfo(dueDate: Date): { emoji: string; label: string } {
-  const diff = dueDate.getTime() - Date.now();
-  const days = Math.floor(diff / 86400000);
-  if (days < 0) {
-    const overdue = Math.abs(days);
-    return { emoji: "🔴", label: `просрочено на ${overdue} ${dayWord(overdue)}` };
-  }
-  if (days === 0) return { emoji: "🟡", label: "сегодня" };
-  if (days === 1) return { emoji: "🟡", label: "завтра" };
-  if (days <= 7) return { emoji: "🟢", label: `через ${days} ${dayWord(days)}` };
-  return { emoji: "⚪", label: `через ${days} ${dayWord(days)}` };
-}
-
-function dayWord(n: number): string {
-  const abs = Math.abs(n);
-  if (abs % 10 === 1 && abs % 100 !== 11) return "день";
-  if (abs % 10 >= 2 && abs % 10 <= 4 && (abs % 100 < 10 || abs % 100 >= 20))
-    return "дня";
-  return "дней";
-}
-
-function escapeHtml(text: string): string {
-  return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-}
-
-function formatDateShort(date: Date): string {
-  return date.toLocaleDateString("ru-RU", { day: "2-digit", month: "2-digit" });
-}
 
 // ── Card rendering ────────────────────────────────────────
 
@@ -83,14 +63,14 @@ function renderFollowupCard(
   index: number,
   total: number,
 ) {
-  const { emoji, label } = urgencyInfo(fu.due_date);
+  const { emoji, label } = urgencyBadge(fu.due_date);
   const contactName = fu.contact?.full_name || "Неизвестный";
 
   const lines = [
     `📋 <b>Follow-up ${index + 1} из ${total}</b>`,
     "",
-    `👤 <b>${escapeHtml(contactName)}</b> ${emoji}`,
-    `📌 ${escapeHtml(fu.suggested_action)}`,
+    `👤 <b>${esc(contactName)}</b> ${emoji}`,
+    `📌 ${esc(fu.suggested_action)}`,
     `📅 ${label} | Приоритет: ${fu.priority}/10`,
   ];
 
@@ -240,7 +220,7 @@ async function handleSnooze(ctx: Context) {
       data: { status: "snoozed", snoozed_until: snoozedUntil },
     });
 
-    await ctx.answerCbQuery(`⏰ Отложено до ${formatDateShort(snoozedUntil)}`);
+    await ctx.answerCbQuery(`⏰ Отложено до ${fmtDateShort(snoozedUntil)}`);
     await showFollowupByIndex(ctx, 0);
   } catch (err) {
     logger.error("fu snooze error", { error: String(err) });
@@ -298,7 +278,7 @@ async function handleDraft(ctx: Context) {
       return;
     }
 
-    const contactName = escapeHtml(fu.contact.full_name);
+    const contactName = esc(fu.contact.full_name);
 
     // Edit status message to show header
     await ctx.telegram.editMessageText(
@@ -402,7 +382,7 @@ async function handleContactFollowups(ctx: Context) {
     if (followups.length === 0) {
       await editOrReply(
         ctx,
-        `📋 <b>${escapeHtml(contact.full_name)}</b> — нет активных follow-ups.`,
+        `📋 <b>${esc(contact.full_name)}</b> — нет активных follow-ups.`,
         [
           [Markup.button.callback("➕ Создать", `fu_create:${contactId}`)],
           [Markup.button.callback("← К контакту", `contact_view:${contactId}`)],
@@ -411,10 +391,10 @@ async function handleContactFollowups(ctx: Context) {
       return;
     }
 
-    const lines = [`📋 <b>Follow-ups — ${escapeHtml(contact.full_name)}</b>\n`];
+    const lines = [`📋 <b>Follow-ups — ${esc(contact.full_name)}</b>\n`];
     followups.forEach((fu, i) => {
-      const { emoji, label } = urgencyInfo(fu.due_date);
-      lines.push(`${i + 1}. ${emoji} ${escapeHtml(fu.suggested_action)}`);
+      const { emoji, label } = urgencyBadge(fu.due_date);
+      lines.push(`${i + 1}. ${emoji} ${esc(fu.suggested_action)}`);
       lines.push(`   📅 ${label}`);
     });
 
@@ -451,7 +431,7 @@ async function handleCreatePrompt(ctx: Context) {
 
     setState(ctx.chat!.id, "awaiting_fu_text", { contactId });
     await ctx.reply(
-      `✏️ Напиши, что нужно сделать для <b>${escapeHtml(contact.full_name)}</b>:`,
+      `✏️ Напиши, что нужно сделать для <b>${esc(contact.full_name)}</b>:`,
       { parse_mode: "HTML" },
     );
   } catch (err) {
@@ -494,7 +474,7 @@ async function handleSetDate(ctx: Context) {
 
     await editOrReply(
       ctx,
-      `✅ Follow-up создан!\n📅 Срок: ${formatDateShort(dueDate)}`,
+      `✅ Follow-up создан!\n📅 Срок: ${fmtDateShort(dueDate)}`,
       [
         [Markup.button.callback("← К контакту", `contact_view:${contactId}`)],
         [Markup.button.callback("📋 Follow-ups", "followups")],
@@ -506,29 +486,3 @@ async function handleSetDate(ctx: Context) {
   }
 }
 
-// ── Helpers ───────────────────────────────────────────────
-
-async function editOrReply(
-  ctx: Context,
-  text: string,
-  buttons: ReturnType<typeof Markup.button.callback>[][],
-) {
-  const keyboard = Markup.inlineKeyboard(buttons);
-  try {
-    if (ctx.callbackQuery) {
-      await ctx.editMessageText(text, { parse_mode: "HTML", ...keyboard });
-      return;
-    }
-  } catch {
-    // fallback to reply
-  }
-  await ctx.reply(text, { parse_mode: "HTML", ...keyboard });
-}
-
-async function safeAnswer(ctx: Context, text: string) {
-  try {
-    await ctx.answerCbQuery(text);
-  } catch {
-    // ignore
-  }
-}

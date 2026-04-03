@@ -7,24 +7,16 @@ import {
   generateAlternativeChallenges,
 } from "../../services/challenge-engine";
 import { setState, getState, clearState } from "../state";
-
-const CATEGORY_EMOJI: Record<string, string> = {
-  conversation: "🗣️",
-  follow_up: "🤝",
-  digital: "📱",
-  skill: "🎯",
-  mindset: "🧠",
-  stretch: "🔥",
-};
-
-const CATEGORY_LABEL: Record<string, string> = {
-  conversation: "Разговор",
-  follow_up: "Follow-up",
-  digital: "Digital",
-  skill: "Навык",
-  mindset: "Мышление",
-  stretch: "Вызов",
-};
+import {
+  esc,
+  dayWord,
+  difficultyDots as difficultyBar,
+  starsStr,
+  editOrReply,
+  safeAnswer,
+  CATEGORY_EMOJI,
+  CATEGORY_LABEL,
+} from "../ui";
 
 export function registerChallengeHandlers(bot: Telegraf) {
   bot.action("challenge", handleChallengeMenu);
@@ -47,17 +39,6 @@ function todayRange() {
   return { start, end };
 }
 
-function difficultyBar(d: number): string {
-  return "●".repeat(d) + "○".repeat(10 - d);
-}
-
-function starsStr(n: number): string {
-  return "⭐".repeat(n) + "☆".repeat(5 - n);
-}
-
-function escapeHtml(text: string): string {
-  return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-}
 
 async function getStreak(): Promise<number> {
   const yearAgo = new Date(Date.now() - 365 * 86400000);
@@ -128,16 +109,16 @@ function renderChallengeCard(ch: ChallengeWithMethod, streak: number): string {
   const lines = [
     "🎯 <b>Челлендж дня</b>",
     "",
-    `${catEmoji} <b>${escapeHtml(ch.title)}</b>`,
+    `${catEmoji} <b>${esc(ch.title)}</b>`,
     `Сложность: ${difficultyBar(ch.difficulty)} (${ch.difficulty}/10)`,
     "",
-    escapeHtml(ch.description),
+    esc(ch.description),
   ];
 
   if (ch.methodology) {
     lines.push(
       "",
-      `📚 <i>По методу: ${escapeHtml(ch.methodology.title)}, ${escapeHtml(ch.methodology.source)}</i>`,
+      `📚 <i>По методу: ${esc(ch.methodology.title)}, ${esc(ch.methodology.source)}</i>`,
     );
   }
 
@@ -146,10 +127,10 @@ function renderChallengeCard(ch: ChallengeWithMethod, streak: number): string {
   return lines.join("\n");
 }
 
-function challengeKeyboard(ch: ChallengeWithMethod) {
+function challengeButtons(ch: ChallengeWithMethod): ReturnType<typeof Markup.button.callback>[][] {
   switch (ch.status) {
     case "pending":
-      return Markup.inlineKeyboard([
+      return [
         [
           Markup.button.callback("💪 Принять", `challenge_accept:${ch.id}`),
           Markup.button.callback("🔄 Другой", "challenge_another"),
@@ -159,9 +140,9 @@ function challengeKeyboard(ch: ChallengeWithMethod) {
           Markup.button.callback("📊 Статистика", "challenge_stats"),
           Markup.button.callback("🏠 Меню", "main_menu"),
         ],
-      ]);
+      ];
     case "accepted":
-      return Markup.inlineKeyboard([
+      return [
         [
           Markup.button.callback("✅ Выполнено!", `challenge_complete:${ch.id}`),
           Markup.button.callback("❌ Не вышло", `challenge_skip:${ch.id}`),
@@ -170,26 +151,18 @@ function challengeKeyboard(ch: ChallengeWithMethod) {
           Markup.button.callback("📊 Статистика", "challenge_stats"),
           Markup.button.callback("🏠 Меню", "main_menu"),
         ],
-      ]);
+      ];
     case "completed":
-      return Markup.inlineKeyboard([
+      return [
         [Markup.button.callback("📊 Статистика", "challenge_stats")],
         [Markup.button.callback("🏠 Меню", "main_menu")],
-      ]);
+      ];
     default:
       // skipped / too_hard
-      return Markup.inlineKeyboard([
+      return [
         [Markup.button.callback("🏠 Меню", "main_menu")],
-      ]);
+      ];
   }
-}
-
-function dayWord(n: number): string {
-  const abs = Math.abs(n);
-  if (abs % 10 === 1 && abs % 100 !== 11) return "день";
-  if (abs % 10 >= 2 && abs % 10 <= 4 && (abs % 100 < 10 || abs % 100 >= 20))
-    return "дня";
-  return "дней";
 }
 
 // ── Handlers ──────────────────────────────────────────────
@@ -229,13 +202,13 @@ async function handleChallengeMenu(ctx: Context) {
       const completedText =
         text +
         `\n\n✅ Выполнено! ${starsStr(main.rating)}` +
-        (main.reflection ? `\n📝 "${escapeHtml(main.reflection)}"` : "");
-      await editOrReply(ctx, completedText, challengeKeyboard(main));
+        (main.reflection ? `\n📝 "${esc(main.reflection)}"` : "");
+      await editOrReply(ctx, completedText, challengeButtons(main));
     } else if (main.status === "skipped" || main.status === "too_hard") {
       const label = main.status === "skipped" ? "Пропущено" : "Слишком сложно";
-      await editOrReply(ctx, text + `\n\n${label}`, challengeKeyboard(main));
+      await editOrReply(ctx, text + `\n\n${label}`, challengeButtons(main));
     } else {
-      await editOrReply(ctx, text, challengeKeyboard(main));
+      await editOrReply(ctx, text, challengeButtons(main));
     }
   } catch (err) {
     logger.error("challenge menu error", { error: String(err) });
@@ -263,7 +236,7 @@ async function handleAccept(ctx: Context) {
 
     const streak = await getStreak();
     const text = renderChallengeCard(ch, streak);
-    await editOrReply(ctx, text, challengeKeyboard(ch));
+    await editOrReply(ctx, text, challengeButtons(ch));
   } catch (err) {
     logger.error("challenge accept error", { error: String(err) });
     await safeAnswer(ctx, "Ошибка");
@@ -297,7 +270,7 @@ async function handleAnother(ctx: Context) {
 
     const streak = await getStreak();
     const text = renderChallengeCard(alt, streak);
-    await editOrReply(ctx, text, challengeKeyboard(alt));
+    await editOrReply(ctx, text, challengeButtons(alt));
   } catch (err) {
     logger.error("challenge another error", { error: String(err) });
     await safeAnswer(ctx, "Ошибка");
@@ -316,9 +289,9 @@ async function handleTooHard(ctx: Context) {
       data: { status: "too_hard" },
     });
 
-    await editOrReply(ctx, "Понял, завтра подберу полегче 💙", Markup.inlineKeyboard([
+    await editOrReply(ctx, "Понял, завтра подберу полегче 💙", [
       [Markup.button.callback("🏠 Меню", "main_menu")],
-    ]));
+    ]);
   } catch (err) {
     logger.error("challenge too_hard error", { error: String(err) });
     await safeAnswer(ctx, "Ошибка");
@@ -336,9 +309,9 @@ async function handleComplete(ctx: Context) {
       Markup.button.callback(starsStr(n), `challenge_rate:${id}:${n}`),
     );
 
-    await editOrReply(ctx, "Как прошло? Оцени от 1 до 5:", Markup.inlineKeyboard(
+    await editOrReply(ctx, "Как прошло? Оцени от 1 до 5:",
       buttons.map((b) => [b]),
-    ));
+    );
   } catch (err) {
     logger.error("challenge complete error", { error: String(err) });
     await safeAnswer(ctx, "Ошибка");
@@ -361,9 +334,9 @@ async function handleRate(ctx: Context) {
     await editOrReply(
       ctx,
       "✍️ Хочешь записать рефлексию? Напиши пару слов или нажми пропустить.",
-      Markup.inlineKeyboard([
+      [
         [Markup.button.callback("Пропустить", `challenge_finish:${id}:${rating}:noreflection`)],
-      ]),
+      ],
     );
   } catch (err) {
     logger.error("challenge rate error", { error: String(err) });
@@ -423,7 +396,7 @@ async function completeChallenge(
 
     const lines = ["🎉 Отличная работа!", "", starsStr(rating)];
     if (reflection) {
-      lines.push(`📝 "${escapeHtml(reflection)}"`);
+      lines.push(`📝 "${esc(reflection)}"`);
     }
     lines.push("", `🔥 Streak: ${streak} ${dayWord(streak)} подряд!`);
 
@@ -431,9 +404,9 @@ async function completeChallenge(
       lines.push("", `🎉🎉🎉 ${streak} ${dayWord(streak)} подряд! Ты в ударе!`);
     }
 
-    await editOrReply(ctx, lines.join("\n"), Markup.inlineKeyboard([
+    await editOrReply(ctx, lines.join("\n"), [
       [Markup.button.callback("🏠 Меню", "main_menu")],
-    ]));
+    ]);
   } catch (err) {
     logger.error("challenge complete error", { error: String(err) });
     await ctx.reply("❌ Ошибка сохранения.");
@@ -452,9 +425,9 @@ async function handleSkip(ctx: Context) {
       data: { status: "skipped" },
     });
 
-    await editOrReply(ctx, "Не беда. Завтра новый день! 💙", Markup.inlineKeyboard([
+    await editOrReply(ctx, "Не беда. Завтра новый день! 💙", [
       [Markup.button.callback("🏠 Меню", "main_menu")],
-    ]));
+    ]);
   } catch (err) {
     logger.error("challenge skip error", { error: String(err) });
     await safeAnswer(ctx, "Ошибка");
@@ -521,10 +494,10 @@ async function handleStats(ctx: Context) {
       }
     }
 
-    await editOrReply(ctx, lines.join("\n"), Markup.inlineKeyboard([
+    await editOrReply(ctx, lines.join("\n"), [
       [Markup.button.callback("← Назад", "challenge")],
       [Markup.button.callback("🏠 Меню", "main_menu")],
-    ]));
+    ]);
   } catch (err) {
     logger.error("challenge stats error", { error: String(err) });
     await safeAnswer(ctx, "Ошибка загрузки");
@@ -558,27 +531,3 @@ async function getChallengeStats(days: number) {
   };
 }
 
-// ── Shared helpers ────────────────────────────────────────
-
-function editOrReply(
-  ctx: Context,
-  text: string,
-  keyboard: ReturnType<typeof Markup.inlineKeyboard>,
-) {
-  try {
-    if (ctx.callbackQuery) {
-      return ctx.editMessageText(text, { parse_mode: "HTML", ...keyboard });
-    }
-  } catch {
-    // fallback
-  }
-  return ctx.reply(text, { parse_mode: "HTML", ...keyboard });
-}
-
-async function safeAnswer(ctx: Context, text: string) {
-  try {
-    await ctx.answerCbQuery(text);
-  } catch {
-    // ignore
-  }
-}

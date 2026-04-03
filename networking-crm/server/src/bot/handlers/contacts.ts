@@ -12,51 +12,16 @@ import { handleReflectionText } from "./challenges";
 import { handleChatMessage } from "./chat";
 import { handleProfileFieldInput } from "./settings";
 import { setState, getState, clearState } from "../state";
+import {
+  esc,
+  relDate,
+  fmtDate,
+  STATUS_EMOJI,
+  STATUS_LABEL,
+  editOrReply,
+} from "../ui";
 
 const PAGE_SIZE = 10;
-
-const STATUS_EMOJI: Record<string, string> = {
-  new: "🔴",
-  warming: "🟡",
-  warm: "🟢",
-  cooling: "🟠",
-  paused: "⚪",
-  archived: "📦",
-};
-
-const STATUS_LABEL: Record<string, string> = {
-  new: "Новые",
-  warming: "Тёплые",
-  warm: "Горячие",
-  cooling: "Остывают",
-  paused: "Пауза",
-  archived: "Архив",
-  all: "Все",
-};
-
-function escapeHtml(text: string): string {
-  return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-}
-
-function relativeDate(date: Date | null): string {
-  if (!date) return "нет данных";
-  const diff = Date.now() - date.getTime();
-  const days = Math.floor(diff / 86400000);
-  if (days === 0) return "сегодня";
-  if (days === 1) return "вчера";
-  if (days < 7) return `${days} дн. назад`;
-  if (days < 30) return `${Math.floor(days / 7)} нед. назад`;
-  return `${Math.floor(days / 30)} мес. назад`;
-}
-
-function formatDate(date: Date | null): string {
-  if (!date) return "—";
-  return date.toLocaleDateString("ru-RU", {
-    day: "2-digit",
-    month: "2-digit",
-    year: "numeric",
-  });
-}
 
 export function registerContactHandlers(bot: Telegraf) {
   // Menu entry — show filters
@@ -297,16 +262,16 @@ async function showContactsList(ctx: Context, status: string, offset: number) {
     contacts.forEach((c, i) => {
       const emoji = STATUS_EMOJI[c.warmth_status] || "⚪";
       const job = [c.occupation, c.company].filter(Boolean).join(" @ ");
-      const jobStr = job ? ` — ${escapeHtml(job)}` : "";
+      const jobStr = job ? ` — ${esc(job)}` : "";
       lines.push(
-        `${offset + i + 1}. ${emoji} <b>${escapeHtml(c.full_name)}</b>${jobStr}`,
+        `${offset + i + 1}. ${emoji} <b>${esc(c.full_name)}</b>${jobStr}`,
       );
-      lines.push(`   Последний контакт: ${relativeDate(c.last_interaction_at)}`);
+      lines.push(`   Последний контакт: ${relDate(c.last_interaction_at)}`);
     });
 
     const buttons = contacts.map((c) => [
       Markup.button.callback(
-        `${escapeHtml(c.full_name)} →`,
+        `${esc(c.full_name)} →`,
         `contact_view:${c.id}`,
       ),
     ]);
@@ -359,44 +324,44 @@ async function showContactCard(ctx: Context, contactId: string) {
     const score = Math.round(contact.warmth_score);
 
     const lines: string[] = [
-      `👤 <b>${escapeHtml(contact.full_name)}</b>`,
+      `👤 <b>${esc(contact.full_name)}</b>`,
       `${emoji} ${statusLabel} • Score: ${score}/100`,
       "",
     ];
 
     const job = [contact.occupation, contact.company].filter(Boolean).join(" @ ");
-    if (job) lines.push(`💼 ${escapeHtml(job)}`);
-    if (contact.city) lines.push(`📍 ${escapeHtml(contact.city)}`);
+    if (job) lines.push(`💼 ${esc(job)}`);
+    if (contact.city) lines.push(`📍 ${esc(contact.city)}`);
     if (contact.where_met) {
       lines.push(
-        `📅 Познакомились: ${escapeHtml(contact.where_met)}, ${formatDate(contact.met_date)}`,
+        `📅 Познакомились: ${esc(contact.where_met)}, ${fmtDate(contact.met_date)}`,
       );
     }
 
     if (contact.memory_summary) {
-      lines.push("", `💡 <i>${escapeHtml(contact.memory_summary)}</i>`);
+      lines.push("", `💡 <i>${esc(contact.memory_summary)}</i>`);
     }
 
     if (contact.key_interests.length > 0) {
       lines.push(
         "",
-        `🏷 Интересы: ${contact.key_interests.map(escapeHtml).join(", ")}`,
+        `🏷 Интересы: ${contact.key_interests.map(esc).join(", ")}`,
       );
     }
     if (contact.personality_notes) {
-      lines.push(`📝 Заметки: ${escapeHtml(contact.personality_notes)}`);
+      lines.push(`📝 Заметки: ${esc(contact.personality_notes)}`);
     }
 
     const interactionCount = await prisma.interaction.count({
       where: { contact_id: contactId },
     });
     lines.push("", `📊 Взаимодействий: ${interactionCount}`);
-    lines.push(`📅 Последний контакт: ${relativeDate(contact.last_interaction_at)}`);
+    lines.push(`📅 Последний контакт: ${relDate(contact.last_interaction_at)}`);
 
     if (contact.follow_ups.length > 0) {
       lines.push("", "<b>📋 Активные follow-ups:</b>");
       contact.follow_ups.forEach((f) => {
-        lines.push(`• ${escapeHtml(f.suggested_action)}`);
+        lines.push(`• ${esc(f.suggested_action)}`);
       });
     }
 
@@ -464,7 +429,7 @@ async function handleStatusMenu(ctx: Context) {
     await editOrReply(
       ctx,
       `🔄 <b>Смена статуса</b>\n\n` +
-        `${escapeHtml(contact.full_name)}: ${currentEmoji} ${currentLabel}\n\n` +
+        `${esc(contact.full_name)}: ${currentEmoji} ${currentLabel}\n\n` +
         `Выберите новый статус:`,
       buttons,
     );
@@ -544,7 +509,7 @@ async function handleNotePrompt(ctx: Context) {
     setState(ctx.chat!.id, "awaiting_note", { contactId });
 
     await ctx.reply(
-      `✏️ Напиши заметку для <b>${escapeHtml(contact.full_name)}</b>:`,
+      `✏️ Напиши заметку для <b>${esc(contact.full_name)}</b>:`,
       { parse_mode: "HTML" },
     );
   } catch (err) {
@@ -606,14 +571,14 @@ async function handleSuggest(ctx: Context) {
       low: "Можно позже",
     };
 
-    const lines = [`🤖 <b>Рекомендации для ${escapeHtml(contact.full_name)}:</b>\n`];
+    const lines = [`🤖 <b>Рекомендации для ${esc(contact.full_name)}:</b>\n`];
 
     suggestions.forEach((s, i) => {
       const em = urgencyEmoji[s.urgency] || "⚪";
       const label = urgencyLabel[s.urgency] || s.urgency;
-      lines.push(`${em} <b>${label}:</b> ${escapeHtml(s.action)}`);
-      if (s.reasoning) lines.push(`Почему: ${escapeHtml(s.reasoning)}`);
-      if (s.timeframe) lines.push(`⏰ ${escapeHtml(s.timeframe)}`);
+      lines.push(`${em} <b>${label}:</b> ${esc(s.action)}`);
+      if (s.reasoning) lines.push(`Почему: ${esc(s.reasoning)}`);
+      if (s.timeframe) lines.push(`⏰ ${esc(s.timeframe)}`);
       if (i < suggestions.length - 1) lines.push("");
     });
 
@@ -705,7 +670,7 @@ async function handleArchiveConfirm(ctx: Context) {
 
     await editOrReply(
       ctx,
-      `Архивировать <b>${escapeHtml(contact.full_name)}</b>?`,
+      `Архивировать <b>${esc(contact.full_name)}</b>?`,
       [
         [
           Markup.button.callback("Да, архивировать", `contact_archive_yes:${contactId}`),
@@ -768,21 +733,4 @@ function btn(
   callback: string,
 ) {
   return Markup.button.callback(`${emoji} ${label} (${count || 0})`, callback);
-}
-
-async function editOrReply(
-  ctx: Context,
-  text: string,
-  buttons: ReturnType<typeof Markup.button.callback>[][],
-) {
-  const keyboard = Markup.inlineKeyboard(buttons);
-  try {
-    if (ctx.callbackQuery) {
-      await ctx.editMessageText(text, { parse_mode: "HTML", ...keyboard });
-      return;
-    }
-  } catch {
-    // fallback to reply if edit fails
-  }
-  await ctx.reply(text, { parse_mode: "HTML", ...keyboard });
 }
