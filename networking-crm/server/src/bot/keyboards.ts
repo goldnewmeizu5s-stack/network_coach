@@ -27,8 +27,17 @@ export function registerCallbackHandlers(bot: import("telegraf").Telegraf) {
     );
   });
 
+  // Main menu callback (return to menu from any screen)
+  bot.action("main_menu", async (ctx) => {
+    await ctx.answerCbQuery();
+    await ctx.editMessageText(MAIN_MENU_TEXT, {
+      parse_mode: "HTML",
+      ...mainMenuKeyboard,
+    });
+  });
+
   // Stubs for features not yet implemented
-  const stubs = ["followups", "challenge", "ai_chat", "settings"] as const;
+  const stubs = ["challenge", "ai_chat", "settings"] as const;
 
   for (const action of stubs) {
     bot.action(action, (ctx) =>
@@ -43,11 +52,8 @@ export function registerCallbackHandlers(bot: import("telegraf").Telegraf) {
   bot.action(/^voice_for:/, async (ctx) => {
     await ctx.answerCbQuery();
     await ctx.reply(
-      "🎤 Отправьте голосовое сообщение — оно будет привязано к этому контакту.",
+      "🎤 Отправьте голосовое сообщение — оно будет привязано к это��у контакту.",
       { parse_mode: "HTML" },
     );
   });
-
-  // contact_fups stub
-  bot.action(/^contact_fups:/, (ctx) => ctx.answerCbQuery("В разработке 🚧"));
 }

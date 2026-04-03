@@ -124,6 +124,26 @@ export function registerTextHandler(bot: Telegraf) {
       return;
     }
 
+    // Handle awaiting_fu_text state — user typing follow-up action text
+    if (state?.action === "awaiting_fu_text") {
+      const contactId = state.data.contactId as string;
+      setState(chatId, "awaiting_fu_date", { contactId, fuText: text });
+      await ctx.reply("📅 Когда выполнить?", {
+        parse_mode: "HTML",
+        ...Markup.inlineKeyboard([
+          [
+            Markup.button.callback("Завтра", `fu_set_date:${contactId}:1`),
+            Markup.button.callback("3 дня", `fu_set_date:${contactId}:3`),
+          ],
+          [
+            Markup.button.callback("Неделя", `fu_set_date:${contactId}:7`),
+            Markup.button.callback("2 недели", `fu_set_date:${contactId}:14`),
+          ],
+        ]),
+      });
+      return;
+    }
+
     // Contact search: 1-3 words, no special chars
     if (/^[\p{L}\s]{1,60}$/u.test(text) && text.trim().split(/\s+/).length <= 3) {
       const query = text.trim();

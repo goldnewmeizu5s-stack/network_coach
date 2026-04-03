@@ -1,0 +1,534 @@
+import { Telegraf, Markup } from "telegraf";
+import type { Context } from "telegraf";
+import prisma from "../../lib/prisma";
+import { logger } from "../../lib/logger";
+import { recalcAndAutoStatus } from "../../services/warmth";
+import { draftFollowUpMessage } from "../../services/message-drafting";
+import { setState } from "../state";
+
+export function registerFollowupHandlers(bot: Telegraf) {
+  // Main menu entry
+  bot.action("followups", handleFollowupsMenu);
+
+  // Navigate between follow-ups
+  bot.action(/^fu_show:(\d+)$/, handleShowByIndex);
+
+  // Actions
+  bot.action(/^fu_done:(.+)$/, handleDone);
+  bot.action(/^fu_snooze:(.+):(\d+)$/, handleSnooze);
+  bot.action(/^fu_skip:(.+)$/, handleSkip);
+  bot.action(/^fu_draft:(.+)$/, handleDraft);
+  bot.action(/^fu_mark_done_after_draft:(.+)$/, handleMarkDoneAfterDraft);
+
+  // Contact follow-ups view
+  bot.action(/^contact_fups:(.+)$/, handleContactFollowups);
+
+  // Create manually
+  bot.action(/^fu_create:(.+)$/, handleCreatePrompt);
+  bot.action(/^fu_set_date:(.+):(\d+)$/, handleSetDate);
+}
+
+// ── Data helpers ──────────────────────────────────────────
+
+async function loadPendingFollowups() {
+  const now = new Date();
+  return prisma.followUp.findMany({
+    where: {
+      OR: [
+        { status: "pending" },
+        { status: "snoozed", snoozed_until: { lte: now } },
+      ],
+    },
+    include: {
+      contact: { select: { id: true, full_name: true, warmth_status: true } },
+    },
+    orderBy: [{ due_date: "asc" }],
+    take: 50,
+  });
+}
+
+function urgencyInfo(dueDate: Date): { emoji: string; label: string } {
+  const diff = dueDate.getTime() - Date.now();
+  const days = Math.floor(diff / 86400000);
+  if (days < 0) {
+    const overdue = Math.abs(days);
+    return { emoji: "🔴", label: `просрочено на ${overdue} ${dayWord(overdue)}` };
+  }
+  if (days === 0) return { emoji: "🟡", label: "сегодня" };
+  if (days === 1) return { emoji: "🟡", label: "завтра" };
+  if (days <= 7) return { emoji: "🟢", label: `через ${days} ${dayWord(days)}` };
+  return { emoji: "⚪", label: `через ${days} ${dayWord(days)}` };
+}
+
+function dayWord(n: number): string {
+  const abs = Math.abs(n);
+  if (abs % 10 === 1 && abs % 100 !== 11) return "день";
+  if (abs % 10 >= 2 && abs % 10 <= 4 && (abs % 100 < 10 || abs % 100 >= 20))
+    return "дня";
+  return "дней";
+}
+
+function escapeHtml(text: string): string {
+  return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+function formatDateShort(date: Date): string {
+  return date.toLocaleDateString("ru-RU", { day: "2-digit", month: "2-digit" });
+}
+
+// ── Card rendering ────────────────────────────────────────
+
+function renderFollowupCard(
+  fu: Awaited<ReturnType<typeof loadPendingFollowups>>[number],
+  index: number,
+  total: number,
+) {
+  const { emoji, label } = urgencyInfo(fu.due_date);
+  const contactName = fu.contact?.full_name || "Неизвестный";
+
+  const lines = [
+    `📋 <b>Follow-up ${index + 1} из ${total}</b>`,
+    "",
+    `👤 <b>${escapeHtml(contactName)}</b> ${emoji}`,
+    `📌 ${escapeHtml(fu.suggested_action)}`,
+    `📅 ${label} | Приоритет: ${fu.priority}/10`,
+  ];
+
+  return lines.join("\n");
+}
+
+function followupKeyboard(
+  fu: Awaited<ReturnType<typeof loadPendingFollowups>>[number],
+  index: number,
+  total: number,
+) {
+  const id = fu.id;
+  const rows = [
+    [
+      Markup.button.callback("✅ Готово", `fu_done:${id}`),
+      Markup.button.callback("⏭ Пропустить", `fu_skip:${id}`),
+    ],
+    [
+      Markup.button.callback("⏰ 2 дня", `fu_snooze:${id}:2`),
+      Markup.button.callback("⏰ Неделя", `fu_snooze:${id}:7`),
+      Markup.button.callback("⏰ 2 недели", `fu_snooze:${id}:14`),
+    ],
+    [Markup.button.callback("✉️ Написать", `fu_draft:${id}`)],
+  ];
+
+  // Navigation
+  const nav: ReturnType<typeof Markup.button.callback>[] = [];
+  if (index > 0) nav.push(Markup.button.callback("← Пред.", `fu_show:${index - 1}`));
+  if (index < total - 1) nav.push(Markup.button.callback("След. →", `fu_show:${index + 1}`));
+  if (nav.length) rows.push(nav);
+
+  const bottom: ReturnType<typeof Markup.button.callback>[] = [];
+  if (fu.contact) {
+    bottom.push(Markup.button.callback("👤 К контакту", `contact_view:${fu.contact.id}`));
+  }
+  bottom.push(Markup.button.callback("🏠 Меню", "main_menu"));
+  rows.push(bottom);
+
+  return Markup.inlineKeyboard(rows);
+}
+
+// ── Handlers ──────────────────────────────────────────────
+
+async function handleFollowupsMenu(ctx: Context) {
+  try {
+    await ctx.answerCbQuery();
+    await showFollowupByIndex(ctx, 0);
+  } catch (err) {
+    logger.error("followups menu error", { error: String(err) });
+    await safeAnswer(ctx, "Ошибка загрузки");
+  }
+}
+
+async function handleShowByIndex(ctx: Context) {
+  const match = (ctx as any).match as RegExpMatchArray;
+  const index = parseInt(match[1], 10);
+  try {
+    await ctx.answerCbQuery();
+    await showFollowupByIndex(ctx, index);
+  } catch (err) {
+    logger.error("followup show error", { error: String(err) });
+    await safeAnswer(ctx, "Ошибка");
+  }
+}
+
+async function showFollowupByIndex(ctx: Context, index: number) {
+  const followups = await loadPendingFollowups();
+
+  if (followups.length === 0) {
+    await editOrReply(ctx, "🎉 Всё чисто! Нет активных задач.", [
+      [Markup.button.callback("🏠 Меню", "main_menu")],
+    ]);
+    return;
+  }
+
+  const safeIndex = Math.min(index, followups.length - 1);
+  const fu = followups[safeIndex];
+  const text = renderFollowupCard(fu, safeIndex, followups.length);
+  const keyboard = followupKeyboard(fu, safeIndex, followups.length);
+
+  try {
+    if (ctx.callbackQuery) {
+      await ctx.editMessageText(text, {
+        parse_mode: "HTML",
+        ...keyboard,
+      });
+      return;
+    }
+  } catch {
+    // fallback to reply
+  }
+  await ctx.reply(text, { parse_mode: "HTML", ...keyboard });
+}
+
+async function handleDone(ctx: Context) {
+  const match = (ctx as any).match as RegExpMatchArray;
+  const fuId = match[1];
+
+  try {
+    await ctx.answerCbQuery("✅ Выполнено!");
+
+    const fu = await prisma.followUp.findUnique({
+      where: { id: fuId },
+      select: { contact_id: true, suggested_action: true },
+    });
+    if (!fu) return;
+
+    await prisma.followUp.update({
+      where: { id: fuId },
+      data: { status: "done", completed_at: new Date() },
+    });
+
+    await prisma.interaction.create({
+      data: {
+        contact_id: fu.contact_id,
+        type: "follow_up",
+        content: `Follow-up completed: ${fu.suggested_action}`,
+      },
+    });
+
+    await prisma.contact.update({
+      where: { id: fu.contact_id },
+      data: { last_interaction_at: new Date() },
+    });
+
+    await recalcAndAutoStatus(fu.contact_id);
+
+    // Show next followup
+    await showFollowupByIndex(ctx, 0);
+  } catch (err) {
+    logger.error("fu done error", { error: String(err) });
+    await safeAnswer(ctx, "Ошибка");
+  }
+}
+
+async function handleSnooze(ctx: Context) {
+  const match = (ctx as any).match as RegExpMatchArray;
+  const fuId = match[1];
+  const days = parseInt(match[2], 10);
+
+  try {
+    const snoozedUntil = new Date();
+    snoozedUntil.setDate(snoozedUntil.getDate() + days);
+
+    await prisma.followUp.update({
+      where: { id: fuId },
+      data: { status: "snoozed", snoozed_until: snoozedUntil },
+    });
+
+    await ctx.answerCbQuery(`⏰ Отложено до ${formatDateShort(snoozedUntil)}`);
+    await showFollowupByIndex(ctx, 0);
+  } catch (err) {
+    logger.error("fu snooze error", { error: String(err) });
+    await safeAnswer(ctx, "Ошибка");
+  }
+}
+
+async function handleSkip(ctx: Context) {
+  const match = (ctx as any).match as RegExpMatchArray;
+  const fuId = match[1];
+
+  try {
+    await prisma.followUp.update({
+      where: { id: fuId },
+      data: { status: "skipped" },
+    });
+
+    await ctx.answerCbQuery("⏭ Пропущено");
+    await showFollowupByIndex(ctx, 0);
+  } catch (err) {
+    logger.error("fu skip error", { error: String(err) });
+    await safeAnswer(ctx, "Ошибка");
+  }
+}
+
+async function handleDraft(ctx: Context) {
+  const match = (ctx as any).match as RegExpMatchArray;
+  const fuId = match[1];
+
+  try {
+    await ctx.answerCbQuery();
+
+    const fu = await prisma.followUp.findUnique({
+      where: { id: fuId },
+      include: { contact: { select: { id: true, full_name: true } } },
+    });
+    if (!fu || !fu.contact) {
+      await ctx.reply("❌ Follow-up не найден.");
+      return;
+    }
+
+    const statusMsg = await ctx.reply("✉️ Генерирую варианты сообщения...");
+
+    let drafts: string[];
+    try {
+      drafts = await draftFollowUpMessage(fu.contact_id, fu.suggested_action);
+    } catch (err) {
+      logger.error("draft followup error", { error: String(err) });
+      await ctx.telegram.editMessageText(
+        ctx.chat!.id,
+        statusMsg.message_id,
+        undefined,
+        "❌ Не удалось сгенерировать сообщение.",
+      );
+      return;
+    }
+
+    const contactName = escapeHtml(fu.contact.full_name);
+
+    // Edit status message to show header
+    await ctx.telegram.editMessageText(
+      ctx.chat!.id,
+      statusMsg.message_id,
+      undefined,
+      `✉️ <b>Варианты сообщения для ${contactName}:</b>`,
+      { parse_mode: "HTML" },
+    );
+
+    // Send each draft as separate plain text for easy copying
+    for (let i = 0; i < drafts.length; i++) {
+      await ctx.reply(`${i + 1}. ${drafts[i]}`);
+    }
+
+    // Action buttons
+    await ctx.reply("Выберите действие:", {
+      parse_mode: "HTML",
+      ...Markup.inlineKeyboard([
+        [Markup.button.callback("✅ Отметить как сделано", `fu_mark_done_after_draft:${fuId}`)],
+        [Markup.button.callback("← К follow-ups", "followups")],
+      ]),
+    });
+  } catch (err) {
+    logger.error("fu draft error", { error: String(err) });
+    await ctx.reply("❌ Ошибка генерации сообщения.");
+  }
+}
+
+async function handleMarkDoneAfterDraft(ctx: Context) {
+  const match = (ctx as any).match as RegExpMatchArray;
+  const fuId = match[1];
+
+  try {
+    await ctx.answerCbQuery("✅ Выполнено!");
+
+    const fu = await prisma.followUp.findUnique({
+      where: { id: fuId },
+      select: { contact_id: true, suggested_action: true },
+    });
+    if (!fu) return;
+
+    await prisma.followUp.update({
+      where: { id: fuId },
+      data: { status: "done", completed_at: new Date() },
+    });
+
+    await prisma.interaction.create({
+      data: {
+        contact_id: fu.contact_id,
+        type: "follow_up",
+        content: `Follow-up completed: ${fu.suggested_action}`,
+      },
+    });
+
+    await prisma.contact.update({
+      where: { id: fu.contact_id },
+      data: { last_interaction_at: new Date() },
+    });
+
+    await recalcAndAutoStatus(fu.contact_id);
+
+    await editOrReply(ctx, "✅ Follow-up выполнен! 💪", [
+      [Markup.button.callback("← К follow-ups", "followups")],
+      [Markup.button.callback("🏠 Меню", "main_menu")],
+    ]);
+  } catch (err) {
+    logger.error("fu mark done error", { error: String(err) });
+    await safeAnswer(ctx, "Ошибка");
+  }
+}
+
+async function handleContactFollowups(ctx: Context) {
+  const match = (ctx as any).match as RegExpMatchArray;
+  const contactId = match[1];
+
+  try {
+    await ctx.answerCbQuery();
+
+    const contact = await prisma.contact.findUnique({
+      where: { id: contactId },
+      select: { full_name: true },
+    });
+    if (!contact) {
+      await ctx.reply("❌ Контакт не найден.");
+      return;
+    }
+
+    const followups = await prisma.followUp.findMany({
+      where: {
+        contact_id: contactId,
+        OR: [
+          { status: "pending" },
+          { status: "snoozed", snoozed_until: { lte: new Date() } },
+        ],
+      },
+      orderBy: { due_date: "asc" },
+      take: 10,
+    });
+
+    if (followups.length === 0) {
+      await editOrReply(
+        ctx,
+        `📋 <b>${escapeHtml(contact.full_name)}</b> — нет активных follow-ups.`,
+        [
+          [Markup.button.callback("➕ Создать", `fu_create:${contactId}`)],
+          [Markup.button.callback("← К контакту", `contact_view:${contactId}`)],
+        ],
+      );
+      return;
+    }
+
+    const lines = [`📋 <b>Follow-ups — ${escapeHtml(contact.full_name)}</b>\n`];
+    followups.forEach((fu, i) => {
+      const { emoji, label } = urgencyInfo(fu.due_date);
+      lines.push(`${i + 1}. ${emoji} ${escapeHtml(fu.suggested_action)}`);
+      lines.push(`   📅 ${label}`);
+    });
+
+    const buttons = followups.map((fu) => [
+      Markup.button.callback("✅", `fu_done:${fu.id}`),
+      Markup.button.callback("⏰", `fu_snooze:${fu.id}:2`),
+      Markup.button.callback("⏭", `fu_skip:${fu.id}`),
+    ]);
+    buttons.push([Markup.button.callback("➕ Создать", `fu_create:${contactId}`)]);
+    buttons.push([Markup.button.callback("← К контакту", `contact_view:${contactId}`)]);
+
+    await editOrReply(ctx, lines.join("\n"), buttons);
+  } catch (err) {
+    logger.error("contact followups error", { error: String(err) });
+    await safeAnswer(ctx, "Ошибка");
+  }
+}
+
+async function handleCreatePrompt(ctx: Context) {
+  const match = (ctx as any).match as RegExpMatchArray;
+  const contactId = match[1];
+
+  try {
+    await ctx.answerCbQuery();
+
+    const contact = await prisma.contact.findUnique({
+      where: { id: contactId },
+      select: { full_name: true },
+    });
+    if (!contact) {
+      await ctx.reply("❌ Контакт не найден.");
+      return;
+    }
+
+    setState(ctx.chat!.id, "awaiting_fu_text", { contactId });
+    await ctx.reply(
+      `✏️ Напиши, что нужно сделать для <b>${escapeHtml(contact.full_name)}</b>:`,
+      { parse_mode: "HTML" },
+    );
+  } catch (err) {
+    logger.error("fu create prompt error", { error: String(err) });
+    await safeAnswer(ctx, "Ошибка");
+  }
+}
+
+async function handleSetDate(ctx: Context) {
+  const match = (ctx as any).match as RegExpMatchArray;
+  const contactId = match[1];
+  const days = parseInt(match[2], 10);
+
+  try {
+    await ctx.answerCbQuery();
+
+    const chatId = ctx.chat!.id;
+    // Retrieve stored action text from state
+    const { getState, clearState } = await import("../state");
+    const state = getState(chatId);
+    if (state?.action !== "awaiting_fu_date" || !state.data.fuText) {
+      await ctx.reply("❌ Состояние истекло. Попробуйте создать follow-up заново.");
+      return;
+    }
+
+    const fuText = state.data.fuText as string;
+    clearState(chatId);
+
+    const dueDate = new Date();
+    dueDate.setDate(dueDate.getDate() + days);
+
+    await prisma.followUp.create({
+      data: {
+        contact_id: contactId,
+        suggested_action: fuText,
+        due_date: dueDate,
+        priority: 5,
+      },
+    });
+
+    await editOrReply(
+      ctx,
+      `✅ Follow-up создан!\n📅 Срок: ${formatDateShort(dueDate)}`,
+      [
+        [Markup.button.callback("← К контакту", `contact_view:${contactId}`)],
+        [Markup.button.callback("📋 Follow-ups", "followups")],
+      ],
+    );
+  } catch (err) {
+    logger.error("fu set date error", { error: String(err) });
+    await ctx.reply("❌ Не удалось создать follow-up.");
+  }
+}
+
+// ── Helpers ───────────────────────────────────────────────
+
+async function editOrReply(
+  ctx: Context,
+  text: string,
+  buttons: ReturnType<typeof Markup.button.callback>[][],
+) {
+  const keyboard = Markup.inlineKeyboard(buttons);
+  try {
+    if (ctx.callbackQuery) {
+      await ctx.editMessageText(text, { parse_mode: "HTML", ...keyboard });
+      return;
+    }
+  } catch {
+    // fallback to reply
+  }
+  await ctx.reply(text, { parse_mode: "HTML", ...keyboard });
+}
+
+async function safeAnswer(ctx: Context, text: string) {
+  try {
+    await ctx.answerCbQuery(text);
+  } catch {
+    // ignore
+  }
+}
