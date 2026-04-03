@@ -127,18 +127,24 @@ if (config.isProd) {
 // Error handler (must be last)
 app.use(errorHandler);
 
-// Start server (async to init PIN hash first)
+// Start server — listen first so healthcheck passes, then do DB setup
 async function start() {
   await initEnvPinHash();
   logger.info("PIN hash initialized");
 
-  await ensureUser();
-  logger.info("Default user ensured");
-
   const server = app.listen(config.port, () => {
     logger.info(`Server running on http://localhost:${config.port} [${config.nodeEnv}]`);
-    startCron();
   });
+
+  // DB setup after server is listening (non-blocking for healthcheck)
+  try {
+    await ensureUser();
+    logger.info("Default user ensured");
+  } catch (err) {
+    logger.error("Failed to ensure default user (will retry via requests):", err);
+  }
+
+  startCron();
 
   // Graceful shutdown
   function shutdown() {
