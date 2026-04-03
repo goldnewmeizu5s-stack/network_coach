@@ -141,7 +141,7 @@ async function start() {
     await ensureUser();
     logger.info("Default user ensured");
   } catch (err) {
-    logger.error("Failed to ensure default user (will retry via requests):", err);
+    logger.error("Failed to ensure default user (will retry via requests)", { error: String(err) });
   }
 
   startCron();
