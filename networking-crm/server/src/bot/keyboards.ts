@@ -17,8 +17,17 @@ export const MAIN_MENU_TEXT =
   "<b>Главное меню</b>\n\nВыберите действие:";
 
 export function registerCallbackHandlers(bot: import("telegraf").Telegraf) {
+  bot.action("voice_info", async (ctx) => {
+    await ctx.answerCbQuery();
+    await ctx.reply(
+      "🎤 <b>Голосовые заметки</b>\n\n" +
+        "Просто отправьте голосовое сообщение, кружочек или аудиофайл — " +
+        "бот автоматически распознает речь и создаст контакт.",
+      { parse_mode: "HTML" },
+    );
+  });
+
   const stubs = [
-    "voice_info",
     "contacts",
     "followups",
     "challenge",
@@ -31,4 +40,9 @@ export function registerCallbackHandlers(bot: import("telegraf").Telegraf) {
       ctx.answerCbQuery("В разработке 🚧")
     );
   }
+
+  // Contact action stubs from voice handler results
+  bot.action(/^contact_view:/, (ctx) => ctx.answerCbQuery("В разработке 🚧"));
+  bot.action(/^contact_edit:/, (ctx) => ctx.answerCbQuery("В разработке 🚧"));
+  bot.action(/^contact_delete:/, (ctx) => ctx.answerCbQuery("В разработке 🚧"));
 }

@@ -183,7 +183,7 @@ export async function processVoiceNote(
   }
 }
 
-async function createContact(extracted: Awaited<ReturnType<typeof extractContactData>>) {
+export async function createContact(extracted: Awaited<ReturnType<typeof extractContactData>>) {
   return prisma.contact.create({
     data: {
       full_name: extracted.full_name || "Unknown",

@@ -4,6 +4,7 @@ import { logger } from "../lib/logger";
 import { adminOnly, logMessage } from "./middleware";
 import { registerCommands } from "./commands";
 import { registerCallbackHandlers } from "./keyboards";
+import { registerVoiceHandlers } from "./handlers/voice";
 
 let bot: Telegraf | null = null;
 
@@ -19,9 +20,10 @@ export function startBot(): void {
   bot.use(adminOnly);
   bot.use(logMessage);
 
-  // Commands & callbacks
+  // Commands, callbacks & handlers
   registerCommands(bot);
   registerCallbackHandlers(bot);
+  registerVoiceHandlers(bot);
 
   // Catch errors — never crash the server
   bot.catch((err) => {
