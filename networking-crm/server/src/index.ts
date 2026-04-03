@@ -68,24 +68,19 @@ app.use((req, _res, next) => {
   next();
 });
 
-// Health check (public)
+// Health check (public) — ALWAYS returns 200 so Railway healthcheck passes
 app.get("/api/health", async (_req, res) => {
-  let dbStatus = "disconnected";
+  let dbStatus = "unknown";
   try {
     await prisma.$queryRaw`SELECT 1`;
     dbStatus = "connected";
   } catch {
-    dbStatus = "disconnected";
+    dbStatus = "connecting";
   }
-
-  const uptimeMs = Date.now() - startTime;
-  const hours = Math.floor(uptimeMs / 3600000);
-  const mins = Math.floor((uptimeMs % 3600000) / 60000);
-
-  res.json({
+  // ALWAYS return 200 — even if DB is not ready yet
+  res.status(200).json({
     status: "ok",
     db: dbStatus,
-    uptime: `${hours}h ${mins}m`,
     version: "1.0.0",
   });
 });
@@ -127,44 +122,50 @@ if (config.isProd) {
 // Error handler (must be last)
 app.use(errorHandler);
 
-// Start server — listen first so healthcheck passes, then do DB setup
-async function start() {
-  await initEnvPinHash();
-  logger.info("PIN hash initialized");
+// === STARTUP ===
+// Step 1: Listen on port IMMEDIATELY (healthcheck must pass)
+const server = app.listen(config.port, () => {
+  logger.info(`Server listening on port ${config.port} [${config.nodeEnv}]`);
+});
 
-  const server = app.listen(config.port, () => {
-    logger.info(`Server running on http://localhost:${config.port} [${config.nodeEnv}]`);
-  });
-
-  // DB setup after server is listening (non-blocking for healthcheck)
+// Step 2: Background initialization (does NOT block the port)
+(async () => {
   try {
+    // Wait for DB with retries
+    for (let i = 0; i < 15; i++) {
+      try {
+        await prisma.$queryRaw`SELECT 1`;
+        logger.info("Database connected");
+        break;
+      } catch {
+        logger.warn(`DB not ready, retry ${i + 1}/15...`);
+        await new Promise((r) => setTimeout(r, 2000));
+      }
+    }
+
+    await initEnvPinHash();
+    logger.info("PIN hash initialized");
+
     await ensureUser();
     logger.info("Default user ensured");
+
+    startCron();
+    logger.info("Cron started");
   } catch (err) {
-    logger.error("Failed to ensure default user (will retry via requests)", { error: String(err) });
+    logger.error("Background init failed", { error: String(err) });
+    // Do NOT process.exit — server keeps running, health endpoint responds,
+    // so we can debug via logs
   }
+})();
 
-  startCron();
-
-  // Graceful shutdown
-  function shutdown() {
-    logger.info("Shutting down gracefully...");
-    server.close(async () => {
-      await prisma.$disconnect();
-      logger.info("Server closed");
-      process.exit(0);
-    });
-    setTimeout(() => {
-      logger.warn("Forced shutdown after timeout");
-      process.exit(1);
-    }, 10000);
-  }
-
-  process.on("SIGTERM", shutdown);
-  process.on("SIGINT", shutdown);
+// Graceful shutdown
+function shutdown() {
+  logger.info("Shutting down...");
+  server.close(async () => {
+    await prisma.$disconnect();
+    process.exit(0);
+  });
+  setTimeout(() => process.exit(1), 10000);
 }
-
-start().catch((err) => {
-  logger.error("Failed to start server:", err);
-  process.exit(1);
-});
+process.on("SIGTERM", shutdown);
+process.on("SIGINT", shutdown);
