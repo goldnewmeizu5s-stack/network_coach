@@ -12,6 +12,7 @@ RUN npm run build --workspace=client
 # Stage 2: Build server
 FROM node:20-alpine AS server-build
 WORKDIR /app
+RUN apk add --no-cache openssl openssl-dev
 COPY package.json package-lock.json ./
 COPY client/package.json ./client/
 COPY server/package.json ./server/
@@ -24,6 +25,7 @@ RUN npm run build --workspace=server
 # Stage 3: Production dependencies
 FROM node:20-alpine AS prod-deps
 WORKDIR /app
+RUN apk add --no-cache openssl openssl-dev
 COPY package.json package-lock.json ./
 COPY client/package.json ./client/
 COPY server/package.json ./server/
@@ -35,6 +37,7 @@ RUN npx prisma generate --schema=prisma/schema.prisma
 # Stage 4: Production
 FROM node:20-alpine
 WORKDIR /app
+RUN apk add --no-cache openssl
 
 COPY --from=server-build /app/server/dist ./server/dist
 COPY --from=server-build /app/server/package.json ./server/
