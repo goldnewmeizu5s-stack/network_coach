@@ -10,6 +10,9 @@ import { setState, getState, clearState } from "../state";
 import {
   esc,
   dayWord,
+  divider,
+  thinDivider,
+  progressBar,
   difficultyDots as difficultyBar,
   starsStr,
   editOrReply,
@@ -26,6 +29,7 @@ export function registerChallengeHandlers(bot: Telegraf) {
   bot.action(/^challenge_complete:(.+)$/, handleComplete);
   bot.action(/^challenge_rate:(.+):(\d)$/, handleRate);
   bot.action(/^challenge_finish:(.+):(\d):noreflection$/, handleFinishNoReflection);
+  bot.action(/^challenge_skip_rate:(.+)$/, handleSkipRate);
   bot.action(/^challenge_skip:(.+)$/, handleSkip);
   bot.action("challenge_stats", handleStats);
 }
@@ -38,7 +42,6 @@ function todayRange() {
   const end = new Date(start.getTime() + 86400000);
   return { start, end };
 }
-
 
 async function getStreak(): Promise<number> {
   const yearAgo = new Date(Date.now() - 365 * 86400000);
@@ -106,23 +109,53 @@ interface ChallengeWithMethod {
 
 function renderChallengeCard(ch: ChallengeWithMethod, streak: number): string {
   const catEmoji = CATEGORY_EMOJI[ch.category] || "🎯";
-  const lines = [
+
+  // Completed state — different layout
+  if (ch.status === "completed" && ch.rating) {
+    const lines = [
+      "🎯 <b>Челлендж дня</b>  ✅",
+      divider(),
+      "",
+      `${catEmoji} <b>${esc(ch.title)}</b>`,
+      starsStr(ch.rating),
+    ];
+    if (ch.reflection) {
+      lines.push("", `📝 <i>"${esc(ch.reflection)}"</i>`);
+    }
+    lines.push("", thinDivider());
+    if (streak > 0) {
+      lines.push(`🔥 Streak: ${streak} ${dayWord(streak)} подряд!`);
+    }
+    return lines.join("\n");
+  }
+
+  // Accepted state — add motivation header
+  const lines: string[] = [];
+  if (ch.status === "accepted") {
+    lines.push("✊ <b>Принято! Давай!</b>", "");
+  }
+
+  lines.push(
     "🎯 <b>Челлендж дня</b>",
+    divider(),
     "",
     `${catEmoji} <b>${esc(ch.title)}</b>`,
-    `Сложность: ${difficultyBar(ch.difficulty)} (${ch.difficulty}/10)`,
+    `${difficultyBar(ch.difficulty)} сложность ${ch.difficulty}/10`,
     "",
     esc(ch.description),
-  ];
+  );
 
   if (ch.methodology) {
     lines.push(
       "",
-      `📚 <i>По методу: ${esc(ch.methodology.title)}, ${esc(ch.methodology.source)}</i>`,
+      `📚 <i>Метод: ${esc(ch.methodology.title)} (${esc(ch.methodology.source)})</i>`,
     );
   }
 
-  lines.push("", `🔥 Streak: ${streak} ${dayWord(streak)}`);
+  lines.push("", thinDivider());
+  if (streak > 0) {
+    lines.push(`🔥 Streak: ${streak} ${dayWord(streak)}`);
+  }
 
   return lines.join("\n");
 }
@@ -135,7 +168,7 @@ function challengeButtons(ch: ChallengeWithMethod): ReturnType<typeof Markup.but
           Markup.button.callback("💪 Принять", `challenge_accept:${ch.id}`),
           Markup.button.callback("🔄 Другой", "challenge_another"),
         ],
-        [Markup.button.callback("😰 Слишком сложно", `challenge_too_hard:${ch.id}`)],
+        [Markup.button.callback("😰 Сложно", `challenge_too_hard:${ch.id}`)],
         [
           Markup.button.callback("📊 Статистика", "challenge_stats"),
           Markup.button.callback("🏠 Меню", "main_menu"),
@@ -143,10 +176,8 @@ function challengeButtons(ch: ChallengeWithMethod): ReturnType<typeof Markup.but
       ];
     case "accepted":
       return [
-        [
-          Markup.button.callback("✅ Выполнено!", `challenge_complete:${ch.id}`),
-          Markup.button.callback("❌ Не вышло", `challenge_skip:${ch.id}`),
-        ],
+        [Markup.button.callback("✅ Выполнено!", `challenge_complete:${ch.id}`)],
+        [Markup.button.callback("❌ Не получилось", `challenge_skip:${ch.id}`)],
         [
           Markup.button.callback("📊 Статистика", "challenge_stats"),
           Markup.button.callback("🏠 Меню", "main_menu"),
@@ -154,8 +185,10 @@ function challengeButtons(ch: ChallengeWithMethod): ReturnType<typeof Markup.but
       ];
     case "completed":
       return [
-        [Markup.button.callback("📊 Статистика", "challenge_stats")],
-        [Markup.button.callback("🏠 Меню", "main_menu")],
+        [
+          Markup.button.callback("📊 Статистика", "challenge_stats"),
+          Markup.button.callback("🏠 Меню", "main_menu"),
+        ],
       ];
     default:
       // skipped / too_hard
@@ -198,14 +231,8 @@ async function handleChallengeMenu(ctx: Context) {
     const streak = await getStreak();
     const text = renderChallengeCard(main, streak);
 
-    if (main.status === "completed" && main.rating) {
-      const completedText =
-        text +
-        `\n\n✅ Выполнено! ${starsStr(main.rating)}` +
-        (main.reflection ? `\n📝 "${esc(main.reflection)}"` : "");
-      await editOrReply(ctx, completedText, challengeButtons(main));
-    } else if (main.status === "skipped" || main.status === "too_hard") {
-      const label = main.status === "skipped" ? "Пропущено" : "Слишком сложно";
+    if (main.status === "skipped" || main.status === "too_hard") {
+      const label = main.status === "skipped" ? "⏭ Пропущено" : "😰 Слишком сложно";
       await editOrReply(ctx, text + `\n\n${label}`, challengeButtons(main));
     } else {
       await editOrReply(ctx, text, challengeButtons(main));
@@ -305,13 +332,20 @@ async function handleComplete(ctx: Context) {
   try {
     await ctx.answerCbQuery();
 
-    const buttons = [1, 2, 3, 4, 5].map((n) =>
-      Markup.button.callback(starsStr(n), `challenge_rate:${id}:${n}`),
-    );
+    const text = "🎉 <b>Как прошло?</b>\n\nОцени:";
 
-    await editOrReply(ctx, "Как прошло? Оцени от 1 до 5:",
-      buttons.map((b) => [b]),
-    );
+    const buttons = [
+      [
+        Markup.button.callback("⭐1", `challenge_rate:${id}:1`),
+        Markup.button.callback("⭐2", `challenge_rate:${id}:2`),
+        Markup.button.callback("⭐3", `challenge_rate:${id}:3`),
+        Markup.button.callback("⭐4", `challenge_rate:${id}:4`),
+        Markup.button.callback("⭐5", `challenge_rate:${id}:5`),
+      ],
+      [Markup.button.callback("Пропустить оценку →", `challenge_skip_rate:${id}`)],
+    ];
+
+    await editOrReply(ctx, text, buttons);
   } catch (err) {
     logger.error("challenge complete error", { error: String(err) });
     await safeAnswer(ctx, "Ошибка");
@@ -331,15 +365,31 @@ async function handleRate(ctx: Context) {
       rating,
     });
 
+    const ratingText = starsStr(rating);
+
     await editOrReply(
       ctx,
-      "✍️ Хочешь записать рефлексию? Напиши пару слов или нажми пропустить.",
+      `${ratingText} Отлично!\n\n✍️ Напиши пару слов — что заметил, что узнал?\n<i>(или пропусти)</i>`,
       [
-        [Markup.button.callback("Пропустить", `challenge_finish:${id}:${rating}:noreflection`)],
+        [Markup.button.callback("Пропустить →", `challenge_finish:${id}:${rating}:noreflection`)],
       ],
     );
   } catch (err) {
     logger.error("challenge rate error", { error: String(err) });
+    await safeAnswer(ctx, "Ошибка");
+  }
+}
+
+async function handleSkipRate(ctx: Context) {
+  const match = (ctx as any).match as RegExpMatchArray;
+  const id = match[1];
+
+  try {
+    await ctx.answerCbQuery();
+    clearState(ctx.chat!.id);
+    await completeChallenge(ctx, id, 0, null);
+  } catch (err) {
+    logger.error("challenge skip rate error", { error: String(err) });
     await safeAnswer(ctx, "Ошибка");
   }
 }
@@ -376,12 +426,17 @@ async function completeChallenge(
   reflection: string | null,
 ) {
   try {
+    const ch = await prisma.challenge.findUnique({
+      where: { id },
+      select: { category: true },
+    });
+
     await prisma.challenge.update({
       where: { id },
       data: {
         status: "completed",
         completed_at: new Date(),
-        rating: Math.max(1, Math.min(5, rating)),
+        ...(rating > 0 && { rating: Math.max(1, Math.min(5, rating)) }),
         ...(reflection && { reflection }),
       },
     });
@@ -393,15 +448,40 @@ async function completeChallenge(
     }
 
     const streak = await getStreak();
+    const catEmoji = ch ? (CATEGORY_EMOJI[ch.category] || "🎯") : "🎯";
 
-    const lines = ["🎉 Отличная работа!", "", starsStr(rating)];
-    if (reflection) {
-      lines.push(`📝 "${esc(reflection)}"`);
-    }
-    lines.push("", `🔥 Streak: ${streak} ${dayWord(streak)} подряд!`);
-
+    // Milestone celebration (every 5 days)
     if (streak > 0 && streak % 5 === 0) {
-      lines.push("", `🎉🎉🎉 ${streak} ${dayWord(streak)} подряд! Ты в ударе!`);
+      const fires = "🔥".repeat(Math.min(streak, 10));
+      const lines = [
+        "🎉🎉🎉",
+        "",
+        `<b>${streak} ${dayWord(streak)} подряд!</b>`,
+        "Ты в ударе! Нетворкинг — это мышца,",
+        "и ты её качаешь каждый день.",
+        "",
+        fires,
+      ];
+      await editOrReply(ctx, lines.join("\n"), [
+        [Markup.button.callback("🏠 Меню", "main_menu")],
+      ]);
+      return;
+    }
+
+    // Normal celebration
+    const lines: string[] = ["🎉 <b>Готово!</b>", ""];
+
+    if (rating > 0) {
+      lines.push(`${starsStr(rating)} · ${catEmoji} ${CATEGORY_LABEL[ch?.category || ""] || ""}`);
+    }
+    if (reflection) {
+      lines.push(`📝 <i>"${esc(reflection)}"</i>`);
+    }
+
+    if (streak > 0) {
+      lines.push("");
+      lines.push(`🔥 Streak: ${streak} ${dayWord(streak)} подряд!`);
+      lines.push("Так держать! 💪");
     }
 
     await editOrReply(ctx, lines.join("\n"), [
@@ -449,7 +529,8 @@ async function handleStats(ctx: Context) {
       select: { date: true, status: true },
     });
 
-    // Build weekly visual
+    // Build weekly visual with day labels
+    const dayLabels = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"];
     const weekDays: string[] = [];
     for (let i = 0; i < 7; i++) {
       const day = new Date(weekStart.getTime() + i * 86400000);
@@ -457,13 +538,7 @@ async function handleStats(ctx: Context) {
       const ch = weekChallenges.find(
         (c: { date: Date; status: string }) => c.date.toISOString().slice(0, 10) === dayStr,
       );
-      if (ch && ch.status === "completed") {
-        weekDays.push("✅");
-      } else if (ch) {
-        weekDays.push("⬜");
-      } else {
-        weekDays.push("⬜");
-      }
+      weekDays.push(ch && ch.status === "completed" ? "✅" : "⬜");
     }
 
     // 7-day and 30-day stats
@@ -474,29 +549,42 @@ async function handleStats(ctx: Context) {
 
     const lines = [
       "📊 <b>Статистика челленджей</b>",
+      divider(),
       "",
-      `📅 Эта неделя: ${weekDays.join("")}`,
-      `📈 Выполнение (7 дней): ${stats7.rate}%`,
-      `📈 Выполнение (30 дней): ${stats30.rate}%`,
-      `🔥 Текущий streak: ${streak} ${dayWord(streak)}`,
+      "📅 Эта неделя:",
+      weekDays.join(" "),
+      dayLabels.join("  "),
+      "",
+      thinDivider(),
+      "",
+      "📈 <b>Выполнение</b>",
+      `7 дней:  ${progressBar(stats7.completed, stats7.total)}`,
+      `30 дней: ${progressBar(stats30.completed, stats30.total)}`,
     ];
 
+    if (streak > 0) {
+      lines.push("");
+      lines.push(`🔥 Streak: ${streak} ${dayWord(streak)} подряд`);
+    }
+
     if (Object.keys(stats30.byCategory).length > 0) {
-      lines.push("", "По категориям:");
+      lines.push("", thinDivider(), "", "<b>По категориям (30д):</b>");
       for (const [cat, data] of Object.entries(stats30.byCategory)) {
         const emoji = CATEGORY_EMOJI[cat] || "🎯";
-        const label = CATEGORY_LABEL[cat] || cat;
+        const label = (CATEGORY_LABEL[cat] || cat).padEnd(12, " ");
         const pct =
           data.total > 0 ? Math.round((data.completed / data.total) * 100) : 0;
         lines.push(
-          `${emoji} ${label}: ${pct}% (${data.completed}/${data.total})`,
+          `${emoji} ${label} ${progressBar(data.completed, data.total)} (${data.completed}/${data.total})`,
         );
       }
     }
 
     await editOrReply(ctx, lines.join("\n"), [
-      [Markup.button.callback("← Назад", "challenge")],
-      [Markup.button.callback("🏠 Меню", "main_menu")],
+      [
+        Markup.button.callback("← Челлендж", "challenge"),
+        Markup.button.callback("🏠 Меню", "main_menu"),
+      ],
     ]);
   } catch (err) {
     logger.error("challenge stats error", { error: String(err) });
@@ -525,9 +613,5 @@ async function getChallengeStats(days: number) {
     if (c.status === "completed") byCategory[c.category].completed++;
   }
 
-  return {
-    rate: total > 0 ? Math.round((completed / total) * 100) : 0,
-    byCategory,
-  };
+  return { rate: total > 0 ? Math.round((completed / total) * 100) : 0, total, completed, byCategory };
 }
-
