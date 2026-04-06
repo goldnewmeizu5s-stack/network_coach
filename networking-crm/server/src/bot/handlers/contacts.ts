@@ -206,7 +206,8 @@ export async function handleSmartMessage(ctx: Context, text: string) {
       }
     }
   } catch (err) {
-    logger.error("Smart message routing error", { error: String(err) });
+    const errDetail = err instanceof Error ? { message: err.message, stack: err.stack } : String(err);
+    logger.error("Smart message routing error", { error: errDetail });
     await ctx.reply(
       "❌ Не удалось обработать запрос. Попробуй ещё раз или /menu.",
       { parse_mode: "HTML" },
