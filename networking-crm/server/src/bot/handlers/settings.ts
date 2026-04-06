@@ -11,6 +11,7 @@ import {
   thinDivider,
   editOrReply,
   STATUS_EMOJI,
+  fmtError,
 } from "../ui";
 
 const PROFILE_FIELDS: Record<
@@ -64,7 +65,7 @@ export async function handleProfileFieldInput(
     });
   } catch (err) {
     logger.error("profile update error", { error: String(err) });
-    await ctx.reply("❌ Не удалось обновить профиль.");
+    await ctx.reply(`❌ Не удалось обновить профиль:\n\n<pre>${fmtError(err)}</pre>`, { parse_mode: "HTML" });
   }
 }
 
@@ -94,6 +95,7 @@ async function handleSettingsMenu(ctx: Context) {
     ]);
   } catch (err) {
     logger.error("settings menu error", { error: String(err) });
+    await ctx.reply(`❌ Ошибка меню настроек:\n\n<pre>${fmtError(err)}</pre>`, { parse_mode: "HTML" });
   }
 }
 
@@ -133,6 +135,7 @@ async function handleProfile(ctx: Context) {
     ]);
   } catch (err) {
     logger.error("profile error", { error: String(err) });
+    await ctx.reply(`❌ Ошибка загрузки профиля:\n\n<pre>${fmtError(err)}</pre>`, { parse_mode: "HTML" });
   }
 }
 
@@ -168,6 +171,7 @@ async function handleProfileEdit(ctx: Context) {
     });
   } catch (err) {
     logger.error("profile edit error", { error: String(err) });
+    await ctx.reply(`❌ Ошибка редактирования профиля:\n\n<pre>${fmtError(err)}</pre>`, { parse_mode: "HTML" });
   }
 }
 
@@ -205,6 +209,7 @@ async function handleQuietHours(ctx: Context) {
     ]);
   } catch (err) {
     logger.error("quiet hours error", { error: String(err) });
+    await ctx.reply(`❌ Ошибка тихих часов:\n\n<pre>${fmtError(err)}</pre>`, { parse_mode: "HTML" });
   }
 }
 
@@ -223,6 +228,7 @@ async function handleQuietSet(ctx: Context) {
     );
   } catch (err) {
     logger.error("quiet set error", { error: String(err) });
+    await ctx.reply(`❌ Ошибка установки тихих часов:\n\n<pre>${fmtError(err)}</pre>`, { parse_mode: "HTML" });
   }
 }
 
@@ -235,6 +241,7 @@ async function handleQuietOff(ctx: Context) {
     ]);
   } catch (err) {
     logger.error("quiet off error", { error: String(err) });
+    await ctx.reply(`❌ Ошибка отключения тихих часов:\n\n<pre>${fmtError(err)}</pre>`, { parse_mode: "HTML" });
   }
 }
 
@@ -384,7 +391,7 @@ async function handleStats(ctx: Context) {
     ]);
   } catch (err) {
     logger.error("stats error", { error: String(err) });
-    await ctx.reply("❌ Ошибка загрузки статистики.");
+    await ctx.reply(`❌ Ошибка загрузки статистики:\n\n<pre>${fmtError(err)}</pre>`, { parse_mode: "HTML" });
   }
 }
 
@@ -413,6 +420,7 @@ async function handleExportMenu(ctx: Context) {
     ]);
   } catch (err) {
     logger.error("export menu error", { error: String(err) });
+    await ctx.reply(`❌ Ошибка меню экспорта:\n\n<pre>${fmtError(err)}</pre>`, { parse_mode: "HTML" });
   }
 }
 
@@ -444,7 +452,7 @@ async function handleExportContacts(ctx: Context) {
     });
   } catch (err) {
     logger.error("export contacts error", { error: String(err) });
-    await ctx.reply("❌ Ошибка экспорта.");
+    await ctx.reply(`❌ Ошибка экспорта:\n\n<pre>${fmtError(err)}</pre>`, { parse_mode: "HTML" });
   }
 }
 
@@ -499,6 +507,6 @@ async function handleExportAll(ctx: Context) {
     });
   } catch (err) {
     logger.error("export all error", { error: String(err) });
-    await ctx.reply("❌ Ошибка экспорта.");
+    await ctx.reply(`❌ Ошибка экспорта:\n\n<pre>${fmtError(err)}</pre>`, { parse_mode: "HTML" });
   }
 }

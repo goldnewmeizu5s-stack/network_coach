@@ -25,6 +25,7 @@ import {
   warmthEmoji,
   warmthLabel,
   urgencyBadge,
+  fmtError,
   STATUS_EMOJI,
   STATUS_LABEL,
   editOrReply,
@@ -122,7 +123,7 @@ export function registerTextHandler(bot: Telegraf) {
         });
       } catch (err) {
         logger.error("Failed to save note", { error: String(err) });
-        await ctx.reply("❌ Не удалось сохранить заметку.");
+        await ctx.reply(`❌ Не удалось сохранить заметку:\n\n<pre>${fmtError(err)}</pre>`, { parse_mode: "HTML" });
       }
       return;
     }
@@ -168,7 +169,7 @@ export function registerTextHandler(bot: Telegraf) {
     await handleSmartMessage(ctx, text);
     } catch (err) {
       logger.error("Text handler error", { error: String(err) });
-      await ctx.reply("⚠️ Произошла ошибка, попробуйте ещё раз или /menu").catch(() => {});
+      await ctx.reply(`⚠️ Ошибка:\n\n<pre>${fmtError(err)}</pre>`, { parse_mode: "HTML" }).catch(() => {});
     }
   });
 }
@@ -390,7 +391,7 @@ async function showContactCard(ctx: Context, contactId: string) {
     });
 
     if (!contact) {
-      await ctx.reply("❌ Контакт не найден.");
+      await ctx.reply("❌ Контакт не найден.", { parse_mode: "HTML" });
       return;
     }
 
@@ -492,7 +493,7 @@ async function showContactCard(ctx: Context, contactId: string) {
     await editOrReply(ctx, lines.join("\n"), buttons);
   } catch (err) {
     logger.error("contact card error", { error: String(err), contactId });
-    await ctx.reply("❌ Ошибка загрузки контакта.");
+    await ctx.reply(`❌ Ошибка загрузки контакта:\n\n<pre>${fmtError(err)}</pre>`, { parse_mode: "HTML" });
   }
 }
 
@@ -508,7 +509,7 @@ async function handleStatusMenu(ctx: Context) {
       select: { full_name: true, warmth_status: true },
     });
     if (!contact) {
-      await ctx.reply("❌ Контакт не найден.");
+      await ctx.reply("❌ Контакт не найден.", { parse_mode: "HTML" });
       return;
     }
 
@@ -555,7 +556,7 @@ async function handleSetStatus(ctx: Context) {
       select: { warmth_status: true, full_name: true },
     });
     if (!contact) {
-      await ctx.reply("❌ Контакт не найден.");
+      await ctx.reply("❌ Контакт не найден.", { parse_mode: "HTML" });
       return;
     }
 
@@ -589,7 +590,7 @@ async function handleSetStatus(ctx: Context) {
     });
   } catch (err) {
     logger.error("set status error", { error: String(err) });
-    await ctx.reply("❌ Ошибка смены статуса.");
+    await ctx.reply(`❌ Ошибка смены статуса:\n\n<pre>${fmtError(err)}</pre>`, { parse_mode: "HTML" });
   }
 }
 
@@ -605,7 +606,7 @@ async function handleNotePrompt(ctx: Context) {
       select: { full_name: true },
     });
     if (!contact) {
-      await ctx.reply("❌ Контакт не найден.");
+      await ctx.reply("❌ Контакт не найден.", { parse_mode: "HTML" });
       return;
     }
 
@@ -633,7 +634,7 @@ async function handleSuggest(ctx: Context) {
       select: { full_name: true },
     });
     if (!contact) {
-      await ctx.reply("❌ Контакт не найден.");
+      await ctx.reply("❌ Контакт не найден.", { parse_mode: "HTML" });
       return;
     }
 
@@ -725,7 +726,7 @@ async function handleSuggest(ctx: Context) {
     );
   } catch (err) {
     logger.error("suggest error", { error: String(err) });
-    await ctx.reply("❌ Ошибка при анализе.");
+    await ctx.reply(`❌ Ошибка при анализе:\n\n<pre>${fmtError(err)}</pre>`, { parse_mode: "HTML" });
   }
 }
 
@@ -766,7 +767,7 @@ async function handleCreateFollowUp(ctx: Context) {
     });
   } catch (err) {
     logger.error("create followup error", { error: String(err) });
-    await ctx.reply("❌ Не удалось создать follow-up.");
+    await ctx.reply(`❌ Не удалось создать follow-up:\n\n<pre>${fmtError(err)}</pre>`, { parse_mode: "HTML" });
   }
 }
 
@@ -782,7 +783,7 @@ async function handleArchiveConfirm(ctx: Context) {
       select: { full_name: true },
     });
     if (!contact) {
-      await ctx.reply("❌ Контакт не найден.");
+      await ctx.reply("❌ Контакт не найден.", { parse_mode: "HTML" });
       return;
     }
 
@@ -827,7 +828,7 @@ async function handleArchiveYes(ctx: Context) {
     ]);
   } catch (err) {
     logger.error("archive error", { error: String(err) });
-    await ctx.reply("❌ Ошибка архивации.");
+    await ctx.reply(`❌ Ошибка архивации:\n\n<pre>${fmtError(err)}</pre>`, { parse_mode: "HTML" });
   }
 }
 
