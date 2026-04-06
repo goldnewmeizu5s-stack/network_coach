@@ -11,7 +11,7 @@ import {
 import { suggestActions, Suggestion } from "../../services/message-drafting";
 import { handleReflectionText } from "./challenges";
 import { handleChatMessage } from "./chat";
-import { handleVoiceCorrectionText, handleSocialsText } from "./voice";
+import { handleVoiceCorrectionText, handleSocialsText, handleContactAnswerText, handleTextContactCreation } from "./voice";
 import { handleProfileFieldInput } from "./settings";
 import { setState, getState, clearState } from "../state";
 import {
@@ -89,6 +89,12 @@ export function registerTextHandler(bot: Telegraf) {
     // Social links collection after contact creation
     if (state?.action === "awaiting_socials") {
       await handleSocialsText(ctx, text);
+      return;
+    }
+
+    // Follow-up question answer for contact creation
+    if (state?.action === "awaiting_contact_answer") {
+      await handleContactAnswerText(ctx, text);
       return;
     }
 
@@ -186,9 +192,15 @@ export function registerTextHandler(bot: Telegraf) {
       }
     }
 
+    // Longer text (4+ words or 50+ chars) — treat as contact description
+    if (text.trim().split(/\s+/).length >= 4 || text.trim().length >= 50) {
+      await handleTextContactCreation(ctx, text);
+      return;
+    }
+
     // No match — show hint
     await ctx.reply(
-      "Отправь голосовое 🎤 чтобы добавить контакт,\nили напиши /menu для главного меню.\n\nИли просто напиши имя контакта для быстрого поиска.",
+      "Отправь голосовое 🎤 или текст о человеке, чтобы добавить контакт,\nили напиши /menu для главного меню.\n\nИли просто напиши имя контакта для быстрого поиска.",
       { parse_mode: "HTML" },
     );
     } catch (err) {

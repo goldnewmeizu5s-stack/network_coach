@@ -21,6 +21,7 @@ export interface ExtractedContact {
   relationship_category: string;
   memory_summary: string | null;
   is_update: boolean | null;
+  follow_up_questions: string[];
 }
 
 export interface VoiceUploadResult {
