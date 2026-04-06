@@ -14,7 +14,7 @@ import { recalcAndAutoStatus } from "../../services/warmth";
 import { getState, setState, clearState } from "../state";
 import { handleChatVoice } from "./chat";
 import { handleSmartMessage } from "./contacts";
-import { esc, divider, thinDivider } from "../ui";
+import { esc, divider, thinDivider, fmtError } from "../ui";
 
 const UPLOADS_DIR = path.join(__dirname, "../../../uploads");
 const MAX_FILE_SIZE = 25 * 1024 * 1024; // 25MB
@@ -110,7 +110,7 @@ export async function handleVoiceCorrectionText(ctx: Context, text: string) {
       chatId,
       statusMsg.message_id,
       undefined,
-      "❌ Не удалось скорректировать. Попробуй ещё раз или нажми «Принять».",
+      `❌ Не удалось скорректировать.\n\n<pre>${fmtError(err)}</pre>`,
       {
         parse_mode: "HTML",
         ...Markup.inlineKeyboard([
@@ -205,7 +205,7 @@ async function handleVoiceCorrectionVoice(
       chatId,
       statusMsg.message_id,
       undefined,
-      "❌ Не удалось распознать правку. Попробуй текстом или нажми «Принять».",
+      `❌ Не удалось распознать правку.\n\n<pre>${fmtError(err)}</pre>`,
       {
         parse_mode: "HTML",
         ...Markup.inlineKeyboard([
@@ -307,7 +307,7 @@ async function handleAudio(
         ctx,
         chatId,
         messageId,
-        "❌ Не удалось распознать речь. Попробуй записать ещё раз.",
+        `❌ Не удалось распознать речь:\n\n<pre>${fmtError(err)}</pre>`,
       );
       return;
     }
@@ -368,7 +368,7 @@ async function handleAudio(
       ctx,
       chatId,
       messageId,
-      "❌ Произошла ошибка при обработке записи.",
+      `❌ Ошибка обработки записи:\n\n<pre>${fmtError(err)}</pre>`,
     ).catch(() => {});
   } finally {
     try { fs.unlinkSync(filePath); } catch { /* ignore */ }
@@ -418,7 +418,7 @@ async function handleVoiceAccept(ctx: Context) {
         error: String(err),
       });
       await ctx.editMessageText(
-        "⚠️ Запись сохранена, но не удалось извлечь контакт автоматически.",
+        `⚠️ Запись сохранена, но не удалось извлечь контакт.\n\n<pre>${fmtError(err)}</pre>`,
         { parse_mode: "HTML" },
       );
       return;
@@ -472,7 +472,7 @@ async function handleVoiceAccept(ctx: Context) {
   } catch (err) {
     logger.error("Voice accept error", { error: String(err) });
     await ctx.editMessageText(
-      "❌ Произошла ошибка при создании контакта.",
+      `❌ Ошибка создания контакта:\n\n<pre>${fmtError(err)}</pre>`,
       { parse_mode: "HTML" },
     ).catch(() => {});
   }
@@ -635,7 +635,7 @@ async function finalizeContactFromText(
       ctx.chat!.id,
       statusMsg.message_id,
       undefined,
-      "❌ Не удалось создать контакт.",
+      `❌ Не удалось создать контакт:\n\n<pre>${fmtError(err)}</pre>`,
       { parse_mode: "HTML" },
     ).catch(() => {});
   }
@@ -719,7 +719,7 @@ export async function handleTextContactCreation(ctx: Context, text: string) {
       chatId,
       statusMsg.message_id,
       undefined,
-      "❌ Произошла ошибка при обработке текста.",
+      `❌ Ошибка обработки текста:\n\n<pre>${fmtError(err)}</pre>`,
       { parse_mode: "HTML" },
     ).catch(() => {});
   }
@@ -825,7 +825,7 @@ export async function handleSocialsText(ctx: Context, text: string) {
     );
   } catch (err) {
     logger.error("Failed to save social links", { error: String(err) });
-    await ctx.reply("❌ Не удалось сохранить контакты.");
+    await ctx.reply(`❌ Не удалось сохранить контакты:\n\n<pre>${fmtError(err)}</pre>`, { parse_mode: "HTML" });
   }
 }
 
@@ -1201,7 +1201,8 @@ async function handleChatVoiceMessage(
       chatId,
       statusMsg.message_id,
       undefined,
-      "❌ Не удалось распознать речь. Попробуй ещё раз.",
+      `❌ Не удалось распознать речь:\n\n<pre>${fmtError(err)}</pre>`,
+      { parse_mode: "HTML" },
     ).catch(() => {});
   } finally {
     try { fs.unlinkSync(filePath); } catch { /* ignore */ }

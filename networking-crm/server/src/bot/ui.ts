@@ -264,6 +264,21 @@ export function markdownToTelegramHtml(text: string): string {
   return result;
 }
 
+// ── Error formatting for debug ──────────────────────────
+
+/** Format error for display in Telegram (truncated, escaped) */
+export function fmtError(err: unknown): string {
+  let msg: string;
+  if (err instanceof Error) {
+    msg = err.stack ? `${err.message}\n${err.stack.split("\n").slice(1, 4).join("\n")}` : err.message;
+  } else {
+    msg = String(err);
+  }
+  // Truncate to fit Telegram message limits
+  if (msg.length > 1500) msg = msg.slice(0, 1500) + "...";
+  return esc(msg);
+}
+
 // ── Константы ────────────────────────────────────────────
 
 export const STATUS_EMOJI: Record<string, string> = {

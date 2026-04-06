@@ -94,8 +94,14 @@ export async function extractContactData(
         messages: [{ role: "user", content: transcript }],
       });
 
-      const text =
+      let text =
         message.content[0].type === "text" ? message.content[0].text : "";
+
+      // Strip markdown code blocks if AI wraps JSON in ```json ... ```
+      text = text.trim();
+      if (text.startsWith("```")) {
+        text = text.replace(/^```(?:json)?\s*\n?/, "").replace(/\n?```\s*$/, "");
+      }
 
       const parsed = JSON.parse(text) as ExtractedContact;
 
