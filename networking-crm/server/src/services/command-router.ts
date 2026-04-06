@@ -273,6 +273,66 @@ const TOOLS: Anthropic.Tool[] = [
     },
   },
   {
+    name: "create_contact",
+    description:
+      "Create a new contact in the CRM. Use this when the user describes a person they met or wants to add.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        full_name: {
+          type: "string",
+          description: "Full name of the contact",
+        },
+        nickname: {
+          type: "string",
+          description: "Nickname or short name (optional)",
+        },
+        occupation: {
+          type: "string",
+          description: "Job title or occupation (optional)",
+        },
+        company: {
+          type: "string",
+          description: "Company or organization (optional)",
+        },
+        city: {
+          type: "string",
+          description: "City (optional)",
+        },
+        country: {
+          type: "string",
+          description: "Country (optional)",
+        },
+        where_met: {
+          type: "string",
+          description: "Where/how they met (optional)",
+        },
+        key_interests: {
+          type: "array",
+          items: { type: "string" },
+          description: "List of interests or topics (optional)",
+        },
+        what_impressed_me: {
+          type: "string",
+          description: "What impressed the user about this person (optional)",
+        },
+        potential_synergies: {
+          type: "string",
+          description: "Potential collaboration or mutual benefit (optional)",
+        },
+        personality_notes: {
+          type: "string",
+          description: "Personality observations (optional)",
+        },
+        personal_notes: {
+          type: "string",
+          description: "Any other notes about the contact (optional)",
+        },
+      },
+      required: ["full_name"],
+    },
+  },
+  {
     name: "list_contacts",
     description:
       "List contacts, optionally filtered by warmth status. Returns names, status, occupation, last interaction.",
@@ -784,6 +844,38 @@ async function executeTool(
         return `Updated profile ${field} to: "${value}"`;
       }
 
+      case "create_contact": {
+        const fullName = input.full_name as string;
+        // Check if contact already exists
+        const existing = await findContactByName(fullName);
+        if (existing) {
+          return `Contact "${existing.full_name}" already exists. Use add_note to update their info.`;
+        }
+
+        const contact = await prisma.contact.create({
+          data: {
+            full_name: fullName,
+            nickname: (input.nickname as string) || null,
+            occupation: (input.occupation as string) || null,
+            company: (input.company as string) || null,
+            city: (input.city as string) || null,
+            country: (input.country as string) || null,
+            where_met: (input.where_met as string) || null,
+            key_interests: (input.key_interests as string[]) || [],
+            what_impressed_me: (input.what_impressed_me as string) || null,
+            potential_synergies: (input.potential_synergies as string) || null,
+            personality_notes: (input.personality_notes as string) || null,
+            personal_notes: (input.personal_notes as string) || null,
+            warmth_status: "new",
+            warmth_score: 0,
+            met_date: new Date(),
+            last_interaction_at: new Date(),
+          },
+        });
+
+        return `Created new contact: ${contact.full_name} (status: new). You can now add notes, create follow-ups, and more.`;
+      }
+
       case "list_contacts": {
         const status = (input.status as string) || "all";
         const limit = (input.limit as number) || 10;
@@ -889,7 +981,19 @@ export async function routeCommand(message: string): Promise<string> {
     ) {
       historyMessages.shift();
     }
-    historyMessages.push({ role: "user", content: message });
+    // Merge with last user message if consecutive (prevents 400 from Claude API)
+    if (
+      historyMessages.length > 0 &&
+      historyMessages[historyMessages.length - 1].role === "user"
+    ) {
+      historyMessages[historyMessages.length - 1] = {
+        role: "user",
+        content:
+          historyMessages[historyMessages.length - 1].content + "\n\n" + message,
+      };
+    } else {
+      historyMessages.push({ role: "user", content: message });
+    }
     messages = historyMessages;
   }
 
@@ -971,15 +1075,13 @@ export async function routeCommand(message: string): Promise<string> {
   }
 
   // Save to chat history
+  const responseText = finalText || "Готово!";
   await prisma.chatMessage.create({
     data: { role: "user", content: message },
   });
+  await prisma.chatMessage.create({
+    data: { role: "assistant", content: responseText },
+  });
 
-  if (finalText) {
-    await prisma.chatMessage.create({
-      data: { role: "assistant", content: finalText },
-    });
-  }
-
-  return finalText || "Готово!";
+  return responseText;
 }
