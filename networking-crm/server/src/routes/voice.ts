@@ -92,9 +92,26 @@ router.get("/:id/status", async (req, res, next) => {
 
     const status = interaction.audio_file?.transcription_status || "unknown";
 
+    // Extract multiple contact IDs if stored in content field
+    let contactIds: string[] = [];
+    if (interaction.contact_id) {
+      contactIds.push(interaction.contact_id);
+    }
+    if (interaction.content) {
+      try {
+        const parsed = JSON.parse(interaction.content);
+        if (Array.isArray(parsed?.contact_ids)) {
+          contactIds = parsed.contact_ids;
+        }
+      } catch {
+        // content is not JSON — that's fine, ignore
+      }
+    }
+
     res.json({
       status,
       contact_id: interaction.contact_id,
+      contact_ids: contactIds.length > 0 ? contactIds : undefined,
       transcript: interaction.transcript,
     });
   } catch (err) {

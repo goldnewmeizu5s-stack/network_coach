@@ -1,7 +1,7 @@
 import { anthropic } from "../lib/ai";
 import { config } from "../config";
 import prisma from "../lib/prisma";
-import { ExtractedContact, FollowUpSuggestion } from "../types";
+import { ExtractedContact, MultiExtractionResult, FollowUpSuggestion } from "../types";
 import { logger } from "../lib/logger";
 
 const SYSTEM_PROMPT = `You are analyzing a voice note or text message where the user describes someone they just met or wants to update information about an existing contact.
@@ -143,6 +143,157 @@ export async function extractContactData(
   }
 
   throw new Error("AI extraction failed after all retries");
+}
+
+const MULTI_PERSON_PROMPT = `You are analyzing a voice note or text message where the user describes ONE OR MULTIPLE people they just met or wants to update information about existing contacts.
+
+The user may describe several people in a single recording. Your job is to detect ALL mentioned people and extract structured data for EACH of them separately.
+
+Return a JSON object with the following structure:
+{
+  "is_voice_note": false,
+  "contacts": [
+    {
+      "full_name": "string or null",
+      "nickname": "string or null",
+      "where_met": "event, location, context or null",
+      "occupation": "short role description or null",
+      "company": "string or null",
+      "city": "string or null",
+      "country": "string or null",
+      "key_interests": ["array of interests"],
+      "what_impressed_me": "what the user found interesting or null",
+      "potential_synergies": "how this person could be valuable and vice versa or null",
+      "personality_notes": "vibe, energy, communication style or null",
+      "suggested_next_steps": [
+        {
+          "action": "specific, actionable follow-up task",
+          "due_days": 3,
+          "reason": "brief explanation why this action and why this timing"
+        }
+      ],
+      "urgency_score": 5,
+      "relationship_category": "business|friendship|mentor|connector|investor|creative|other",
+      "memory_summary": "short portrait of this person",
+      "is_update": false,
+      "follow_up_questions": []
+    }
+  ]
+}
+
+IMPORTANT RULES:
+- If the transcript mentions MULTIPLE people, create a SEPARATE entry in the "contacts" array for EACH person
+- Each person gets their own full extraction with all fields
+- If common context applies (e.g. met at the same event), include it for each person separately
+- If the transcript doesn't describe any person at all, set "is_voice_note" to true and return an empty "contacts" array
+- If only one person is mentioned, return a "contacts" array with a single element
+
+STYLE for memory_summary (VERY IMPORTANT):
+- Write 2-4 SHORT sentences. No fluff, no "beautiful words", no filler.
+- Follow this formula: character/vibe -> achievement/fact -> current activity -> context/what's next
+- Use concrete numbers, not "many" or "significant" — write "$200M", "5 years", etc.
+- Minimal adjectives. Every sentence = a new thought. No repetition.
+- DON'T write: "очень талантливый и амбициозный специалист"
+- DO write: "тихий, но по факту сильный. кофаундер проекта с оценкой $200M. сейчас делает ИИ-агента для трейдинга. завтра идем на хайкинг"
+- Write in lowercase, casual but dense with facts. Like a telegram to yourself.
+
+RULES for suggested_next_steps:
+- Each step is an object with "action" (what to do), "due_days" (days from now), and "reason" (why)
+- NEVER suggest something the user already plans to do. If they say "we're meeting tomorrow" or "going hiking together" — that meeting is ALREADY happening, don't create a follow-up for it
+- Instead, think about what should happen AFTER the planned event
+- due_days should be SMART: if a meeting is tomorrow, the follow-up should be in 2-3 days (after the meeting). If no meeting planned, follow up in 1-2 days while the connection is fresh
+- Generate 1-3 follow-ups per person. Each should be a DIFFERENT type of action
+- Each step is an ACTION, not a thought. Not "понять его", but "сходить на хайкинг и расспросить про крипто-проект"
+- Write steps short and concrete. No generic "stay in touch" or "get to know better"
+
+RULES for follow_up_questions:
+- If a person's description is missing CRITICAL information, generate 1-3 short direct questions
+- Critical fields: full_name (MOST important), occupation/what they do, where_met
+- Do NOT ask about optional fields like company, city, interests, personality
+- Keep questions short, casual, and conversational. Write in the same language as the input
+- If you have enough info (at least a name), return an empty array []
+
+Other rules:
+- If the user speaks in Russian, write ALL text fields in Russian
+- Return ONLY valid JSON, no markdown, no explanation`;
+
+export async function extractMultipleContacts(
+  transcript: string
+): Promise<MultiExtractionResult> {
+  const maxRetries = 2;
+  const backoff = [2000, 6000];
+
+  let systemPrompt = MULTI_PERSON_PROMPT;
+  try {
+    const user = await prisma.user.findFirst();
+    const prefs = (user?.preferences as Record<string, unknown>) || {};
+    const navigatorPrompt = prefs.navigator_prompt as string | undefined;
+    if (navigatorPrompt) {
+      systemPrompt = `${MULTI_PERSON_PROMPT}\n\n--- USER CONTEXT ---\n${navigatorPrompt}`;
+    }
+  } catch { /* use default prompt if DB fails */ }
+
+  for (let attempt = 0; attempt < maxRetries; attempt++) {
+    try {
+      const message = await anthropic.messages.create({
+        model: config.claudeModel,
+        max_tokens: 4096,
+        system: systemPrompt,
+        messages: [{ role: "user", content: transcript }],
+      });
+
+      let text =
+        message.content[0].type === "text" ? message.content[0].text : "";
+
+      text = text.trim();
+      if (text.startsWith("```")) {
+        text = text.replace(/^```(?:json)?\s*\n?/, "").replace(/\n?```\s*$/, "");
+      }
+
+      const parsed = JSON.parse(text) as { is_voice_note?: boolean; contacts?: unknown[] };
+
+      const isVoiceNote = parsed.is_voice_note === true;
+      const rawContacts = Array.isArray(parsed.contacts) ? parsed.contacts : [];
+
+      const contacts: ExtractedContact[] = rawContacts.map((raw: unknown) => {
+        const p = raw as Record<string, unknown>;
+        return {
+          full_name: (p.full_name as string) ?? null,
+          nickname: (p.nickname as string) ?? null,
+          where_met: (p.where_met as string) ?? null,
+          occupation: (p.occupation as string) ?? null,
+          company: (p.company as string) ?? null,
+          city: (p.city as string) ?? null,
+          country: (p.country as string) ?? null,
+          key_interests: Array.isArray(p.key_interests) ? p.key_interests : [],
+          what_impressed_me: (p.what_impressed_me as string) ?? null,
+          potential_synergies: (p.potential_synergies as string) ?? null,
+          personality_notes: (p.personality_notes as string) ?? null,
+          suggested_next_steps: normalizeFollowUps(p.suggested_next_steps),
+          urgency_score:
+            typeof p.urgency_score === "number"
+              ? Math.min(10, Math.max(1, p.urgency_score))
+              : 5,
+          relationship_category: (p.relationship_category as string) ?? "other",
+          memory_summary: (p.memory_summary as string) ?? null,
+          is_update: p.is_update === true ? true : p.is_update === false ? false : null,
+          follow_up_questions: Array.isArray(p.follow_up_questions)
+            ? (p.follow_up_questions as unknown[]).filter((q): q is string => typeof q === "string")
+            : [],
+        };
+      });
+
+      return { contacts, is_voice_note: isVoiceNote || contacts.length === 0 };
+    } catch (err: unknown) {
+      const isLast = attempt === maxRetries - 1;
+      if (isLast) throw err;
+
+      logger.warn(`Multi-extraction attempt ${attempt + 1} failed, retrying`, { delay: backoff[attempt] });
+      await sleep(backoff[attempt]);
+    }
+  }
+
+  throw new Error("Multi-person AI extraction failed after all retries");
 }
 
 function normalizeFollowUps(raw: unknown): FollowUpSuggestion[] {
