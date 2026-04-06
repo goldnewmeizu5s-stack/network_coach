@@ -42,6 +42,9 @@ export function registerVoiceHandlers(bot: Telegraf) {
     );
   });
 
+  // Skip follow-up questions — create contact with what we have
+  bot.action(/^skip_questions:(.+)$/, handleSkipQuestions);
+
   // Social links collection
   bot.action(/^socials_skip:(.+)$/, handleSocialsSkip);
 }
@@ -434,75 +437,38 @@ async function handleVoiceAccept(ctx: Context) {
       return;
     }
 
-    // Resolve or create contact
-    let contactId: string;
-    let isNew = false;
-
-    if (extracted.is_update && extracted.full_name) {
-      const existing = await prisma.contact.findFirst({
-        where: {
-          full_name: { contains: extracted.full_name, mode: "insensitive" },
-        },
+    // If there are follow-up questions, ask them before creating contact
+    if (extracted.follow_up_questions.length > 0) {
+      setState(chatId, "awaiting_contact_answer", {
+        originalText: transcript,
+        answers: [],
+        questions: extracted.follow_up_questions,
+        currentQuestionIndex: 0,
+        interactionId,
       });
-      if (existing) {
-        contactId = existing.id;
-        await updateContact(contactId, extracted);
-      } else {
-        const contact = await createContact(extracted);
-        contactId = contact.id;
-        isNew = true;
-      }
-    } else {
-      const contact = await createContact(extracted);
-      contactId = contact.id;
-      isNew = true;
+
+      await ctx.editMessageText(
+        [
+          "📝 Записал! Уточню пару деталей:",
+          "",
+          `<b>${esc(extracted.follow_up_questions[0])}</b>`,
+        ].join("\n"),
+        {
+          parse_mode: "HTML",
+          ...Markup.inlineKeyboard([
+            [Markup.button.callback("⏭ Пропустить вопросы", `skip_questions:${interactionId}`)],
+          ]),
+        },
+      );
+      return;
     }
 
-    // Link interaction
-    await prisma.interaction.update({
-      where: { id: interactionId },
-      data: { contact_id: contactId, ai_summary: extracted.memory_summary },
-    });
+    await ctx.editMessageText("🤖 Создаю контакт...", { parse_mode: "HTML" });
 
-    // Create follow-ups (all of them, with AI-determined due dates)
-    for (const step of extracted.suggested_next_steps) {
-      const dueDate = new Date();
-      dueDate.setDate(dueDate.getDate() + step.due_days);
-      await prisma.followUp.create({
-        data: {
-          contact_id: contactId,
-          suggested_action: step.action,
-          due_date: dueDate,
-          priority: extracted.urgency_score,
-        },
-      });
+    const contactId = await processExtractedContact(ctx, extracted, interactionId);
+    if (!contactId) {
+      await ctx.reply("📝 Запись сохранена (контакт не распознан).", { parse_mode: "HTML" });
     }
-
-    await recalcAndAutoStatus(contactId);
-
-    // Show contact card
-    const text = formatContactMessage(extracted, isNew);
-    await ctx.editMessageText(text, { parse_mode: "HTML" });
-
-    // Ask for social links in a SEPARATE message (so it's clearly visible)
-    setState(chatId, "awaiting_socials", { contactId });
-
-    await ctx.reply(
-      [
-        "📲 <b>Есть контакт этого человека?</b>",
-        "",
-        "Вставь ссылку или юзернейм (Telegram, WhatsApp,",
-        "Instagram, LinkedIn — что угодно).",
-        "",
-        "Можно несколько — каждый с новой строки.",
-      ].join("\n"),
-      {
-        parse_mode: "HTML",
-        ...Markup.inlineKeyboard([
-          [Markup.button.callback("⏭ Пропустить", `socials_skip:${contactId}`)],
-        ]),
-      },
-    );
   } catch (err) {
     logger.error("Voice accept error", { error: String(err) });
     await ctx.editMessageText(
@@ -547,6 +513,216 @@ async function handleVoiceEdit(ctx: Context) {
     ].join("\n"),
     { parse_mode: "HTML" },
   );
+}
+
+// ── Follow-up questions flow ────────────────────────────
+
+/**
+ * Handle user's text answer to a follow-up question about a contact.
+ * Called from the main text handler.
+ */
+export async function handleContactAnswerText(ctx: Context, text: string) {
+  const chatId = ctx.chat!.id;
+  const state = getState(chatId);
+  if (!state || state.action !== "awaiting_contact_answer") return;
+
+  const originalText = state.data.originalText as string;
+  const answers = state.data.answers as string[];
+  const questions = state.data.questions as string[];
+  const currentIndex = state.data.currentQuestionIndex as number;
+  const interactionId = state.data.interactionId as string;
+
+  // Save the answer
+  answers.push(`${questions[currentIndex]}: ${text}`);
+
+  const nextIndex = currentIndex + 1;
+
+  if (nextIndex < questions.length) {
+    // Ask the next question
+    setState(chatId, "awaiting_contact_answer", {
+      originalText,
+      answers,
+      questions,
+      currentQuestionIndex: nextIndex,
+      interactionId,
+    });
+
+    await ctx.reply(
+      `<b>${esc(questions[nextIndex])}</b>`,
+      {
+        parse_mode: "HTML",
+        ...Markup.inlineKeyboard([
+          [Markup.button.callback("⏭ Пропустить вопросы", `skip_questions:${interactionId}`)],
+        ]),
+      },
+    );
+    return;
+  }
+
+  // All questions answered — combine text and create contact
+  clearState(chatId);
+  await finalizeContactFromText(ctx, originalText, answers, interactionId);
+}
+
+/**
+ * Skip remaining follow-up questions and create contact with available info.
+ */
+async function handleSkipQuestions(ctx: Context) {
+  const match = (ctx as any).match as RegExpMatchArray;
+  const interactionId = match[1];
+  const chatId = ctx.chat!.id;
+  const state = getState(chatId);
+
+  try {
+    await ctx.answerCbQuery();
+  } catch { /* ignore */ }
+
+  const originalText = (state?.data?.originalText as string) || "";
+  const answers = (state?.data?.answers as string[]) || [];
+  clearState(chatId);
+
+  await finalizeContactFromText(ctx, originalText, answers, interactionId);
+}
+
+/**
+ * Combine original text + answers, re-extract, and create contact.
+ */
+async function finalizeContactFromText(
+  ctx: Context,
+  originalText: string,
+  answers: string[],
+  interactionId: string,
+) {
+  const statusMsg = await ctx.reply("🤖 Создаю контакт...");
+
+  try {
+    // Combine original text with all answers for re-extraction
+    const combinedText = answers.length > 0
+      ? `${originalText}\n\nДополнительная информация:\n${answers.join("\n")}`
+      : originalText;
+
+    // Update interaction transcript
+    await prisma.interaction.update({
+      where: { id: interactionId },
+      data: { transcript: combinedText },
+    });
+
+    const extracted = await extractContactData(combinedText);
+
+    if (extracted.is_update === null) {
+      await ctx.telegram.editMessageText(
+        ctx.chat!.id,
+        statusMsg.message_id,
+        undefined,
+        "📝 Запись сохранена (контакт не распознан).",
+        { parse_mode: "HTML" },
+      );
+      return;
+    }
+
+    await ctx.telegram.editMessageText(
+      ctx.chat!.id,
+      statusMsg.message_id,
+      undefined,
+      "✅",
+      { parse_mode: "HTML" },
+    ).catch(() => {});
+
+    await processExtractedContact(ctx, extracted, interactionId);
+  } catch (err) {
+    logger.error("Finalize contact from text failed", { error: String(err) });
+    await ctx.telegram.editMessageText(
+      ctx.chat!.id,
+      statusMsg.message_id,
+      undefined,
+      "❌ Не удалось создать контакт.",
+      { parse_mode: "HTML" },
+    ).catch(() => {});
+  }
+}
+
+/**
+ * Handle text-based contact creation. User sends a text description of a person.
+ * Called from the main text handler.
+ */
+export async function handleTextContactCreation(ctx: Context, text: string) {
+  const chatId = ctx.chat!.id;
+  const statusMsg = await ctx.reply("🤖 Анализирую...");
+
+  try {
+    // Create interaction record
+    const interaction = await prisma.interaction.create({
+      data: { type: "note", content: text },
+    });
+
+    // Extract contact data
+    const extracted = await extractContactData(text);
+
+    // No person detected
+    if (extracted.is_update === null) {
+      await prisma.interaction.update({
+        where: { id: interaction.id },
+        data: { ai_summary: "Text note (no contact detected)" },
+      });
+      await ctx.telegram.editMessageText(
+        chatId,
+        statusMsg.message_id,
+        undefined,
+        "Не похоже на описание контакта.\n\nОтправь голосовое 🎤 или текст о человеке,\nили напиши имя для поиска.\n/menu — главное меню.",
+        { parse_mode: "HTML" },
+      );
+      return;
+    }
+
+    // If there are follow-up questions, ask them
+    if (extracted.follow_up_questions.length > 0) {
+      setState(chatId, "awaiting_contact_answer", {
+        originalText: text,
+        answers: [],
+        questions: extracted.follow_up_questions,
+        currentQuestionIndex: 0,
+        interactionId: interaction.id,
+      });
+
+      await ctx.telegram.editMessageText(
+        chatId,
+        statusMsg.message_id,
+        undefined,
+        [
+          "📝 Записал! Уточню пару деталей:",
+          "",
+          `<b>${esc(extracted.follow_up_questions[0])}</b>`,
+        ].join("\n"),
+        {
+          parse_mode: "HTML",
+          ...Markup.inlineKeyboard([
+            [Markup.button.callback("⏭ Пропустить вопросы", `skip_questions:${interaction.id}`)],
+          ]),
+        },
+      );
+      return;
+    }
+
+    // Enough info — create contact directly
+    await ctx.telegram.editMessageText(
+      chatId,
+      statusMsg.message_id,
+      undefined,
+      "✅",
+      { parse_mode: "HTML" },
+    ).catch(() => {});
+
+    await processExtractedContact(ctx, extracted, interaction.id);
+  } catch (err) {
+    logger.error("Text contact creation error", { error: String(err) });
+    await ctx.telegram.editMessageText(
+      chatId,
+      statusMsg.message_id,
+      undefined,
+      "❌ Произошла ошибка при обработке текста.",
+      { parse_mode: "HTML" },
+    ).catch(() => {});
+  }
 }
 
 // ── Social links collection ──────────────────────────────
@@ -805,6 +981,102 @@ async function handleSmartVoiceMessage(
   } finally {
     try { fs.unlinkSync(filePath); } catch { /* ignore */ }
   }
+}
+
+// ── Shared contact processing (used by voice & text flows) ──
+
+/**
+ * Process extracted contact data: create/update contact, link interaction,
+ * create follow-ups, show card, ask for socials.
+ * Returns the contactId or null if no person detected.
+ */
+export async function processExtractedContact(
+  ctx: Context,
+  extracted: Awaited<ReturnType<typeof extractContactData>>,
+  interactionId: string,
+): Promise<string | null> {
+  const chatId = ctx.chat!.id;
+
+  // No person detected
+  if (extracted.is_update === null) {
+    await prisma.interaction.update({
+      where: { id: interactionId },
+      data: { ai_summary: "Note (no contact detected)" },
+    });
+    return null;
+  }
+
+  // Resolve or create contact
+  let contactId: string;
+  let isNew = false;
+
+  if (extracted.is_update && extracted.full_name) {
+    const existing = await prisma.contact.findFirst({
+      where: {
+        full_name: { contains: extracted.full_name, mode: "insensitive" },
+      },
+    });
+    if (existing) {
+      contactId = existing.id;
+      await updateContact(contactId, extracted);
+    } else {
+      const contact = await createContact(extracted);
+      contactId = contact.id;
+      isNew = true;
+    }
+  } else {
+    const contact = await createContact(extracted);
+    contactId = contact.id;
+    isNew = true;
+  }
+
+  // Link interaction
+  await prisma.interaction.update({
+    where: { id: interactionId },
+    data: { contact_id: contactId, ai_summary: extracted.memory_summary },
+  });
+
+  // Create follow-ups
+  for (const step of extracted.suggested_next_steps) {
+    const dueDate = new Date();
+    dueDate.setDate(dueDate.getDate() + step.due_days);
+    await prisma.followUp.create({
+      data: {
+        contact_id: contactId,
+        suggested_action: step.action,
+        due_date: dueDate,
+        priority: extracted.urgency_score,
+      },
+    });
+  }
+
+  await recalcAndAutoStatus(contactId);
+
+  // Show contact card
+  const text = formatContactMessage(extracted, isNew);
+  await ctx.reply(text, { parse_mode: "HTML" });
+
+  // Ask for social links
+  setState(chatId, "awaiting_socials", { contactId });
+
+  await ctx.reply(
+    [
+      "📲 <b>Есть контакт этого человека?</b>",
+      "",
+      "Вставь ссылку или юзернейм (Telegram, WhatsApp,",
+      "Instagram, LinkedIn — что угодно).",
+      "",
+      "Можно несколько — каждый с новой строки.",
+    ].join("\n"),
+    {
+      parse_mode: "HTML",
+      ...Markup.inlineKeyboard([
+        [Markup.button.callback("⏭ Пропустить", `socials_skip:${contactId}`)],
+      ]),
+    },
+  );
+
+  return contactId;
 }
 
 // ── Helpers ──────────────────────────────────────────────

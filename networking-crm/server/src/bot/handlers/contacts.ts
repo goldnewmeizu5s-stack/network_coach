@@ -11,7 +11,7 @@ import {
 import { suggestActions, Suggestion } from "../../services/message-drafting";
 import { handleReflectionText } from "./challenges";
 import { handleChatMessage } from "./chat";
-import { handleVoiceCorrectionText, handleSocialsText } from "./voice";
+import { handleVoiceCorrectionText, handleSocialsText, handleContactAnswerText, handleTextContactCreation } from "./voice";
 import { handleProfileFieldInput } from "./settings";
 import { routeCommand } from "../../services/command-router";
 import { setState, getState, clearState } from "../state";
@@ -24,6 +24,7 @@ import {
   progressBar,
   warmthEmoji,
   warmthLabel,
+  urgencyBadge,
   STATUS_EMOJI,
   STATUS_LABEL,
   editOrReply,
@@ -90,6 +91,12 @@ export function registerTextHandler(bot: Telegraf) {
     // Social links collection after contact creation
     if (state?.action === "awaiting_socials") {
       await handleSocialsText(ctx, text);
+      return;
+    }
+
+    // Follow-up question answer for contact creation
+    if (state?.action === "awaiting_contact_answer") {
+      await handleContactAnswerText(ctx, text);
       return;
     }
 
@@ -225,32 +232,30 @@ async function handleContactsMenu(ctx: Context) {
       total += row._count;
     }
 
-    // Compact status summary line
-    const statusParts: string[] = [];
-    for (const s of ["new", "warming", "warm", "cooling", "paused"]) {
+    // Visual summary with mini-bars
+    const statuses = ["new", "warming", "warm", "cooling", "paused"] as const;
+    const summaryParts: string[] = [];
+    for (const s of statuses) {
       const count = countMap[s] || 0;
-      if (count > 0) statusParts.push(`${STATUS_EMOJI[s]} ${count}`);
+      if (count > 0) summaryParts.push(`${STATUS_EMOJI[s]} ${count}`);
     }
-    const summaryLine = statusParts.length > 0 ? statusParts.join("  ") : "Пока пусто";
 
     const text = [
-      `👥 <b>Контакты</b> — ${total} чел.`,
-      divider(),
-      summaryLine,
+      `<b>👥 ${total}</b> контактов`,
+      "",
+      summaryParts.length > 0 ? summaryParts.join(" · ") : "<i>Пока пусто</i>",
     ].join("\n");
 
     const buttons = [
       [
-        btn("🔴", "Новые", countMap["new"], "contacts_filter:new"),
-        btn("🟡", "Тёплые", countMap["warming"], "contacts_filter:warming"),
+        btnCompact("🔴", countMap["new"], "contacts_filter:new"),
+        btnCompact("🟡", countMap["warming"], "contacts_filter:warming"),
+        btnCompact("🟢", countMap["warm"], "contacts_filter:warm"),
       ],
       [
-        btn("🟢", "Горячие", countMap["warm"], "contacts_filter:warm"),
-        btn("🟠", "Остывают", countMap["cooling"], "contacts_filter:cooling"),
-      ],
-      [
-        btn("⚪", "Пауза", countMap["paused"], "contacts_filter:paused"),
-        btn("📋", "Все", total, "contacts_filter:all"),
+        btnCompact("🟠", countMap["cooling"], "contacts_filter:cooling"),
+        btnCompact("⚪", countMap["paused"], "contacts_filter:paused"),
+        Markup.button.callback(`📋 Все`, "contacts_filter:all"),
       ],
       [Markup.button.callback("🏠 Меню", "main_menu")],
     ];
@@ -299,46 +304,61 @@ async function showContactsList(ctx: Context, status: string, offset: number) {
     if (contacts.length === 0) {
       await editOrReply(
         ctx,
-        `👥 <b>${statusTitle}</b> — 0 контактов\n${divider()}\n\nСписок пуст.`,
+        `<b>${statusTitle}</b> · 0\n\n<i>Список пуст</i>`,
         [
-          [Markup.button.callback("← Фильтры", "contacts")],
+          [Markup.button.callback("← Назад", "contacts")],
           [Markup.button.callback("🏠 Меню", "main_menu")],
         ],
       );
       return;
     }
 
+    const pageInfo = total > PAGE_SIZE ? ` · ${offset + 1}–${Math.min(offset + PAGE_SIZE, total)}` : "";
     const lines = [
-      `👥 <b>${statusTitle}</b> — ${total} контактов`,
-      divider(),
+      `<b>${statusTitle}</b> · ${total}${pageInfo}`,
       "",
     ];
 
-    contacts.forEach((c) => {
+    contacts.forEach((c, i) => {
       const emoji = STATUS_EMOJI[c.warmth_status] || "⚪";
-      const job = [c.occupation, c.company].filter(Boolean).join(" @ ");
-      const jobStr = job ? `\n   💼 ${esc(job)}` : "";
-      lines.push(`${emoji} <b>${esc(c.full_name)}</b>${jobStr}`);
-      lines.push(`   📅 ${relDate(c.last_interaction_at)}`);
-      lines.push("");
+      const job = [c.occupation, c.company].filter(Boolean).join(", ");
+      const time = relDate(c.last_interaction_at);
+      lines.push(`${emoji} <b>${esc(c.full_name)}</b>`);
+      if (job) lines.push(`     ${esc(job)}`);
+      lines.push(`     <i>${time}</i>`);
+      if (i < contacts.length - 1) lines.push("");
     });
 
-    const buttons = contacts.map((c) => [
-      Markup.button.callback(
-        `${c.full_name} →`,
-        `contact_view:${c.id}`,
-      ),
-    ]);
+    // Each contact as a button row (2 per row for compact layout)
+    const buttons: ReturnType<typeof Markup.button.callback>[][] = [];
+    for (let i = 0; i < contacts.length; i += 2) {
+      const row: ReturnType<typeof Markup.button.callback>[] = [];
+      row.push(
+        Markup.button.callback(
+          `${STATUS_EMOJI[contacts[i].warmth_status] || "⚪"} ${contacts[i].full_name}`,
+          `contact_view:${contacts[i].id}`,
+        ),
+      );
+      if (i + 1 < contacts.length) {
+        row.push(
+          Markup.button.callback(
+            `${STATUS_EMOJI[contacts[i + 1].warmth_status] || "⚪"} ${contacts[i + 1].full_name}`,
+            `contact_view:${contacts[i + 1].id}`,
+          ),
+        );
+      }
+      buttons.push(row);
+    }
 
     // Pagination + navigation
-    const navRow: ReturnType<typeof Markup.button.callback>[] = [];
-    navRow.push(Markup.button.callback("← Фильтры", "contacts"));
+    const navBtns: ReturnType<typeof Markup.button.callback>[] = [];
+    navBtns.push(Markup.button.callback("← Назад", "contacts"));
     if (offset + PAGE_SIZE < total) {
-      navRow.push(
-        Markup.button.callback("Ещё →", `contacts_page:${status}:${offset + PAGE_SIZE}`),
+      navBtns.push(
+        Markup.button.callback(`Ещё ${Math.min(PAGE_SIZE, total - offset - PAGE_SIZE)}  →`, `contacts_page:${status}:${offset + PAGE_SIZE}`),
       );
     }
-    buttons.push(navRow);
+    buttons.push(navBtns);
     buttons.push([Markup.button.callback("🏠 Меню", "main_menu")]);
 
     await editOrReply(ctx, lines.join("\n"), buttons);
@@ -375,86 +395,93 @@ async function showContactCard(ctx: Context, contactId: string) {
     }
 
     const score = Math.round(contact.warmth_score);
+    const bar = progressBar(score, 100, 10);
 
-    // Header
+    // ── Header ──
     const lines: string[] = [
       `<b>${esc(contact.full_name)}</b>`,
-      `${warmthLabel(contact.warmth_status)} · ${score}/100`,
-      "",
+      `${warmthEmoji(contact.warmth_status)} ${warmthLabel(contact.warmth_status)} · ${bar}`,
     ];
 
-    // Basic info
-    const role: string[] = [];
-    if (contact.occupation) role.push(esc(contact.occupation));
-    if (contact.company) role.push(esc(contact.company));
-    if (role.length) lines.push(role.join(", "));
-    if (contact.city) lines.push(esc(contact.city));
+    // ── Info block ──
+    const infoParts: string[] = [];
+    const role = [contact.occupation, contact.company].filter((x): x is string => !!x);
+    if (role.length) infoParts.push(`💼 ${role.map(esc).join(", ")}`);
+    if (contact.city) infoParts.push(`📍 ${esc(contact.city)}`);
     if (contact.where_met) {
-      lines.push(`познакомились: ${esc(contact.where_met)}, ${fmtDate(contact.met_date)}`);
+      const metDate = contact.met_date ? `, ${fmtDate(contact.met_date)}` : "";
+      infoParts.push(`🤝 ${esc(contact.where_met)}${metDate}`);
+    }
+    if (infoParts.length) {
+      lines.push("");
+      lines.push(...infoParts);
     }
 
-    // Memory summary
+    // ── Memory ──
     if (contact.memory_summary) {
       lines.push("");
-      lines.push(esc(contact.memory_summary));
+      lines.push(`💭 <i>${esc(contact.memory_summary)}</i>`);
     }
 
-    // Interests & notes
-    if (contact.key_interests.length > 0 || contact.personality_notes) {
+    // ── Interests ──
+    if (contact.key_interests.length > 0) {
       lines.push("");
-      if (contact.key_interests.length > 0) {
-        lines.push(`интересы: ${contact.key_interests.map(esc).join(", ")}`);
-      }
-      if (contact.personality_notes) {
-        lines.push(esc(contact.personality_notes));
-      }
+      const tags = contact.key_interests.map((i) => `#${esc(i.replace(/\s+/g, "_"))}`);
+      lines.push(tags.join("  "));
     }
 
-    // Social links
+    // ── Personality ──
+    if (contact.personality_notes) {
+      if (contact.key_interests.length === 0) lines.push("");
+      lines.push(`📝 ${esc(contact.personality_notes)}`);
+    }
+
+    // ── Social links ──
     const socialLinks = contact.social_links as Record<string, string> | null;
     if (socialLinks && Object.keys(socialLinks).length > 0) {
       lines.push("");
-      const platformLabels: Record<string, string> = {
-        telegram: "tg", whatsapp: "wa", instagram: "ig",
-        linkedin: "li", facebook: "fb", twitter: "x",
-        phone: "tel", email: "email",
+      const platformEmoji: Record<string, string> = {
+        telegram: "✈️", whatsapp: "📱", instagram: "📷",
+        linkedin: "💼", facebook: "👤", twitter: "🐦",
+        phone: "📞", email: "✉️",
       };
       const parts = Object.entries(socialLinks)
-        .map(([key, value]) => `${platformLabels[key] || key}: ${esc(value)}`);
-      lines.push(parts.join(" · "));
+        .map(([key, value]) => `${platformEmoji[key] || "🔗"} ${esc(value)}`);
+      lines.push(parts.join("  "));
     }
 
-    // Stats
+    // ── Stats line ──
     const interactionCount = await prisma.interaction.count({
       where: { contact_id: contactId },
     });
     lines.push("");
-    lines.push(`взаимодействий: ${interactionCount} · последний: ${relDate(contact.last_interaction_at)}`);
+    lines.push(`📊 ${interactionCount} взаимодействий · ${relDate(contact.last_interaction_at)}`);
 
-    // Active follow-ups
+    // ── Follow-ups ──
     if (contact.follow_ups.length > 0) {
       lines.push("");
-      lines.push("<b>follow-ups</b>");
+      lines.push(`📌 <b>Follow-ups</b>`);
       contact.follow_ups.forEach((f) => {
-        lines.push(`· ${esc(f.suggested_action)}`);
+        const badge = f.due_date
+          ? ` ${urgencyBadge(f.due_date).emoji}`
+          : "";
+        lines.push(`  ${badge} ${esc(f.suggested_action)}`);
       });
     }
 
     const buttons = [
       ...(config.webappUrl
-        ? [[Markup.button.webApp("\u{1F4F1} В приложении", `${config.webappUrl}/people/${contactId}`)]]
+        ? [[Markup.button.webApp("📱 Открыть", `${config.webappUrl}/people/${contactId}`)]]
         : []),
       [
-        Markup.button.callback("🎤 Голосовое", `voice_for:${contactId}`),
+        Markup.button.callback("🎤 Записать", `voice_for:${contactId}`),
         Markup.button.callback("📝 Заметка", `contact_note:${contactId}`),
+        Markup.button.callback("💬 Чат", `contact_chat:${contactId}`),
       ],
       [
         Markup.button.callback("🔄 Статус", `contact_status:${contactId}`),
         Markup.button.callback("📋 Follow-ups", `contact_fups:${contactId}`),
-      ],
-      [
-        Markup.button.callback("🤖 Что делать?", `contact_suggest:${contactId}`),
-        Markup.button.callback("💬 Чат", `contact_chat:${contactId}`),
+        Markup.button.callback("🤖 Совет", `contact_suggest:${contactId}`),
       ],
       [
         Markup.button.callback("← Контакты", "contacts"),
@@ -817,11 +844,10 @@ async function handleArchiveNo(ctx: Context) {
 
 // ── Helpers ───────────────────────────────────────────────
 
-function btn(
+function btnCompact(
   emoji: string,
-  label: string,
   count: number | undefined,
   callback: string,
 ) {
-  return Markup.button.callback(`${emoji} ${label} (${count || 0})`, callback);
+  return Markup.button.callback(`${emoji} ${count || 0}`, callback);
 }

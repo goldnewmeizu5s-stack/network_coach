@@ -595,7 +595,16 @@ function ContactCard({
           }}
         >
           {c.photo_url ? (
-            <img src={c.photo_url} alt={c.full_name} className="h-full w-full object-cover" />
+            <img
+              src={c.photo_url}
+              alt={c.full_name}
+              className="h-full w-full object-cover"
+              onError={(e) => {
+                const el = e.currentTarget;
+                el.style.display = "none";
+                el.parentElement!.textContent = getInitials(c.full_name);
+              }}
+            />
           ) : (
             getInitials(c.full_name)
           )}
