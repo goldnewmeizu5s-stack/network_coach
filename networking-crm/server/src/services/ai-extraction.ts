@@ -4,7 +4,7 @@ import prisma from "../lib/prisma";
 import { ExtractedContact, FollowUpSuggestion } from "../types";
 import { logger } from "../lib/logger";
 
-const SYSTEM_PROMPT = `You are analyzing a voice note where the user describes someone they just met or wants to update information about an existing contact.
+const SYSTEM_PROMPT = `You are analyzing a voice note or text message where the user describes someone they just met or wants to update information about an existing contact.
 
 Extract the following into structured JSON (use null for unknown fields):
 {
@@ -29,7 +29,8 @@ Extract the following into structured JSON (use null for unknown fields):
   "urgency_score": 5,
   "relationship_category": "business|friendship|mentor|connector|investor|creative|other",
   "memory_summary": "short portrait of this person",
-  "is_update": false
+  "is_update": false,
+  "follow_up_questions": ["question1", "question2"]
 }
 
 STYLE for memory_summary (VERY IMPORTANT):
@@ -49,6 +50,14 @@ RULES for suggested_next_steps:
 - Generate 1-3 follow-ups. Each should be a DIFFERENT type of action
 - Each step is an ACTION, not a thought. Not "понять его", but "сходить на хайкинг и расспросить про крипто-проект"
 - Write steps short and concrete. No generic "stay in touch" or "get to know better"
+
+RULES for follow_up_questions:
+- If the description is missing CRITICAL information, generate 1-3 short direct questions to ask the user
+- Critical fields to check: full_name (MOST important — always ask if missing), occupation/what they do, where_met
+- Do NOT ask about optional fields like company, city, interests, personality — only ask about truly important gaps
+- Keep questions short, casual, and conversational. Write in the same language as the input
+- If you have enough info (at least a name), return an empty array []
+- Examples: "Как его/её зовут?", "Чем занимается?", "Где познакомились?"
 
 Other rules:
 - If the user speaks in Russian, write ALL text fields in Russian
@@ -113,6 +122,9 @@ export async function extractContactData(
         relationship_category: parsed.relationship_category ?? "other",
         memory_summary: parsed.memory_summary ?? null,
         is_update: parsed.is_update ?? null,
+        follow_up_questions: Array.isArray(parsed.follow_up_questions)
+          ? parsed.follow_up_questions.filter((q: unknown) => typeof q === "string")
+          : [],
       };
     } catch (err: unknown) {
       const isLast = attempt === maxRetries - 1;
