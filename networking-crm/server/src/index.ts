@@ -22,7 +22,7 @@ import methodologiesRoutes from "./routes/methodologies";
 import insightsRoutes from "./routes/insights";
 import statsRoutes from "./routes/stats";
 import exportRoutes from "./routes/export";
-import { startCron, runDailyJob } from "./services/cron";
+import { startCron, stopCron, runDailyJob } from "./services/cron";
 import { startBot, stopBot } from "./bot";
 
 const app = express();
@@ -36,15 +36,32 @@ if (config.isProd) {
 // Security & compression
 app.use(
   helmet({
-    contentSecurityPolicy: false,
+    contentSecurityPolicy: config.isProd
+      ? {
+          directives: {
+            defaultSrc: ["'self'"],
+            scriptSrc: ["'self'", "'unsafe-inline'", "https://telegram.org"],
+            styleSrc: ["'self'", "'unsafe-inline'"],
+            imgSrc: ["'self'", "data:", "blob:", "https:"],
+            connectSrc: ["'self'", "https://telegram.org"],
+            frameSrc: ["'self'", "https://telegram.org"],
+            frameAncestors: ["'self'", "https://web.telegram.org", "https://telegram.org"],
+          },
+        }
+      : false,
     crossOriginEmbedderPolicy: false,
   })
 );
 app.use(compression());
-app.use(cors({ origin: true, credentials: true }));
+
+// CORS: restrict origins in production
+const allowedOrigins = config.isProd
+  ? [config.webappUrl, "https://web.telegram.org", "https://telegram.org"].filter(Boolean)
+  : true;
+app.use(cors({ origin: allowedOrigins as any, credentials: true }));
 app.use(cookieParser());
-app.use(express.json({ limit: "50mb" }));
-app.use(express.urlencoded({ extended: true, limit: "50mb" }));
+app.use(express.json({ limit: "10mb" }));
+app.use(express.urlencoded({ extended: true, limit: "10mb" }));
 
 // Rate limiting
 const apiLimiter = rateLimit({
@@ -106,7 +123,15 @@ app.use("/api/user", authMiddleware, apiLimiter, userRoutes);
 app.use("/api/methodologies", authMiddleware, apiLimiter, methodologiesRoutes);
 app.use("/api/insights", authMiddleware, aiLimiter, insightsRoutes);
 app.use("/api/stats", authMiddleware, apiLimiter, statsRoutes);
-app.use("/api/export", authMiddleware, apiLimiter, exportRoutes);
+// Export routes use stricter rate limit (3 per minute) to prevent data scraping
+const exportLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 3,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Too many export requests. Please wait." },
+});
+app.use("/api/export", authMiddleware, exportLimiter, exportRoutes);
 
 // Manual cron trigger
 app.post("/api/cron/run-now", authMiddleware, async (_req, res, next) => {
@@ -175,6 +200,7 @@ const server = app.listen(config.port, () => {
 // Graceful shutdown
 function shutdown() {
   logger.info("Shutting down...");
+  stopCron();
   stopBot();
   server.close(async () => {
     await prisma.$disconnect();

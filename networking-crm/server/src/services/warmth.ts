@@ -67,47 +67,50 @@ export async function calculateWarmthScore(contactId: string): Promise<number> {
 
 export async function recalcAndAutoStatus(contactId: string): Promise<void> {
   const score = await calculateWarmthScore(contactId);
-  const contact = await prisma.contact.findUnique({
-    where: { id: contactId },
-    select: { warmth_status: true },
-  });
-  if (!contact) return;
 
-  let newStatus = contact.warmth_status;
-
-  // Count only meaningful interactions for auto-transitions
-  const interactionCount = await prisma.interaction.count({
-    where: { contact_id: contactId, type: { in: SCORING_TYPES } },
-  });
-
-  if (contact.warmth_status === "new" && interactionCount >= 2) {
-    newStatus = "warming";
-  } else if (contact.warmth_status === "warming" && interactionCount >= 3) {
-    newStatus = "warm";
-  } else if (contact.warmth_status === "cooling") {
-    const recentMeaningful = await prisma.interaction.count({
-      where: {
-        contact_id: contactId,
-        type: { in: ["meeting", "message", "follow_up"] },
-        created_at: { gte: new Date(Date.now() - 7 * 86400000) },
-      },
+  await prisma.$transaction(async (tx) => {
+    const contact = await tx.contact.findUnique({
+      where: { id: contactId },
+      select: { warmth_status: true },
     });
-    if (recentMeaningful > 0) {
+    if (!contact) return;
+
+    let newStatus = contact.warmth_status;
+
+    // Count only meaningful interactions for auto-transitions
+    const interactionCount = await tx.interaction.count({
+      where: { contact_id: contactId, type: { in: SCORING_TYPES } },
+    });
+
+    if (contact.warmth_status === "new" && interactionCount >= 2) {
       newStatus = "warming";
+    } else if (contact.warmth_status === "warming" && interactionCount >= 3) {
+      newStatus = "warm";
+    } else if (contact.warmth_status === "cooling") {
+      const recentMeaningful = await tx.interaction.count({
+        where: {
+          contact_id: contactId,
+          type: { in: ["meeting", "message", "follow_up"] },
+          created_at: { gte: new Date(Date.now() - 7 * 86400000) },
+        },
+      });
+      if (recentMeaningful > 0) {
+        newStatus = "warming";
+      }
     }
-  }
 
-  const data: Record<string, unknown> = { warmth_score: score };
-  if (newStatus !== contact.warmth_status) {
-    data.warmth_status = newStatus;
-    await prisma.interaction.create({
-      data: {
-        contact_id: contactId,
-        type: "note",
-        content: `[auto] Status changed from ${contact.warmth_status} to ${newStatus}`,
-      },
-    });
-  }
+    const data: Record<string, unknown> = { warmth_score: score };
+    if (newStatus !== contact.warmth_status) {
+      data.warmth_status = newStatus;
+      await tx.interaction.create({
+        data: {
+          contact_id: contactId,
+          type: "note",
+          content: `[auto] Status changed from ${contact.warmth_status} to ${newStatus}`,
+        },
+      });
+    }
 
-  await prisma.contact.update({ where: { id: contactId }, data });
+    await tx.contact.update({ where: { id: contactId }, data });
+  });
 }

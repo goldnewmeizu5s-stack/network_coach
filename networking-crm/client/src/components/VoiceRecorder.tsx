@@ -161,6 +161,7 @@ export default function VoiceRecorder({ onClose, contactId }: Props) {
         return;
       }
 
+      if (pollRef.current) clearTimeout(pollRef.current);
       pollRef.current = setTimeout(async () => {
         if (abortedRef.current) return;
         try {

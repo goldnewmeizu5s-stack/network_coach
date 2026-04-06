@@ -105,6 +105,10 @@ function validateTelegramInitData(initData: string, botToken: string): boolean {
   const hash = params.get("hash");
   if (!hash) return false;
 
+  // Reject stale auth data (older than 1 hour) to prevent replay attacks
+  const authDate = parseInt(params.get("auth_date") || "0", 10);
+  if (!authDate || Date.now() / 1000 - authDate > 3600) return false;
+
   params.delete("hash");
   const dataCheckString = Array.from(params.entries())
     .sort(([a], [b]) => a.localeCompare(b))
