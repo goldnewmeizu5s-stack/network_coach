@@ -13,6 +13,7 @@ import { createContact } from "../../services/voice-pipeline";
 import { recalcAndAutoStatus } from "../../services/warmth";
 import { getState, setState, clearState } from "../state";
 import { handleChatVoice } from "./chat";
+import { handleSmartMessage } from "./contacts";
 import { esc, divider, thinDivider } from "../ui";
 
 const UPLOADS_DIR = path.join(__dirname, "../../../uploads");
@@ -29,6 +30,17 @@ export function registerVoiceHandlers(bot: Telegraf) {
   // Review flow callbacks
   bot.action("voice_accept", handleVoiceAccept);
   bot.action("voice_edit", handleVoiceEdit);
+
+  // Enter contact recording mode explicitly
+  bot.action("voice_record_contact", (ctx) => {
+    setState(ctx.chat!.id, "voice_record", {});
+    ctx.answerCbQuery().catch(() => {});
+    ctx.reply(
+      "🎤 <b>Режим записи контакта</b>\n\nОтправь голосовое сообщение о человеке — " +
+        "я распознаю речь и создам контакт.",
+      { parse_mode: "HTML" },
+    );
+  });
 
   // Skip follow-up questions — create contact with what we have
   bot.action(/^skip_questions:(.+)$/, handleSkipQuestions);
@@ -233,6 +245,16 @@ async function handleAudio(
   // Voice correction mode — transcribe correction voice
   if (state?.action === "voice_editing") {
     return handleVoiceCorrectionVoice(ctx, fileInfo);
+  }
+
+  // No state at all — smart routing: transcribe and route through AI command router
+  if (!state) {
+    return handleSmartVoiceMessage(ctx, fileInfo);
+  }
+
+  // voice_record state — explicit contact recording mode, proceed with old pipeline
+  if (state?.action === "voice_record") {
+    clearState(chatId);
   }
 
   const statusMsg = await ctx.reply("⏳ Загружаю файл...");
@@ -907,6 +929,58 @@ function parseSocialLinks(text: string): Record<string, string> {
   }
 
   return links;
+}
+
+// ── Smart voice routing ─────────────────────────────────
+
+/**
+ * Handle voice when no state is active — transcribe and route through
+ * the AI command router for intelligent function dispatch.
+ */
+async function handleSmartVoiceMessage(
+  ctx: Context,
+  fileInfo: { file_id: string; file_size?: number; duration?: number },
+) {
+  const statusMsg = await ctx.reply("🎤 Распознаю речь...");
+  const chatId = ctx.chat!.id;
+  const fileName = `tg-smart-${Date.now()}.ogg`;
+  const filePath = path.join(UPLOADS_DIR, fileName);
+
+  try {
+    fs.mkdirSync(UPLOADS_DIR, { recursive: true });
+
+    const fileLink = await ctx.telegram.getFileLink(fileInfo.file_id);
+    const res = await fetch(fileLink.href);
+    if (!res.ok || !res.body) {
+      throw new Error(`Failed to download file: ${res.status}`);
+    }
+    const fileStream = fs.createWriteStream(filePath);
+    await pipeline(res.body as unknown as NodeJS.ReadableStream, fileStream);
+
+    const transcript = await transcribeAudio(filePath);
+
+    // Show what was recognized
+    await ctx.telegram.editMessageText(
+      chatId,
+      statusMsg.message_id,
+      undefined,
+      `🎤 <i>${esc(transcript)}</i>\n\n🤖 Обрабатываю...`,
+      { parse_mode: "HTML" },
+    );
+
+    // Route through smart command router
+    await handleSmartMessage(ctx, transcript);
+  } catch (err) {
+    logger.error("Smart voice routing failed", { error: String(err) });
+    await ctx.telegram.editMessageText(
+      chatId,
+      statusMsg.message_id,
+      undefined,
+      "❌ Не удалось распознать речь. Попробуй ещё раз.",
+    ).catch(() => {});
+  } finally {
+    try { fs.unlinkSync(filePath); } catch { /* ignore */ }
+  }
 }
 
 // ── Shared contact processing (used by voice & text flows) ──
