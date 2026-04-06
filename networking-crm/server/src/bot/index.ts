@@ -53,7 +53,12 @@ export function startBot(): void {
     }
   });
 
-  bot.launch();
+  bot.launch({
+    dropPendingUpdates: true,
+    allowedUpdates: [],
+  }).catch((err) => {
+    logger.error("Telegram bot launch failed (will not crash)", { error: String(err) });
+  });
   logger.info("Telegram bot started (long polling)");
 
   // Set Menu Button for Mini App
