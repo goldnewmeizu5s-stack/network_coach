@@ -5,6 +5,7 @@ import { logger } from "../../lib/logger";
 import {
   generateDailyChallenge,
   generateAlternativeChallenges,
+  generateBonusChallenge,
 } from "../../services/challenge-engine";
 import { setState, getState, clearState } from "../state";
 import {
@@ -19,6 +20,13 @@ import {
   safeAnswer,
   CATEGORY_EMOJI,
   CATEGORY_LABEL,
+  calculateXp,
+  getRankInfo,
+  rankBadge,
+  xpProgressBar,
+  difficultyLabel,
+  timeBadge,
+  categoryAccent,
 } from "../ui";
 
 export function registerChallengeHandlers(bot: Telegraf) {
@@ -32,6 +40,12 @@ export function registerChallengeHandlers(bot: Telegraf) {
   bot.action(/^challenge_skip_rate:(.+)$/, handleSkipRate);
   bot.action(/^challenge_skip:(.+)$/, handleSkip);
   bot.action("challenge_stats", handleStats);
+  // New feature handlers
+  bot.action("challenge_bonus", handleBonus);
+  bot.action("challenge_history", handleHistory);
+  bot.action(/^challenge_hist_day:(-?\d+)$/, handleHistoryDay);
+  bot.action(/^challenge_pref:(easier|harder)$/, handleDifficultyPref);
+  bot.action(/^challenge_share:(.+)$/, handleShare);
 }
 
 // ── Helpers ───────────────────────────────────────────────
@@ -93,6 +107,21 @@ async function updateStreak(): Promise<void> {
   });
 }
 
+async function getTotalXp(): Promise<number> {
+  const result = await prisma.challenge.aggregate({
+    _sum: { xp_earned: true },
+    where: { status: "completed" },
+  });
+  return result._sum.xp_earned || 0;
+}
+
+async function getDifficultyPref(): Promise<string | null> {
+  const user = await prisma.user.findFirst();
+  if (!user) return null;
+  const prefs = (user.preferences as Record<string, unknown>) || {};
+  return (prefs.difficulty_pref as string) || null;
+}
+
 // ── Card rendering ────────────────────────────────────────
 
 interface ChallengeWithMethod {
@@ -104,46 +133,69 @@ interface ChallengeWithMethod {
   status: string;
   rating: number | null;
   reflection: string | null;
+  estimated_time_minutes?: number | null;
+  xp_earned?: number;
+  is_bonus?: boolean;
   methodology?: { title: string; source: string } | null;
 }
 
-function renderChallengeCard(ch: ChallengeWithMethod, streak: number): string {
+function renderChallengeCard(ch: ChallengeWithMethod, streak: number, rankInfo: ReturnType<typeof getRankInfo>): string {
   const catEmoji = CATEGORY_EMOJI[ch.category] || "🎯";
+  const catLabel = CATEGORY_LABEL[ch.category] || ch.category;
+  const accent = categoryAccent(ch.category);
+  const bonusTag = ch.is_bonus ? " ⭐ БОНУС" : "";
 
-  // Completed state — different layout
+  // ─── Completed state ───
   if (ch.status === "completed" && ch.rating) {
+    const xp = ch.xp_earned || 0;
     const lines = [
-      "🎯 <b>Челлендж дня</b>  ✅",
+      `✅ <b>Челлендж выполнен!</b>${bonusTag}`,
       divider(),
       "",
       `${catEmoji} <b>${esc(ch.title)}</b>`,
-      starsStr(ch.rating),
+      `${starsStr(ch.rating)}  ·  +${xp} XP`,
     ];
     if (ch.reflection) {
-      lines.push("", `📝 <i>"${esc(ch.reflection)}"</i>`);
+      lines.push("", `💭 <i>"${esc(ch.reflection)}"</i>`);
     }
     lines.push("", thinDivider());
     if (streak > 0) {
-      lines.push(`🔥 Streak: ${streak} ${dayWord(streak)} подряд!`);
+      lines.push(`🔥 ${streak} ${dayWord(streak)} подряд  ·  ${rankBadge(rankInfo)}`);
     }
     return lines.join("\n");
   }
 
-  // Accepted state — add motivation header
+  // ─── Accepted state ───
   const lines: string[] = [];
   if (ch.status === "accepted") {
-    lines.push("✊ <b>Принято! Давай!</b>", "");
+    lines.push("🚀 <b>Челлендж принят! Вперёд!</b>", "");
   }
 
-  lines.push(
-    "🎯 <b>Челлендж дня</b>",
-    divider(),
-    "",
-    `${catEmoji} <b>${esc(ch.title)}</b>`,
-    `${difficultyBar(ch.difficulty)} сложность ${ch.difficulty}/10`,
-    "",
-    esc(ch.description),
-  );
+  // ─── Header ───
+  const headerEmoji = ch.is_bonus ? "⭐" : "🎯";
+  const headerTitle = ch.is_bonus ? "Бонус-челлендж" : "Челлендж дня";
+  lines.push(`${headerEmoji} <b>${headerTitle}</b>`);
+  lines.push(divider());
+  lines.push("");
+
+  // ─── Category + Difficulty row ───
+  const diffLabel = difficultyLabel(ch.difficulty);
+  lines.push(`${catEmoji} <b>${esc(ch.title)}</b>`);
+  lines.push("");
+
+  // ─── Info badges row ───
+  const badges: string[] = [];
+  badges.push(`📂 ${catLabel}`);
+  badges.push(`${difficultyBar(ch.difficulty)} ${ch.difficulty}/10 · ${diffLabel}`);
+  if (ch.estimated_time_minutes) {
+    badges.push(timeBadge(ch.estimated_time_minutes));
+  }
+  const potentialXp = calculateXp(ch.difficulty, false);
+  badges.push(`🏆 +${potentialXp}-${potentialXp + 15} XP`);
+  lines.push(badges.join("\n"));
+
+  lines.push("");
+  lines.push(esc(ch.description));
 
   if (ch.methodology) {
     lines.push(
@@ -153,9 +205,15 @@ function renderChallengeCard(ch: ChallengeWithMethod, streak: number): string {
   }
 
   lines.push("", thinDivider());
+
+  // ─── Footer: streak + rank ───
+  const footerParts: string[] = [];
   if (streak > 0) {
-    lines.push(`🔥 Streak: ${streak} ${dayWord(streak)}`);
+    footerParts.push(`🔥 ${streak} ${dayWord(streak)}`);
   }
+  footerParts.push(rankBadge(rankInfo));
+  lines.push(footerParts.join("  ·  "));
+  lines.push(xpProgressBar(rankInfo));
 
   return lines.join("\n");
 }
@@ -168,7 +226,15 @@ function challengeButtons(ch: ChallengeWithMethod): ReturnType<typeof Markup.but
           Markup.button.callback("💪 Принять", `challenge_accept:${ch.id}`),
           Markup.button.callback("🔄 Другой", "challenge_another"),
         ],
-        [Markup.button.callback("😰 Сложно", `challenge_too_hard:${ch.id}`)],
+        [
+          Markup.button.callback("📉 Полегче", "challenge_pref:easier"),
+          Markup.button.callback("📈 Потруднее", "challenge_pref:harder"),
+        ],
+        [Markup.button.callback("😰 Слишком сложно", `challenge_too_hard:${ch.id}`)],
+        [
+          Markup.button.callback("⭐ Бонус", "challenge_bonus"),
+          Markup.button.callback("📅 История", "challenge_history"),
+        ],
         [
           Markup.button.callback("📊 Статистика", "challenge_stats"),
           Markup.button.callback("🏠 Меню", "main_menu"),
@@ -185,6 +251,11 @@ function challengeButtons(ch: ChallengeWithMethod): ReturnType<typeof Markup.but
       ];
     case "completed":
       return [
+        [Markup.button.callback("📤 Поделиться", `challenge_share:${ch.id}`)],
+        [
+          Markup.button.callback("⭐ Бонус", "challenge_bonus"),
+          Markup.button.callback("📅 История", "challenge_history"),
+        ],
         [
           Markup.button.callback("📊 Статистика", "challenge_stats"),
           Markup.button.callback("🏠 Меню", "main_menu"),
@@ -193,6 +264,7 @@ function challengeButtons(ch: ChallengeWithMethod): ReturnType<typeof Markup.but
     default:
       // skipped / too_hard
       return [
+        [Markup.button.callback("🔄 Другой челлендж", "challenge_another")],
         [Markup.button.callback("🏠 Меню", "main_menu")],
       ];
   }
@@ -206,7 +278,7 @@ async function handleChallengeMenu(ctx: Context) {
 
     const { start, end } = todayRange();
     let challenges = await prisma.challenge.findMany({
-      where: { date: { gte: start, lt: end } },
+      where: { date: { gte: start, lt: end }, is_bonus: false },
       include: { methodology: { select: { title: true, source: true } } },
       orderBy: { created_at: "asc" },
     });
@@ -228,8 +300,9 @@ async function handleChallengeMenu(ctx: Context) {
       return;
     }
 
-    const streak = await getStreak();
-    const text = renderChallengeCard(main, streak);
+    const [streak, totalXp] = await Promise.all([getStreak(), getTotalXp()]);
+    const rankInfo = getRankInfo(totalXp);
+    const text = renderChallengeCard(main, streak, rankInfo);
 
     if (main.status === "skipped" || main.status === "too_hard") {
       const label = main.status === "skipped" ? "⏭ Пропущено" : "😰 Слишком сложно";
@@ -248,7 +321,7 @@ async function handleAccept(ctx: Context) {
   const id = match[1];
 
   try {
-    await ctx.answerCbQuery("💪 Принято!");
+    await ctx.answerCbQuery("🚀 Принято!");
 
     await prisma.challenge.update({
       where: { id },
@@ -261,8 +334,9 @@ async function handleAccept(ctx: Context) {
     });
     if (!ch) return;
 
-    const streak = await getStreak();
-    const text = renderChallengeCard(ch, streak);
+    const [streak, totalXp] = await Promise.all([getStreak(), getTotalXp()]);
+    const rankInfo = getRankInfo(totalXp);
+    const text = renderChallengeCard(ch, streak, rankInfo);
     await editOrReply(ctx, text, challengeButtons(ch));
   } catch (err) {
     logger.error("challenge accept error", { error: String(err) });
@@ -276,17 +350,16 @@ async function handleAnother(ctx: Context) {
 
     const { start, end } = todayRange();
     const challenges = await prisma.challenge.findMany({
-      where: { date: { gte: start, lt: end }, status: "pending" },
+      where: { date: { gte: start, lt: end }, status: "pending", is_bonus: false },
       include: { methodology: { select: { title: true, source: true } } },
       orderBy: { created_at: "asc" },
     });
 
-    // Find the next pending alternative (skip first which is main if pending)
     const pendingAlts = challenges.slice(1);
     const alt = pendingAlts[0];
 
     if (!alt) {
-      await ctx.reply("Это последний вариант на сегодня.", {
+      await ctx.reply("Это последний вариант на сегодня 🤷", {
         parse_mode: "HTML",
         ...Markup.inlineKeyboard([
           [Markup.button.callback("🏠 Меню", "main_menu")],
@@ -295,8 +368,9 @@ async function handleAnother(ctx: Context) {
       return;
     }
 
-    const streak = await getStreak();
-    const text = renderChallengeCard(alt, streak);
+    const [streak, totalXp] = await Promise.all([getStreak(), getTotalXp()]);
+    const rankInfo = getRankInfo(totalXp);
+    const text = renderChallengeCard(alt, streak, rankInfo);
     await editOrReply(ctx, text, challengeButtons(alt));
   } catch (err) {
     logger.error("challenge another error", { error: String(err) });
@@ -316,7 +390,8 @@ async function handleTooHard(ctx: Context) {
       data: { status: "too_hard" },
     });
 
-    await editOrReply(ctx, "Понял, завтра подберу полегче 💙", [
+    await editOrReply(ctx, "Понял, подберу полегче 💙\nСложность будет снижена завтра.", [
+      [Markup.button.callback("🔄 Попробовать другой", "challenge_another")],
       [Markup.button.callback("🏠 Меню", "main_menu")],
     ]);
   } catch (err) {
@@ -332,15 +407,15 @@ async function handleComplete(ctx: Context) {
   try {
     await ctx.answerCbQuery();
 
-    const text = "🎉 <b>Как прошло?</b>\n\nОцени:";
+    const text = "🎉 <b>Отлично! Как прошло?</b>\n\nОцени свой опыт:";
 
     const buttons = [
       [
-        Markup.button.callback("⭐1", `challenge_rate:${id}:1`),
-        Markup.button.callback("⭐2", `challenge_rate:${id}:2`),
-        Markup.button.callback("⭐3", `challenge_rate:${id}:3`),
-        Markup.button.callback("⭐4", `challenge_rate:${id}:4`),
-        Markup.button.callback("⭐5", `challenge_rate:${id}:5`),
+        Markup.button.callback("😕 1", `challenge_rate:${id}:1`),
+        Markup.button.callback("🙂 2", `challenge_rate:${id}:2`),
+        Markup.button.callback("👍 3", `challenge_rate:${id}:3`),
+        Markup.button.callback("🔥 4", `challenge_rate:${id}:4`),
+        Markup.button.callback("🤩 5", `challenge_rate:${id}:5`),
       ],
       [Markup.button.callback("Пропустить оценку →", `challenge_skip_rate:${id}`)],
     ];
@@ -369,7 +444,7 @@ async function handleRate(ctx: Context) {
 
     await editOrReply(
       ctx,
-      `${ratingText} Отлично!\n\n✍️ Напиши пару слов — что заметил, что узнал?\n<i>(или пропусти)</i>`,
+      `${ratingText}\n\n✍️ Напиши пару слов — что заметил, что узнал?\n<i>Рефлексия даёт +15 XP бонус!</i>`,
       [
         [Markup.button.callback("Пропустить →", `ch_fin:${id}:${rating}:nr`)],
       ],
@@ -428,14 +503,17 @@ async function completeChallenge(
   try {
     const ch = await prisma.challenge.findUnique({
       where: { id },
-      select: { category: true },
+      select: { category: true, difficulty: true },
     });
+
+    const xp = calculateXp(ch?.difficulty || 5, !!reflection);
 
     await prisma.challenge.update({
       where: { id },
       data: {
         status: "completed",
         completed_at: new Date(),
+        xp_earned: xp,
         ...(rating > 0 && { rating: Math.max(1, Math.min(5, rating)) }),
         ...(reflection && { reflection }),
       },
@@ -447,44 +525,80 @@ async function completeChallenge(
       logger.error("streak update failed", { error: String(err) });
     }
 
-    const streak = await getStreak();
+    const [streak, totalXp] = await Promise.all([getStreak(), getTotalXp()]);
+    const rankInfo = getRankInfo(totalXp);
+    const prevRankInfo = getRankInfo(totalXp - xp);
     const catEmoji = ch ? (CATEGORY_EMOJI[ch.category] || "🎯") : "🎯";
+    const leveledUp = rankInfo.level > prevRankInfo.level;
 
     // Milestone celebration (every 5 days)
     if (streak > 0 && streak % 5 === 0) {
-      const fires = "🔥".repeat(Math.min(streak, 10));
+      const fires = "🔥".repeat(Math.min(streak / 5, 6));
       const lines = [
         "🎉🎉🎉",
         "",
         `<b>${streak} ${dayWord(streak)} подряд!</b>`,
+        fires,
+        "",
         "Ты в ударе! Нетворкинг — это мышца,",
         "и ты её качаешь каждый день.",
         "",
-        fires,
+        `+${xp} XP  ·  ${rankBadge(rankInfo)}`,
+        xpProgressBar(rankInfo),
       ];
       await editOrReply(ctx, lines.join("\n"), [
+        [Markup.button.callback("📤 Поделиться", `challenge_share:${id}`)],
+        [Markup.button.callback("🏠 Меню", "main_menu")],
+      ]);
+      return;
+    }
+
+    // Level up celebration
+    if (leveledUp) {
+      const lines = [
+        "🏆🏆🏆",
+        "",
+        `<b>Новый уровень!</b>`,
+        "",
+        `${prevRankInfo.emoji} ${prevRankInfo.rank}  →  ${rankInfo.emoji} <b>${rankInfo.rank}</b>`,
+        "",
+        `+${xp} XP  ·  Всего: ${totalXp} XP`,
+        xpProgressBar(rankInfo),
+        "",
+        "Продолжай в том же духе! 🚀",
+      ];
+      await editOrReply(ctx, lines.join("\n"), [
+        [Markup.button.callback("📤 Поделиться", `challenge_share:${id}`)],
         [Markup.button.callback("🏠 Меню", "main_menu")],
       ]);
       return;
     }
 
     // Normal celebration
-    const lines: string[] = ["🎉 <b>Готово!</b>", ""];
+    const lines: string[] = [
+      "🎉 <b>Готово!</b>",
+      "",
+      `${catEmoji} +${xp} XP`,
+    ];
 
     if (rating > 0) {
-      lines.push(`${starsStr(rating)} · ${catEmoji} ${CATEGORY_LABEL[ch?.category || ""] || ""}`);
+      lines.push(starsStr(rating));
     }
     if (reflection) {
-      lines.push(`📝 <i>"${esc(reflection)}"</i>`);
+      lines.push(`💭 <i>"${esc(reflection)}"</i>`);
     }
+
+    lines.push("");
+    lines.push(`${rankBadge(rankInfo)}`);
+    lines.push(xpProgressBar(rankInfo));
 
     if (streak > 0) {
       lines.push("");
-      lines.push(`🔥 Streak: ${streak} ${dayWord(streak)} подряд!`);
-      lines.push("Так держать! 💪");
+      lines.push(`🔥 ${streak} ${dayWord(streak)} подряд — так держать! 💪`);
     }
 
     await editOrReply(ctx, lines.join("\n"), [
+      [Markup.button.callback("📤 Поделиться", `challenge_share:${id}`)],
       [Markup.button.callback("🏠 Меню", "main_menu")],
     ]);
   } catch (err) {
@@ -505,7 +619,8 @@ async function handleSkip(ctx: Context) {
       data: { status: "skipped" },
     });
 
-    await editOrReply(ctx, "Не беда. Завтра новый день! 💙", [
+    await editOrReply(ctx, "Не беда — завтра новый шанс! 💙", [
+      [Markup.button.callback("🔄 Другой челлендж", "challenge_another")],
       [Markup.button.callback("🏠 Меню", "main_menu")],
     ]);
   } catch (err) {
@@ -514,22 +629,24 @@ async function handleSkip(ctx: Context) {
   }
 }
 
+// ── Stats ─────────────────────────────────────────────────
+
 async function handleStats(ctx: Context) {
   try {
     await ctx.answerCbQuery();
 
-    const streak = await getStreak();
+    const [streak, totalXp] = await Promise.all([getStreak(), getTotalXp()]);
+    const rankInfo = getRankInfo(totalXp);
 
     // Weekly data
     const weekStart = new Date();
     weekStart.setHours(0, 0, 0, 0);
-    weekStart.setDate(weekStart.getDate() - weekStart.getDay() + 1); // Monday
+    weekStart.setDate(weekStart.getDate() - weekStart.getDay() + 1);
     const weekChallenges = await prisma.challenge.findMany({
       where: { date: { gte: weekStart } },
       select: { date: true, status: true },
     });
 
-    // Build weekly visual with day labels
     const dayLabels = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"];
     const weekDays: string[] = [];
     for (let i = 0; i < 7; i++) {
@@ -541,7 +658,6 @@ async function handleStats(ctx: Context) {
       weekDays.push(ch && ch.status === "completed" ? "✅" : "⬜");
     }
 
-    // 7-day and 30-day stats
     const [stats7, stats30] = await Promise.all([
       getChallengeStats(7),
       getChallengeStats(30),
@@ -551,7 +667,12 @@ async function handleStats(ctx: Context) {
       "📊 <b>Статистика челленджей</b>",
       divider(),
       "",
-      "📅 Эта неделя:",
+      `${rankBadge(rankInfo)}`,
+      xpProgressBar(rankInfo),
+      "",
+      thinDivider(),
+      "",
+      "📅 <b>Эта неделя:</b>",
       weekDays.join(" "),
       dayLabels.join("  "),
       "",
@@ -564,16 +685,18 @@ async function handleStats(ctx: Context) {
 
     if (streak > 0) {
       lines.push("");
-      lines.push(`🔥 Streak: ${streak} ${dayWord(streak)} подряд`);
+      lines.push(`🔥 Streak: <b>${streak}</b> ${dayWord(streak)} подряд`);
     }
+
+    lines.push("");
+    lines.push(`🏆 Всего XP: <b>${totalXp}</b>`);
+    lines.push(`✅ Выполнено: <b>${stats30.completed}</b> за 30 дней`);
 
     if (Object.keys(stats30.byCategory).length > 0) {
       lines.push("", thinDivider(), "", "<b>По категориям (30д):</b>");
       for (const [cat, data] of Object.entries(stats30.byCategory)) {
         const emoji = CATEGORY_EMOJI[cat] || "🎯";
         const label = (CATEGORY_LABEL[cat] || cat).padEnd(12, " ");
-        const pct =
-          data.total > 0 ? Math.round((data.completed / data.total) * 100) : 0;
         lines.push(
           `${emoji} ${label} ${progressBar(data.completed, data.total)} (${data.completed}/${data.total})`,
         );
@@ -583,14 +706,200 @@ async function handleStats(ctx: Context) {
     await editOrReply(ctx, lines.join("\n"), [
       [
         Markup.button.callback("← Челлендж", "challenge"),
-        Markup.button.callback("🏠 Меню", "main_menu"),
+        Markup.button.callback("📅 История", "challenge_history"),
       ],
+      [Markup.button.callback("🏠 Меню", "main_menu")],
     ]);
   } catch (err) {
     logger.error("challenge stats error", { error: String(err) });
     await safeAnswer(ctx, "Ошибка загрузки");
   }
 }
+
+// ── New Features ──────────────────────────────────────────
+
+async function handleBonus(ctx: Context) {
+  try {
+    await ctx.answerCbQuery();
+
+    const { start, end } = todayRange();
+    // Check if bonus already exists today
+    let bonus = await prisma.challenge.findFirst({
+      where: { date: { gte: start, lt: end }, is_bonus: true },
+      include: { methodology: { select: { title: true, source: true } } },
+    });
+
+    if (!bonus) {
+      const created = await generateBonusChallenge();
+      bonus = await prisma.challenge.findFirst({
+        where: { id: created.id },
+        include: { methodology: { select: { title: true, source: true } } },
+      });
+    }
+
+    if (!bonus) {
+      await ctx.reply("❌ Не удалось создать бонус-челлендж.");
+      return;
+    }
+
+    const [streak, totalXp] = await Promise.all([getStreak(), getTotalXp()]);
+    const rankInfo = getRankInfo(totalXp);
+    const text = renderChallengeCard(bonus, streak, rankInfo);
+    await editOrReply(ctx, text, challengeButtons(bonus));
+  } catch (err) {
+    logger.error("bonus challenge error", { error: String(err) });
+    await safeAnswer(ctx, "Ошибка");
+  }
+}
+
+async function handleHistory(ctx: Context) {
+  try {
+    await ctx.answerCbQuery();
+
+    const days = 7;
+    const since = new Date(Date.now() - days * 86400000);
+    since.setHours(0, 0, 0, 0);
+
+    const challenges = await prisma.challenge.findMany({
+      where: { date: { gte: since }, is_bonus: false },
+      orderBy: { date: "desc" },
+      select: { date: true, title: true, category: true, status: true, difficulty: true, xp_earned: true },
+    });
+
+    const lines = [
+      "📅 <b>История челленджей</b>",
+      divider(),
+      "",
+    ];
+
+    // Group by day
+    const byDay = new Map<string, typeof challenges>();
+    for (const ch of challenges) {
+      const key = ch.date.toISOString().slice(0, 10);
+      if (!byDay.has(key)) byDay.set(key, []);
+      byDay.get(key)!.push(ch);
+    }
+
+    const dayNames = ["Вс", "Пн", "Вт", "Ср", "Чт", "Пт", "Сб"];
+    let dayIndex = 0;
+    for (const [dateStr, dayChallenges] of byDay) {
+      const d = new Date(dateStr);
+      const dayName = dayNames[d.getDay()];
+      const dateFormatted = `${d.getDate().toString().padStart(2, "0")}.${(d.getMonth() + 1).toString().padStart(2, "0")}`;
+      const main = dayChallenges[0];
+      const statusIcon = main.status === "completed" ? "✅"
+        : main.status === "accepted" ? "💪"
+        : main.status === "skipped" ? "⏭"
+        : main.status === "too_hard" ? "😰"
+        : "⬜";
+      const catEmoji = CATEGORY_EMOJI[main.category] || "🎯";
+      const xp = main.xp_earned ? `+${main.xp_earned}XP` : "";
+
+      lines.push(`${statusIcon} <b>${dayName} ${dateFormatted}</b> ${catEmoji} ${esc(main.title)} ${xp}`);
+      dayIndex++;
+    }
+
+    if (challenges.length === 0) {
+      lines.push("<i>Пока нет истории</i>");
+    }
+
+    await editOrReply(ctx, lines.join("\n"), [
+      [
+        Markup.button.callback("← Челлендж", "challenge"),
+        Markup.button.callback("📊 Статистика", "challenge_stats"),
+      ],
+      [Markup.button.callback("🏠 Меню", "main_menu")],
+    ]);
+  } catch (err) {
+    logger.error("challenge history error", { error: String(err) });
+    await safeAnswer(ctx, "Ошибка загрузки");
+  }
+}
+
+async function handleHistoryDay(ctx: Context) {
+  // Reserved for future day-detail navigation
+  await safeAnswer(ctx, "Скоро будет доступно");
+}
+
+async function handleDifficultyPref(ctx: Context) {
+  const match = (ctx as any).match as RegExpMatchArray;
+  const direction = match[1]; // "easier" or "harder"
+
+  try {
+    await ctx.answerCbQuery();
+
+    const user = await prisma.user.findFirst();
+    if (!user) return;
+
+    const prefs = (user.preferences as Record<string, unknown>) || {};
+    const currentAdj = (prefs.difficulty_adjustment as number) || 0;
+    const newAdj = direction === "easier"
+      ? Math.max(-3, currentAdj - 1)
+      : Math.min(3, currentAdj + 1);
+
+    await prisma.user.update({
+      where: { id: user.id },
+      data: {
+        preferences: {
+          ...prefs,
+          difficulty_adjustment: newAdj,
+          difficulty_pref: direction,
+        },
+      },
+    });
+
+    const emoji = direction === "easier" ? "📉" : "📈";
+    const label = direction === "easier" ? "Снижаю сложность" : "Повышаю сложность";
+    await editOrReply(ctx, `${emoji} <b>${label}!</b>\n\nНовые челленджи будут адаптированы.`, [
+      [Markup.button.callback("← К челленджу", "challenge")],
+      [Markup.button.callback("🏠 Меню", "main_menu")],
+    ]);
+  } catch (err) {
+    logger.error("difficulty pref error", { error: String(err) });
+    await safeAnswer(ctx, "Ошибка");
+  }
+}
+
+async function handleShare(ctx: Context) {
+  const match = (ctx as any).match as RegExpMatchArray;
+  const id = match[1];
+
+  try {
+    await ctx.answerCbQuery();
+
+    const ch = await prisma.challenge.findUnique({
+      where: { id },
+      select: { title: true, category: true, difficulty: true, xp_earned: true, rating: true },
+    });
+    if (!ch) return;
+
+    const [streak, totalXp] = await Promise.all([getStreak(), getTotalXp()]);
+    const rankInfo = getRankInfo(totalXp);
+    const catEmoji = CATEGORY_EMOJI[ch.category] || "🎯";
+
+    const shareText = [
+      "━━━━━━━━━━━━━━━",
+      `${catEmoji} <b>Челлендж выполнен!</b>`,
+      "",
+      `📌 ${esc(ch.title)}`,
+      `${ch.rating ? starsStr(ch.rating) : ""}  ·  +${ch.xp_earned || 0} XP`,
+      "",
+      `🔥 Streak: ${streak} ${dayWord(streak)}`,
+      `${rankBadge(rankInfo)}`,
+      "",
+      "🤖 Network Coach Bot",
+      "━━━━━━━━━━━━━━━",
+    ].filter(Boolean).join("\n");
+
+    // Send as a new message (not edit) so user can forward it
+    await ctx.reply(shareText, { parse_mode: "HTML" });
+  } catch (err) {
+    logger.error("challenge share error", { error: String(err) });
+    await safeAnswer(ctx, "Ошибка");
+  }
+}
+
+// ── Helpers ───────────────────────────────────────────────
 
 async function getChallengeStats(days: number) {
   const since = new Date(Date.now() - days * 86400000);

@@ -66,7 +66,6 @@ async function getChallengeStats() {
       }),
     ]);
 
-  // Category breakdown
   const skippedCategories = await prisma.challenge.groupBy({
     by: ["category"],
     where: { date: { gte: d30 }, status: { in: ["skipped", "too_hard"] } },
@@ -91,7 +90,14 @@ async function getChallengeStats() {
   };
 }
 
-function calculateDifficulty(stats: Awaited<ReturnType<typeof getChallengeStats>>): number {
+async function getDifficultyAdjustment(): Promise<number> {
+  const user = await prisma.user.findFirst();
+  if (!user) return 0;
+  const prefs = (user.preferences as Record<string, unknown>) || {};
+  return (prefs.difficulty_adjustment as number) || 0;
+}
+
+function calculateDifficulty(stats: Awaited<ReturnType<typeof getChallengeStats>>, adjustment: number = 0): number {
   let diff = 5;
   const rate = stats.completion_rate_7d;
 
@@ -102,6 +108,9 @@ function calculateDifficulty(stats: Awaited<ReturnType<typeof getChallengeStats>
 
   if (stats.lastTooHard) diff -= 2;
 
+  // Apply user preference adjustment
+  diff += adjustment;
+
   return Math.max(1, Math.min(10, diff));
 }
 
@@ -111,7 +120,8 @@ export async function generateDailyChallenge(): Promise<ReturnType<typeof prisma
   });
 
   const stats = await getChallengeStats();
-  const difficulty = calculateDifficulty(stats);
+  const adjustment = await getDifficultyAdjustment();
+  const difficulty = calculateDifficulty(stats, adjustment);
 
   // CRM state
   const [newCount, coolingContacts, pendingFu, neglected] = await Promise.all([
@@ -134,7 +144,6 @@ export async function generateDailyChallenge(): Promise<ReturnType<typeof prisma
     }),
   ]);
 
-  // Get relevant methodologies
   const query = [
     user?.goals,
     user?.fears,
@@ -197,6 +206,7 @@ RULES:
 - Tone: encouraging coach, NEVER guilt-tripping
 - If difficulty < 4: make it easy and fun
 - If difficulty > 7: make it ambitious but achievable
+- estimated_time_minutes should be realistic for the challenge
 
 Return JSON:
 {
@@ -229,12 +239,10 @@ Write in the same language as the user's profile (default: Russian).`;
     challengeData = getFallbackChallenge(difficulty);
   }
 
-  // Validate category
   if (!CATEGORIES.includes(challengeData.category)) {
     challengeData.category = "mindset";
   }
 
-  // Find methodology
   let methodologyId: string | null = null;
   if (challengeData.methodology_reference && methodologies.length > 0) {
     const match = methodologies.find(
@@ -258,6 +266,7 @@ Write in the same language as the user's profile (default: Russian).`;
       description: challengeData.description,
       category: challengeData.category,
       difficulty: Math.max(1, Math.min(10, challengeData.difficulty)),
+      estimated_time_minutes: challengeData.estimated_time_minutes || null,
       methodology_id: methodologyId,
       status: "pending",
     },
@@ -268,7 +277,8 @@ export async function generateAlternativeChallenges(): Promise<
   Awaited<ReturnType<typeof prisma.challenge.create>>[]
 > {
   const stats = await getChallengeStats();
-  const mainDiff = calculateDifficulty(stats);
+  const adjustment = await getDifficultyAdjustment();
+  const mainDiff = calculateDifficulty(stats, adjustment);
   const recentCategories = stats.last5.slice(0, 3).map((c) => c.category);
 
   const availableCategories = CATEGORIES.filter(
@@ -313,7 +323,6 @@ Each challenge must have a DIFFERENT category. Write in Russian.`;
     logger.error("Alternative challenges Claude error, using fallbacks", {
       error: String(err),
     });
-    // Fallback to templates
     challengeDataList = [];
     for (let i = 0; i < 2; i++) {
       const cat =
@@ -336,6 +345,7 @@ Each challenge must have a DIFFERENT category. Write in Russian.`;
         description: data.description,
         category: cat,
         difficulty: diff,
+        estimated_time_minutes: data.estimated_time_minutes || null,
         status: "pending",
       },
     });
@@ -343,6 +353,72 @@ Each challenge must have a DIFFERENT category. Write in Russian.`;
   }
 
   return alternatives;
+}
+
+export async function generateBonusChallenge(): Promise<ReturnType<typeof prisma.challenge.create>> {
+  const stats = await getChallengeStats();
+  const adjustment = await getDifficultyAdjustment();
+  const baseDiff = calculateDifficulty(stats, adjustment);
+  // Bonus challenges are slightly harder and more creative
+  const bonusDiff = Math.min(10, baseDiff + 2);
+
+  let challengeData: ChallengeData;
+
+  try {
+    const prompt = `Generate a FUN BONUS networking challenge. This is an optional extra challenge, so make it creative and exciting!
+
+Target difficulty: ${bonusDiff}/10
+
+This should be something unusual, creative, or particularly rewarding. Examples:
+- "Start a conversation with a stranger at a coffee shop"
+- "Record a 1-min voice message thanking someone who helped you"
+- "Find and connect with someone from a completely different field"
+
+Return JSON:
+{
+  "title": "short catchy title (5-8 words)",
+  "description": "detailed fun description (2-4 sentences)",
+  "category": "one of: conversation, follow_up, digital, skill, mindset, stretch",
+  "difficulty": <number 1-10>,
+  "methodology_reference": null,
+  "estimated_time_minutes": <number>
+}
+
+Write in Russian. Make it FUN and unusual!`;
+
+    const response = await anthropic.messages.create({
+      model: config.claudeModel,
+      max_tokens: 400,
+      messages: [{ role: "user", content: prompt }],
+    });
+
+    const text =
+      response.content[0].type === "text" ? response.content[0].text : "";
+    const match = text.match(/\{[\s\S]*\}/);
+    challengeData = match
+      ? JSON.parse(match[0])
+      : getFallbackChallenge(bonusDiff, "stretch");
+  } catch (err) {
+    logger.error("Bonus challenge Claude error", { error: String(err) });
+    challengeData = getFallbackChallenge(bonusDiff, "stretch");
+  }
+
+  if (!CATEGORIES.includes(challengeData.category)) {
+    challengeData.category = "stretch";
+  }
+
+  return prisma.challenge.create({
+    data: {
+      date: new Date(),
+      title: challengeData.title,
+      description: challengeData.description,
+      category: challengeData.category,
+      difficulty: Math.max(1, Math.min(10, challengeData.difficulty)),
+      estimated_time_minutes: challengeData.estimated_time_minutes || null,
+      is_bonus: true,
+      status: "pending",
+    },
+  });
 }
 
 function getFallbackChallenge(
@@ -406,14 +482,12 @@ function getFallbackChallenge(
     },
   ];
 
-  // Pick one matching category if specified, otherwise closest difficulty
   let selected: ChallengeData;
   if (category) {
     selected =
       templates.find((t) => t.category === category) ||
       templates[Math.floor(Math.random() * templates.length)];
   } else {
-    // Sort by distance to target difficulty
     templates.sort(
       (a, b) =>
         Math.abs(a.difficulty - difficulty) -
