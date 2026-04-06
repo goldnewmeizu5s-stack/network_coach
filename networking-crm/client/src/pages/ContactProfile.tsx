@@ -383,6 +383,15 @@ export default function ContactProfile() {
                 src={contact.photo_url}
                 alt={contact.full_name}
                 className="h-full w-full object-cover"
+                onError={(e) => {
+                  const el = e.currentTarget;
+                  el.style.display = "none";
+                  if (el.parentElement) {
+                    const span = document.createElement("span");
+                    span.textContent = getInitials(contact.full_name);
+                    el.parentElement.insertBefore(span, el);
+                  }
+                }}
               />
             ) : (
               getInitials(contact.full_name)
