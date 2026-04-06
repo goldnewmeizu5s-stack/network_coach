@@ -13,6 +13,7 @@ import { handleReflectionText } from "./challenges";
 import { handleChatMessage } from "./chat";
 import { handleVoiceCorrectionText, handleSocialsText } from "./voice";
 import { handleProfileFieldInput } from "./settings";
+import { routeCommand } from "../../services/command-router";
 import { setState, getState, clearState } from "../state";
 import {
   esc,
@@ -156,46 +157,53 @@ export function registerTextHandler(bot: Telegraf) {
       return;
     }
 
-    // Contact search: 1-3 words, no special chars
-    if (/^[\p{L}\s]{1,60}$/u.test(text) && text.trim().split(/\s+/).length <= 3) {
-      const query = text.trim();
-      const contacts = await prisma.contact.findMany({
-        where: {
-          full_name: { contains: query, mode: "insensitive" },
-          warmth_status: { not: "archived" },
-        },
-        take: 5,
-        orderBy: { last_interaction_at: "desc" },
-      });
-
-      if (contacts.length === 1) {
-        return showContactCard(ctx, contacts[0].id);
-      }
-      if (contacts.length > 1) {
-        const buttons = contacts.map((c) => [
-          Markup.button.callback(
-            `${STATUS_EMOJI[c.warmth_status] || "⚪"} ${c.full_name}`,
-            `contact_view:${c.id}`,
-          ),
-        ]);
-        await ctx.reply("<b>Найдено несколько контактов:</b>", {
-          parse_mode: "HTML",
-          ...Markup.inlineKeyboard(buttons),
-        });
-        return;
-      }
-    }
-
-    // No match — show hint
-    await ctx.reply(
-      "Отправь голосовое 🎤 чтобы добавить контакт,\nили напиши /menu для главного меню.\n\nИли просто напиши имя контакта для быстрого поиска.",
-      { parse_mode: "HTML" },
-    );
+    // Smart routing: send any free-form message through AI command router
+    await handleSmartMessage(ctx, text);
     } catch (err) {
       logger.error("Text handler error", { error: String(err) });
       await ctx.reply("⚠️ Произошла ошибка, попробуйте ещё раз или /menu").catch(() => {});
     }
   });
+}
+
+// ── Smart message routing via AI ─────────────────────────
+
+export async function handleSmartMessage(ctx: Context, text: string) {
+  try {
+    await ctx.sendChatAction("typing");
+
+    const response = await routeCommand(text);
+    const { markdownToTelegramHtml } = await import("../ui");
+    const sanitized = markdownToTelegramHtml(response);
+
+    // Split long messages
+    const TG_LIMIT = 4096;
+    const framed = `🤖 ${sanitized}`;
+
+    if (framed.length <= TG_LIMIT) {
+      await ctx.reply(framed, { parse_mode: "HTML" });
+    } else {
+      // Simple split on paragraph boundaries
+      let remaining = framed;
+      while (remaining.length > 0) {
+        if (remaining.length <= TG_LIMIT) {
+          await ctx.reply(remaining, { parse_mode: "HTML" });
+          break;
+        }
+        let splitAt = remaining.lastIndexOf("\n\n", TG_LIMIT);
+        if (splitAt < TG_LIMIT / 2) splitAt = remaining.lastIndexOf("\n", TG_LIMIT);
+        if (splitAt < TG_LIMIT / 4) splitAt = TG_LIMIT;
+        await ctx.reply(remaining.slice(0, splitAt).trimEnd(), { parse_mode: "HTML" });
+        remaining = remaining.slice(splitAt).trimStart();
+      }
+    }
+  } catch (err) {
+    logger.error("Smart message routing error", { error: String(err) });
+    await ctx.reply(
+      "❌ Не удалось обработать запрос. Попробуй ещё раз или /menu.",
+      { parse_mode: "HTML" },
+    );
+  }
 }
 
 // ── Handlers ──────────────────────────────────────────────
