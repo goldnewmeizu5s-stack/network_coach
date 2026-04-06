@@ -24,6 +24,11 @@ export interface ExtractedContact {
   follow_up_questions: string[];
 }
 
+export interface MultiExtractionResult {
+  contacts: ExtractedContact[];
+  is_voice_note: boolean;
+}
+
 export interface VoiceUploadResult {
   id: string;
   status: string;
@@ -32,6 +37,7 @@ export interface VoiceUploadResult {
 export interface VoiceStatusResult {
   status: string;
   contact_id?: string | null;
+  contact_ids?: string[];
   transcript?: string | null;
   error?: string;
 }
