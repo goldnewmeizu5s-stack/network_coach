@@ -1,6 +1,7 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { api } from "../lib/api";
 import { useToast } from "../components/Toast";
+import { COUNTRY_NAMES, countryCodeToFlag, getCountryName } from "../lib/countries";
 
 interface UserProfile {
   id: string;
@@ -9,6 +10,7 @@ interface UserProfile {
   fears: string | null;
   strengths: string | null;
   weaknesses: string | null;
+  current_country: string | null;
   preferences: Record<string, unknown> | null;
 }
 
@@ -35,6 +37,8 @@ export default function Settings() {
   const [fears, setFears] = useState("");
   const [strengths, setStrengths] = useState("");
   const [weaknesses, setWeaknesses] = useState("");
+  const [currentCountry, setCurrentCountry] = useState("");
+  const [showCountryPicker, setShowCountryPicker] = useState(false);
   const [profileSaving, setProfileSaving] = useState(false);
 
   // Methodologies
@@ -58,6 +62,7 @@ export default function Settings() {
       setFears(data.fears || "");
       setStrengths(data.strengths || "");
       setWeaknesses(data.weaknesses || "");
+      setCurrentCountry(data.current_country || "");
     } catch {
       /* ignore */
     }
@@ -105,6 +110,7 @@ export default function Settings() {
         fears: fears.trim() || null,
         strengths: strengths.trim() || null,
         weaknesses: weaknesses.trim() || null,
+        current_country: currentCountry || null,
       });
       show("Профиль сохранён");
     } catch {
@@ -203,6 +209,66 @@ export default function Settings() {
   return (
     <div className="flex flex-1 flex-col gap-5 px-4 pt-6 pb-4">
       <h1 className="text-xl font-bold text-white">Настройки</h1>
+
+      {/* Current Location */}
+      <Section title="Моя локация">
+        <div className="flex flex-col gap-3">
+          <p className="text-xs text-neutral-400">
+            Укажите страну, в которой вы сейчас находитесь. Контакты из этой страны будут подсвечены золотым — вы можете встретиться с ними лично!
+          </p>
+          <button
+            onClick={() => setShowCountryPicker(true)}
+            className="relative w-full overflow-hidden rounded-xl py-3 px-4 text-left transition-all"
+            style={currentCountry ? {
+              background: "linear-gradient(135deg, rgba(251, 191, 36, 0.12) 0%, rgba(245, 158, 11, 0.08) 100%)",
+              boxShadow: "0 0 20px rgba(251, 191, 36, 0.15), inset 0 1px 0 rgba(255, 255, 255, 0.05)",
+              border: "1px solid rgba(251, 191, 36, 0.25)",
+            } : {
+              background: "rgb(38, 38, 38)",
+              border: "1px solid rgb(64, 64, 64)",
+            }}
+          >
+            {currentCountry ? (
+              <div className="flex items-center gap-3">
+                <span className="text-2xl">{countryCodeToFlag(currentCountry)}</span>
+                <div className="flex-1">
+                  <p className="text-sm font-semibold text-amber-200">
+                    {getCountryName(currentCountry)}
+                  </p>
+                  <p className="text-[10px] text-amber-400/60">Текущее местоположение</p>
+                </div>
+                <div className="flex h-8 w-8 items-center justify-center rounded-full bg-amber-500/20">
+                  <svg className="h-4 w-4 text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
+                  </svg>
+                </div>
+              </div>
+            ) : (
+              <div className="flex items-center gap-3">
+                <div className="flex h-10 w-10 items-center justify-center rounded-full bg-neutral-700">
+                  <svg className="h-5 w-5 text-neutral-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
+                  </svg>
+                </div>
+                <p className="text-sm text-neutral-500">Выберите страну...</p>
+              </div>
+            )}
+          </button>
+          {currentCountry && (
+            <button
+              onClick={() => {
+                setCurrentCountry("");
+                show("Локация сброшена");
+              }}
+              className="self-start text-xs text-neutral-500 active:text-red-400"
+            >
+              Сбросить локацию
+            </button>
+          )}
+        </div>
+      </Section>
 
       {/* Profile */}
       <Section title="Мой профиль">
@@ -326,6 +392,19 @@ export default function Settings() {
           </button>
         </div>
       </Section>
+
+      {/* Country picker modal */}
+      {showCountryPicker && (
+        <CountryPickerModal
+          selected={currentCountry}
+          onSelect={(code) => {
+            setCurrentCountry(code);
+            setShowCountryPicker(false);
+            show(`Локация: ${countryCodeToFlag(code)} ${getCountryName(code)}`);
+          }}
+          onClose={() => setShowCountryPicker(false)}
+        />
+      )}
 
       {/* Add methodology modal */}
       {showAddMethod && (
@@ -585,6 +664,106 @@ function AddMethodologyModal({
             {saving ? "Сохранение..." : "Создать"}
           </button>
         </form>
+      </div>
+    </div>
+  );
+}
+
+function CountryPickerModal({
+  selected,
+  onSelect,
+  onClose,
+}: {
+  selected: string;
+  onSelect: (code: string) => void;
+  onClose: () => void;
+}) {
+  const [search, setSearch] = useState("");
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    setTimeout(() => inputRef.current?.focus(), 100);
+  }, []);
+
+  const countries = useMemo(() => {
+    const entries = Object.entries(COUNTRY_NAMES);
+    if (!search.trim()) return entries;
+    const q = search.trim().toLowerCase();
+    return entries.filter(
+      ([code, name]) =>
+        name.toLowerCase().includes(q) || code.toLowerCase().includes(q)
+    );
+  }, [search]);
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-end justify-center bg-black/60"
+      onClick={onClose}
+    >
+      <div
+        className="animate-slide-up flex w-full max-w-[430px] max-h-[80vh] flex-col rounded-t-3xl bg-card"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="px-6 pt-6 pb-3">
+          <div className="mx-auto mb-4 h-1 w-10 rounded-full bg-neutral-600" />
+          <h3 className="mb-3 text-lg font-semibold text-white">
+            Где вы сейчас?
+          </h3>
+          <div className="relative">
+            <svg
+              className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-neutral-500"
+              fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}
+            >
+              <circle cx="11" cy="11" r="8" />
+              <path strokeLinecap="round" d="m21 21-4.35-4.35" />
+            </svg>
+            <input
+              ref={inputRef}
+              type="text"
+              placeholder="Поиск страны..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="w-full rounded-xl bg-neutral-800 py-2.5 pl-9 pr-4 text-sm text-white placeholder-neutral-500 outline-none ring-1 ring-neutral-700 focus:ring-amber-500"
+            />
+          </div>
+        </div>
+        <div className="flex-1 overflow-y-auto px-2 pb-8">
+          {countries.length === 0 ? (
+            <p className="px-4 py-6 text-center text-sm text-neutral-500">
+              Ничего не найдено
+            </p>
+          ) : (
+            countries.map(([code, name]) => (
+              <button
+                key={code}
+                onClick={() => onSelect(code)}
+                className={`flex w-full items-center gap-3 rounded-xl px-4 py-3 text-left transition-all active:bg-neutral-700 ${
+                  selected === code
+                    ? "bg-amber-500/10"
+                    : "hover:bg-neutral-800/50"
+                }`}
+              >
+                <span className="text-xl">{countryCodeToFlag(code)}</span>
+                <span
+                  className={`flex-1 text-sm ${
+                    selected === code
+                      ? "font-semibold text-amber-200"
+                      : "text-neutral-300"
+                  }`}
+                >
+                  {name}
+                </span>
+                {selected === code && (
+                  <div className="flex h-6 w-6 items-center justify-center rounded-full bg-amber-500">
+                    <svg className="h-3.5 w-3.5 text-black" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={3}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                    </svg>
+                  </div>
+                )}
+              </button>
+            ))
+          )}
+        </div>
       </div>
     </div>
   );

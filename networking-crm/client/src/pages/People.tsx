@@ -22,6 +22,7 @@ interface ContactListItem {
   warmth_score: number;
   relationship_category: string | null;
   memory_summary: string | null;
+  location_status: string | null;
   last_interaction_at: string | null;
   created_at: string;
 }
@@ -91,6 +92,9 @@ export default function People() {
   const [loadError, setLoadError] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
   const [showAddForm, setShowAddForm] = useState(false);
+
+  // User location for matching
+  const [userCountry, setUserCountry] = useState("");
 
   // Batch selection
   const [selectMode, setSelectMode] = useState(false);
@@ -167,12 +171,22 @@ export default function People() {
     }
   }, [loadingMore, hasMore, buildParams, contacts.length]);
 
+  const fetchUserCountry = useCallback(async () => {
+    try {
+      const data = await api.get<{ current_country: string | null }>("/user/profile");
+      setUserCountry(data.current_country || "");
+    } catch {
+      /* ignore */
+    }
+  }, []);
+
   useEffect(() => {
     const ac = new AbortController();
     fetchContacts(ac.signal);
     fetchCounts();
+    fetchUserCountry();
     return () => ac.abort();
-  }, [fetchContacts, fetchCounts]);
+  }, [fetchContacts, fetchCounts, fetchUserCountry]);
 
   // Infinite scroll
   const sentinelRef = useRef<HTMLDivElement | null>(null);
@@ -200,6 +214,17 @@ export default function People() {
       await api.put(`/contacts/${id}/status`, { status: "paused" });
       fetchContacts();
       fetchCounts();
+    } catch {
+      /* ignore */
+    }
+  };
+
+  const handleLocationStatus = async (id: string, status: string | null) => {
+    try {
+      await api.put(`/contacts/${id}/location-status`, { location_status: status });
+      setContacts((prev) =>
+        prev.map((c) => (c.id === id ? { ...c, location_status: status } : c))
+      );
     } catch {
       /* ignore */
     }
@@ -482,6 +507,7 @@ export default function People() {
                 contact={c}
                 selected={selected.has(c.id)}
                 selectMode={selectMode}
+                userCountry={userCountry}
                 onTap={() => {
                   if (selectMode) {
                     toggleSelect(c.id);
@@ -497,6 +523,7 @@ export default function People() {
                 }}
                 onArchive={() => handleArchive(c.id)}
                 onPause={() => handlePause(c.id)}
+                onLocationStatus={(status) => handleLocationStatus(c.id, status)}
               />
             </motion.div>
           ))}
@@ -530,18 +557,22 @@ function ContactCard({
   contact: c,
   selected,
   selectMode,
+  userCountry,
   onTap,
   onLongPress,
   onArchive,
   onPause,
+  onLocationStatus,
 }: {
   contact: ContactListItem;
   selected: boolean;
   selectMode: boolean;
+  userCountry: string;
   onTap: () => void;
   onLongPress: () => void;
   onArchive: () => void;
   onPause: () => void;
+  onLocationStatus: (status: string | null) => void;
 }) {
   const [offset, setOffset] = useState(0);
   const [imgFailed, setImgFailed] = useState(false);
@@ -602,6 +633,15 @@ function ContactCard({
 
   const warmthColor = getWarmthColor(c.warmth_status);
 
+  // Location matching logic
+  const isLocationMatch =
+    userCountry &&
+    c.origin_country &&
+    c.origin_country.toUpperCase() === userCountry.toUpperCase() &&
+    c.location_status !== "not_here";
+  const isConfirmed = c.location_status === "confirmed";
+  const showLocationGlow = isLocationMatch;
+
   return (
     <div className="relative overflow-hidden rounded-2xl">
       {/* Swipe actions */}
@@ -626,10 +666,29 @@ function ContactCard({
         </button>
       </div>
       <div
-        className={`relative flex items-center gap-3 bg-card border border-white/[0.04] p-3.5 transition-transform ${
+        className={`relative flex items-center gap-3 p-3.5 transition-transform ${
           selected ? "ring-2 ring-accent border-accent/30" : ""
         }`}
-        style={{ transform: `translateX(${offset}px)`, touchAction: "pan-y", willChange: offset !== 0 ? "transform" : "auto" }}
+        style={{
+          transform: `translateX(${offset}px)`,
+          touchAction: "pan-y",
+          willChange: offset !== 0 ? "transform" : "auto",
+          background: showLocationGlow
+            ? isConfirmed
+              ? "linear-gradient(135deg, rgba(251, 191, 36, 0.15) 0%, rgba(30, 30, 30, 1) 50%)"
+              : "linear-gradient(135deg, rgba(251, 191, 36, 0.08) 0%, rgba(30, 30, 30, 1) 40%)"
+            : "rgb(30, 30, 30)",
+          border: showLocationGlow
+            ? isConfirmed
+              ? "1px solid rgba(251, 191, 36, 0.35)"
+              : "1px solid rgba(251, 191, 36, 0.15)"
+            : "1px solid rgba(255, 255, 255, 0.04)",
+          boxShadow: showLocationGlow
+            ? isConfirmed
+              ? "0 0 24px rgba(251, 191, 36, 0.2), 0 0 8px rgba(251, 191, 36, 0.1)"
+              : "0 0 16px rgba(251, 191, 36, 0.08)"
+            : "none",
+        }}
         onTouchStart={handleTouchStart}
         onTouchMove={handleTouchMove}
         onTouchEnd={handleTouchEnd}
@@ -654,26 +713,56 @@ function ContactCard({
           </div>
         )}
 
-        {/* Avatar with warmth ring + glow */}
-        <div
-          className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full text-sm font-bold text-white overflow-hidden"
-          style={{
-            backgroundColor: warmthColor + "33",
-            color: warmthColor,
-            boxShadow: `0 0 0 2.5px ${warmthColor}, 0 0 12px ${warmthColor}25`,
-          }}
-        >
-          {c.photo_url && !imgFailed ? (
-            <img
-              src={c.photo_url}
-              alt={c.full_name}
-              className="h-full w-full object-cover"
-              loading="lazy"
-              decoding="async"
-              onError={() => setImgFailed(true)}
-            />
-          ) : (
-            getInitials(c.full_name)
+        {/* Avatar with warmth ring + glow (or golden glow for location match) */}
+        <div className="relative">
+          <div
+            className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-full text-sm font-bold text-white overflow-hidden ${
+              showLocationGlow && isConfirmed ? "animate-golden-pulse" : ""
+            }`}
+            style={{
+              backgroundColor: showLocationGlow
+                ? isConfirmed ? "rgba(251, 191, 36, 0.25)" : "rgba(251, 191, 36, 0.15)"
+                : warmthColor + "33",
+              color: showLocationGlow
+                ? isConfirmed ? "#fbbf24" : "#d4a017"
+                : warmthColor,
+              ...(!showLocationGlow || !isConfirmed ? {
+                boxShadow: showLocationGlow
+                  ? "0 0 0 2.5px rgba(251, 191, 36, 0.6), 0 0 12px rgba(251, 191, 36, 0.25)"
+                  : `0 0 0 2.5px ${warmthColor}, 0 0 12px ${warmthColor}25`,
+              } : {}),
+            }}
+          >
+            {c.photo_url && !imgFailed ? (
+              <img
+                src={c.photo_url}
+                alt={c.full_name}
+                className="h-full w-full object-cover"
+                loading="lazy"
+                decoding="async"
+                onError={() => setImgFailed(true)}
+              />
+            ) : (
+              getInitials(c.full_name)
+            )}
+          </div>
+          {/* Location pin badge */}
+          {showLocationGlow && (
+            <div
+              className="absolute -top-1 -right-1 flex h-5 w-5 items-center justify-center rounded-full"
+              style={{
+                background: isConfirmed
+                  ? "linear-gradient(135deg, #fbbf24, #f59e0b)"
+                  : "linear-gradient(135deg, #d4a017, #b8860b)",
+                boxShadow: isConfirmed
+                  ? "0 0 8px rgba(251, 191, 36, 0.6)"
+                  : "0 0 6px rgba(212, 160, 23, 0.4)",
+              }}
+            >
+              <svg className="h-3 w-3 text-black" fill="currentColor" viewBox="0 0 24 24">
+                <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z" />
+              </svg>
+            </div>
           )}
         </div>
 
@@ -713,8 +802,63 @@ function ContactCard({
               </span>
             )}
           </div>
+
+          {/* Location match banner */}
+          {showLocationGlow && (
+            <div className="mt-1.5 flex items-center gap-2">
+              <p
+                className="text-[10px] font-medium"
+                style={{
+                  color: isConfirmed ? "#fbbf24" : "#d4a017",
+                }}
+              >
+                {isConfirmed
+                  ? "На месте — встретьтесь лично!"
+                  : "Возможно в вашей стране"}
+              </p>
+              <div className="flex gap-1" onClick={(e) => e.stopPropagation()}>
+                {!isConfirmed && (
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onLocationStatus("confirmed");
+                    }}
+                    className="flex h-5 items-center gap-0.5 rounded-full px-1.5 text-[9px] font-semibold transition-colors"
+                    style={{
+                      background: "rgba(251, 191, 36, 0.2)",
+                      color: "#fbbf24",
+                    }}
+                    title="Подтвердить — на месте"
+                  >
+                    <svg className="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.5}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                    </svg>
+                    Да
+                  </button>
+                )}
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onLocationStatus("not_here");
+                  }}
+                  className="flex h-5 items-center gap-0.5 rounded-full px-1.5 text-[9px] font-semibold transition-colors"
+                  style={{
+                    background: "rgba(115, 115, 115, 0.2)",
+                    color: "#737373",
+                  }}
+                  title="Не на месте"
+                >
+                  <svg className="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.5}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                  Нет
+                </button>
+              </div>
+            </div>
+          )}
+
           {/* Memory preview */}
-          {c.memory_summary && (
+          {c.memory_summary && !showLocationGlow && (
             <p className="mt-1 truncate text-[11px] text-neutral-400 italic">
               {c.memory_summary}
             </p>
@@ -726,8 +870,12 @@ function ContactCard({
                 className="h-full rounded-full transition-all"
                 style={{
                   width: `${c.warmth_score}%`,
-                  backgroundColor: warmthColor,
-                  boxShadow: `0 0 6px ${warmthColor}60`,
+                  backgroundColor: showLocationGlow
+                    ? isConfirmed ? "#fbbf24" : "#d4a017"
+                    : warmthColor,
+                  boxShadow: showLocationGlow
+                    ? isConfirmed ? "0 0 8px rgba(251, 191, 36, 0.6)" : "0 0 6px rgba(212, 160, 23, 0.4)"
+                    : `0 0 6px ${warmthColor}60`,
                 }}
               />
             </div>
@@ -740,11 +888,16 @@ function ContactCard({
           </div>
         </div>
 
-        {/* Right - time */}
+        {/* Right - time + location indicator */}
         <div className="flex shrink-0 flex-col items-end gap-1.5 self-start pt-0.5">
           <span className="text-[10px] text-neutral-500">
             {timeAgo(c.last_interaction_at || c.created_at)}
           </span>
+          {showLocationGlow && isConfirmed && (
+            <span className="text-[9px] font-bold" style={{ color: "#fbbf24" }}>
+              РЯДОМ
+            </span>
+          )}
         </div>
       </div>
     </div>
