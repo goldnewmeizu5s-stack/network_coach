@@ -12,6 +12,7 @@ import { Home as HomeIcon, Users, Target, MessageCircle, ClipboardList } from "l
 import { ToastProvider, useToast } from "./components/Toast";
 import { SkeletonList } from "./components/Skeleton";
 import Onboarding from "./components/Onboarding";
+import ErrorBoundary from "./components/ErrorBoundary";
 import { api } from "./lib/api";
 
 // Lazy-loaded pages
@@ -238,26 +239,29 @@ function AnimatedRoutes() {
   const location = useLocation();
 
   return (
-    <AnimatePresence>
+    <AnimatePresence mode="wait">
       <motion.div
         key={location.pathname}
-        initial={{ opacity: 0 }}
+        initial={false}
         animate={{ opacity: 1 }}
-        transition={{ duration: 0.15, ease: "easeOut" }}
+        exit={{ opacity: 0 }}
+        transition={{ duration: 0.12, ease: "easeOut" }}
         className="flex flex-1 flex-col"
       >
-        <Suspense fallback={<PageFallback />}>
-          <Routes location={location}>
-            <Route path="/" element={<Home />} />
-            <Route path="/people" element={<People />} />
-            <Route path="/people/:id" element={<ContactProfile />} />
-            <Route path="/followups" element={<FollowUps />} />
-            <Route path="/challenges" element={<Challenge />} />
-            <Route path="/chat" element={<Chat />} />
-            <Route path="/settings" element={<Settings />} />
-            <Route path="*" element={<Navigate to="/" replace />} />
-          </Routes>
-        </Suspense>
+        <ErrorBoundary>
+          <Suspense fallback={<PageFallback />}>
+            <Routes location={location}>
+              <Route path="/" element={<Home />} />
+              <Route path="/people" element={<People />} />
+              <Route path="/people/:id" element={<ContactProfile />} />
+              <Route path="/followups" element={<FollowUps />} />
+              <Route path="/challenges" element={<Challenge />} />
+              <Route path="/chat" element={<Chat />} />
+              <Route path="/settings" element={<Settings />} />
+              <Route path="*" element={<Navigate to="/" replace />} />
+            </Routes>
+          </Suspense>
+        </ErrorBoundary>
       </motion.div>
     </AnimatePresence>
   );

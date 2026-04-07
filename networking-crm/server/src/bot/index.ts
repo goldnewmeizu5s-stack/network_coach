@@ -1,6 +1,7 @@
 import { Telegraf } from "telegraf";
 import { config } from "../config";
 import { logger } from "../lib/logger";
+import { fmtError } from "./ui";
 import { adminOnly, logMessage } from "./middleware";
 import { registerCommands } from "./commands";
 import { registerCallbackHandlers } from "./keyboards";
@@ -43,12 +44,21 @@ export function startBot(): void {
   // Text handler must be last (catch-all for notes & search)
   registerTextHandler(bot);
 
-  // Catch errors — never crash the server
-  bot.catch((err) => {
+  // Catch errors — never crash the server, send error to admin chat
+  bot.catch((err: unknown, ctx) => {
     logger.error("Telegram bot error", { error: String(err) });
+    // Try to notify the user about the error
+    if (ctx?.chat?.id) {
+      ctx.reply(`⚠️ Необработанная ошибка бота:\n\n<pre>${fmtError(err)}</pre>`, { parse_mode: "HTML" }).catch(() => {});
+    }
   });
 
-  bot.launch();
+  bot.launch({
+    dropPendingUpdates: true,
+    allowedUpdates: [],
+  }).catch((err) => {
+    logger.error("Telegram bot launch failed (will not crash)", { error: String(err) });
+  });
   logger.info("Telegram bot started (long polling)");
 
   // Set Menu Button for Mini App

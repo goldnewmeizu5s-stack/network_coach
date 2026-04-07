@@ -125,7 +125,16 @@ export default function FollowUpCard({ item, onRemoved, compact }: Props) {
             }}
           >
             {item.contact.photo_url ? (
-              <img src={item.contact.photo_url} alt={item.contact.full_name} className="h-full w-full object-cover" />
+              <img
+                src={item.contact.photo_url}
+                alt={item.contact.full_name}
+                className="h-full w-full object-cover"
+                onError={(e) => {
+                  const el = e.currentTarget;
+                  el.style.display = "none";
+                  el.parentElement!.textContent = getInitials(item.contact.full_name);
+                }}
+              />
             ) : (
               getInitials(item.contact.full_name)
             )}

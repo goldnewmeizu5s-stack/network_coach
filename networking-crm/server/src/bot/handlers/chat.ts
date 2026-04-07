@@ -4,7 +4,7 @@ import { logger } from "../../lib/logger";
 import { config } from "../../config";
 import { processChat } from "../../services/chat-service";
 import { setState, clearState } from "../state";
-import { esc, divider, markdownToTelegramHtml } from "../ui";
+import { esc, divider, markdownToTelegramHtml, fmtError } from "../ui";
 
 const CHAT_EXPIRE_MS = 30 * 60 * 1000; // 30 minutes
 
@@ -89,6 +89,7 @@ async function handleActivateChat(ctx: Context) {
     });
   } catch (err) {
     logger.error("activate chat error", { error: String(err) });
+    await ctx.reply(`❌ Ошибка активации чата:\n\n<pre>${fmtError(err)}</pre>`, { parse_mode: "HTML" });
   }
 }
 
@@ -106,6 +107,7 @@ async function handleExitChat(ctx: Context) {
     });
   } catch (err) {
     logger.error("exit chat error", { error: String(err) });
+    await ctx.reply(`❌ Ошибка выхода из чата:\n\n<pre>${fmtError(err)}</pre>`, { parse_mode: "HTML" });
   }
 }
 
@@ -148,6 +150,7 @@ async function handleContactChat(ctx: Context) {
     });
   } catch (err) {
     logger.error("contact chat error", { error: String(err) });
+    await ctx.reply(`❌ Ошибка открытия чата с контактом:\n\n<pre>${fmtError(err)}</pre>`, { parse_mode: "HTML" });
   }
 }
 
@@ -170,6 +173,7 @@ async function handleQuickQuestion(ctx: Context) {
     await sendAiResponse(ctx, question);
   } catch (err) {
     logger.error("quick question error", { error: String(err) });
+    await ctx.reply(`❌ Ошибка быстрого вопроса:\n\n<pre>${fmtError(err)}</pre>`, { parse_mode: "HTML" });
   }
 }
 
@@ -201,7 +205,7 @@ async function sendAiResponse(
     }
   } catch (err) {
     logger.error("AI chat error", { error: String(err) });
-    await ctx.reply("❌ Не удалось получить ответ от AI. Попробуй ещё раз.", {
+    await ctx.reply(`❌ Не удалось получить ответ от AI:\n\n<pre>${fmtError(err)}</pre>`, {
       parse_mode: "HTML",
       ...chatKeyboard(),
     });

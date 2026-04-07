@@ -26,6 +26,7 @@ export default function VoiceRecorder({ onClose, contactId }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [doneMessage, setDoneMessage] = useState("");
   const [resultContactId, setResultContactId] = useState<string | null>(null);
+  const [resultContactIds, setResultContactIds] = useState<string[]>([]);
 
   const mediaRecorder = useRef<MediaRecorder | null>(null);
   const chunks = useRef<Blob[]>([]);
@@ -160,18 +161,25 @@ export default function VoiceRecorder({ onClose, contactId }: Props) {
         return;
       }
 
+      if (pollRef.current) clearTimeout(pollRef.current);
       pollRef.current = setTimeout(async () => {
         if (abortedRef.current) return;
         try {
           const data = await api.get<{
             status: string;
             contact_id?: string | null;
+            contact_ids?: string[];
           }>(`/voice/${interactionId}/status`);
 
           if (abortedRef.current) return;
 
           if (data.status === "completed") {
-            if (data.contact_id) {
+            const ids = data.contact_ids || [];
+            if (ids.length > 1) {
+              setResultContactIds(ids);
+              setResultContactId(ids[0]);
+              setDoneMessage(`Создано ${ids.length} контактов!`);
+            } else if (data.contact_id) {
               setResultContactId(data.contact_id);
               setDoneMessage("Контакт создан!");
             } else {
@@ -327,7 +335,7 @@ export default function VoiceRecorder({ onClose, contactId }: Props) {
               </span>
             </p>
             <p className="text-xs text-neutral-500">
-              Транскрипция и анализ контакта
+              Транскрипция и анализ контактов
             </p>
           </div>
         )}
@@ -361,7 +369,22 @@ export default function VoiceRecorder({ onClose, contactId }: Props) {
               </svg>
             </div>
             <p className="text-center text-white">{doneMessage}</p>
-            {resultContactId ? (
+            {resultContactIds.length > 1 ? (
+              <div className="flex w-full flex-col gap-2">
+                <button
+                  onClick={() => onClose(resultContactIds[0])}
+                  className="w-full rounded-xl bg-accent py-3 text-sm font-medium text-white transition-colors active:bg-accent-hover"
+                >
+                  Посмотреть контакты
+                </button>
+                <button
+                  onClick={() => onClose()}
+                  className="w-full rounded-xl bg-neutral-700 py-3 text-sm font-medium text-white transition-colors active:bg-neutral-600"
+                >
+                  Закрыть
+                </button>
+              </div>
+            ) : resultContactId ? (
               <button
                 onClick={() => onClose(resultContactId)}
                 className="w-full rounded-xl bg-accent py-3 text-sm font-medium text-white transition-colors active:bg-accent-hover"

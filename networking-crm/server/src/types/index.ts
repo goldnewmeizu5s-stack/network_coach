@@ -21,6 +21,12 @@ export interface ExtractedContact {
   relationship_category: string;
   memory_summary: string | null;
   is_update: boolean | null;
+  follow_up_questions: string[];
+}
+
+export interface MultiExtractionResult {
+  contacts: ExtractedContact[];
+  is_voice_note: boolean;
 }
 
 export interface VoiceUploadResult {
@@ -31,6 +37,7 @@ export interface VoiceUploadResult {
 export interface VoiceStatusResult {
   status: string;
   contact_id?: string | null;
+  contact_ids?: string[];
   transcript?: string | null;
   error?: string;
 }

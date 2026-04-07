@@ -27,6 +27,7 @@ import {
   difficultyLabel,
   timeBadge,
   categoryAccent,
+  fmtError,
 } from "../ui";
 
 export function registerChallengeHandlers(bot: Telegraf) {
@@ -312,7 +313,7 @@ async function handleChallengeMenu(ctx: Context) {
     }
   } catch (err) {
     logger.error("challenge menu error", { error: String(err) });
-    await safeAnswer(ctx, "Ошибка загрузки");
+    await ctx.reply(`❌ Ошибка загрузки челленджа:\n\n<pre>${fmtError(err)}</pre>`, { parse_mode: "HTML" });
   }
 }
 
@@ -340,7 +341,7 @@ async function handleAccept(ctx: Context) {
     await editOrReply(ctx, text, challengeButtons(ch));
   } catch (err) {
     logger.error("challenge accept error", { error: String(err) });
-    await safeAnswer(ctx, "Ошибка");
+    await ctx.reply(`❌ Ошибка принятия челленджа:\n\n<pre>${fmtError(err)}</pre>`, { parse_mode: "HTML" });
   }
 }
 
@@ -374,7 +375,7 @@ async function handleAnother(ctx: Context) {
     await editOrReply(ctx, text, challengeButtons(alt));
   } catch (err) {
     logger.error("challenge another error", { error: String(err) });
-    await safeAnswer(ctx, "Ошибка");
+    await ctx.reply(`❌ Ошибка загрузки альтернативы:\n\n<pre>${fmtError(err)}</pre>`, { parse_mode: "HTML" });
   }
 }
 
@@ -396,7 +397,7 @@ async function handleTooHard(ctx: Context) {
     ]);
   } catch (err) {
     logger.error("challenge too_hard error", { error: String(err) });
-    await safeAnswer(ctx, "Ошибка");
+    await ctx.reply(`❌ Ошибка:\n\n<pre>${fmtError(err)}</pre>`, { parse_mode: "HTML" });
   }
 }
 
@@ -423,7 +424,7 @@ async function handleComplete(ctx: Context) {
     await editOrReply(ctx, text, buttons);
   } catch (err) {
     logger.error("challenge complete error", { error: String(err) });
-    await safeAnswer(ctx, "Ошибка");
+    await ctx.reply(`❌ Ошибка завершения челленджа:\n\n<pre>${fmtError(err)}</pre>`, { parse_mode: "HTML" });
   }
 }
 
@@ -451,7 +452,7 @@ async function handleRate(ctx: Context) {
     );
   } catch (err) {
     logger.error("challenge rate error", { error: String(err) });
-    await safeAnswer(ctx, "Ошибка");
+    await ctx.reply(`❌ Ошибка оценки:\n\n<pre>${fmtError(err)}</pre>`, { parse_mode: "HTML" });
   }
 }
 
@@ -465,7 +466,7 @@ async function handleSkipRate(ctx: Context) {
     await completeChallenge(ctx, id, 0, null);
   } catch (err) {
     logger.error("challenge skip rate error", { error: String(err) });
-    await safeAnswer(ctx, "Ошибка");
+    await ctx.reply(`❌ Ошибка:\n\n<pre>${fmtError(err)}</pre>`, { parse_mode: "HTML" });
   }
 }
 
@@ -480,7 +481,7 @@ async function handleFinishNoReflection(ctx: Context) {
     await completeChallenge(ctx, id, rating, null);
   } catch (err) {
     logger.error("challenge finish error", { error: String(err) });
-    await safeAnswer(ctx, "Ошибка");
+    await ctx.reply(`❌ Ошибка:\n\n<pre>${fmtError(err)}</pre>`, { parse_mode: "HTML" });
   }
 }
 
@@ -603,7 +604,7 @@ async function completeChallenge(
     ]);
   } catch (err) {
     logger.error("challenge complete error", { error: String(err) });
-    await ctx.reply("❌ Ошибка сохранения.");
+    await ctx.reply(`❌ Ошибка сохранения:\n\n<pre>${fmtError(err)}</pre>`, { parse_mode: "HTML" });
   }
 }
 
@@ -625,7 +626,7 @@ async function handleSkip(ctx: Context) {
     ]);
   } catch (err) {
     logger.error("challenge skip error", { error: String(err) });
-    await safeAnswer(ctx, "Ошибка");
+    await ctx.reply(`❌ Ошибка:\n\n<pre>${fmtError(err)}</pre>`, { parse_mode: "HTML" });
   }
 }
 
@@ -712,7 +713,7 @@ async function handleStats(ctx: Context) {
     ]);
   } catch (err) {
     logger.error("challenge stats error", { error: String(err) });
-    await safeAnswer(ctx, "Ошибка загрузки");
+    await ctx.reply(`❌ Ошибка загрузки статистики:\n\n<pre>${fmtError(err)}</pre>`, { parse_mode: "HTML" });
   }
 }
 

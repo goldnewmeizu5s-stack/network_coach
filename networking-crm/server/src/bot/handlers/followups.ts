@@ -17,6 +17,7 @@ import {
   urgencyBadge,
   editOrReply,
   safeAnswer,
+  fmtError,
 } from "../ui";
 
 export function registerFollowupHandlers(bot: Telegraf) {
@@ -129,7 +130,7 @@ async function handleFollowupsMenu(ctx: Context) {
     await showFollowupByIndex(ctx, 0);
   } catch (err) {
     logger.error("followups menu error", { error: String(err) });
-    await safeAnswer(ctx, "Ошибка загрузки");
+    await ctx.reply(`❌ Ошибка загрузки follow-ups:\n\n<pre>${fmtError(err)}</pre>`, { parse_mode: "HTML" });
   }
 }
 
@@ -141,7 +142,7 @@ async function handleShowByIndex(ctx: Context) {
     await showFollowupByIndex(ctx, index);
   } catch (err) {
     logger.error("followup show error", { error: String(err) });
-    await safeAnswer(ctx, "Ошибка");
+    await ctx.reply(`❌ Ошибка:\n\n<pre>${fmtError(err)}</pre>`, { parse_mode: "HTML" });
   }
 }
 
@@ -200,7 +201,7 @@ async function handleDone(ctx: Context) {
     await showFollowupByIndex(ctx, 0);
   } catch (err) {
     logger.error("fu done error", { error: String(err) });
-    await safeAnswer(ctx, "Ошибка");
+    await ctx.reply(`❌ Ошибка выполнения:\n\n<pre>${fmtError(err)}</pre>`, { parse_mode: "HTML" });
   }
 }
 
@@ -222,7 +223,7 @@ async function handleSnooze(ctx: Context) {
     await showFollowupByIndex(ctx, 0);
   } catch (err) {
     logger.error("fu snooze error", { error: String(err) });
-    await safeAnswer(ctx, "Ошибка");
+    await ctx.reply(`❌ Ошибка откладывания:\n\n<pre>${fmtError(err)}</pre>`, { parse_mode: "HTML" });
   }
 }
 
@@ -240,7 +241,7 @@ async function handleSkip(ctx: Context) {
     await showFollowupByIndex(ctx, 0);
   } catch (err) {
     logger.error("fu skip error", { error: String(err) });
-    await safeAnswer(ctx, "Ошибка");
+    await ctx.reply(`❌ Ошибка:\n\n<pre>${fmtError(err)}</pre>`, { parse_mode: "HTML" });
   }
 }
 
@@ -271,7 +272,8 @@ async function handleDraft(ctx: Context) {
         ctx.chat!.id,
         statusMsg.message_id,
         undefined,
-        "❌ Не удалось сгенерировать сообщение.",
+        `❌ Не удалось сгенерировать сообщение:\n\n<pre>${fmtError(err)}</pre>`,
+        { parse_mode: "HTML" },
       );
       return;
     }
@@ -315,7 +317,7 @@ async function handleDraft(ctx: Context) {
     );
   } catch (err) {
     logger.error("fu draft error", { error: String(err) });
-    await ctx.reply("❌ Ошибка генерации сообщения.");
+    await ctx.reply(`❌ Ошибка генерации сообщения:\n\n<pre>${fmtError(err)}</pre>`, { parse_mode: "HTML" });
   }
 }
 
@@ -358,7 +360,7 @@ async function handleMarkDoneAfterDraft(ctx: Context) {
     ]);
   } catch (err) {
     logger.error("fu mark done error", { error: String(err) });
-    await safeAnswer(ctx, "Ошибка");
+    await ctx.reply(`❌ Ошибка отметки выполнения:\n\n<pre>${fmtError(err)}</pre>`, { parse_mode: "HTML" });
   }
 }
 
@@ -429,7 +431,7 @@ async function handleContactFollowups(ctx: Context) {
     await editOrReply(ctx, lines.join("\n"), buttons);
   } catch (err) {
     logger.error("contact followups error", { error: String(err) });
-    await safeAnswer(ctx, "Ошибка");
+    await ctx.reply(`❌ Ошибка загрузки follow-ups контакта:\n\n<pre>${fmtError(err)}</pre>`, { parse_mode: "HTML" });
   }
 }
 
@@ -456,7 +458,7 @@ async function handleCreatePrompt(ctx: Context) {
     );
   } catch (err) {
     logger.error("fu create prompt error", { error: String(err) });
-    await safeAnswer(ctx, "Ошибка");
+    await ctx.reply(`❌ Ошибка создания follow-up:\n\n<pre>${fmtError(err)}</pre>`, { parse_mode: "HTML" });
   }
 }
 
@@ -502,6 +504,6 @@ async function handleSetDate(ctx: Context) {
     );
   } catch (err) {
     logger.error("fu set date error", { error: String(err) });
-    await ctx.reply("❌ Не удалось создать follow-up.");
+    await ctx.reply(`❌ Не удалось создать follow-up:\n\n<pre>${fmtError(err)}</pre>`, { parse_mode: "HTML" });
   }
 }
