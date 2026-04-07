@@ -12,6 +12,8 @@ export interface ExtractedContact {
   company: string | null;
   city: string | null;
   country: string | null;
+  met_country: string | null;
+  origin_country: string | null;
   key_interests: string[];
   what_impressed_me: string | null;
   potential_synergies: string | null;

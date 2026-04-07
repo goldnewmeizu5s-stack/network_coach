@@ -7,6 +7,7 @@ import {
   timeAgo,
   WARMTH_LABELS,
 } from "../lib/warmth";
+import { countryCodeToFlag, getCountryName } from "../lib/countries";
 import { FollowUpItem } from "../lib/followups";
 import VoiceRecorder from "../components/VoiceRecorder";
 import FollowUpCard from "../components/FollowUpCard";
@@ -40,6 +41,8 @@ interface Contact {
   company: string | null;
   city: string | null;
   country: string | null;
+  met_country: string | null;
+  origin_country: string | null;
   key_interests: string[];
   what_impressed_me: string | null;
   potential_synergies: string | null;
@@ -581,6 +584,18 @@ export default function ContactProfile() {
             <Detail label="Дата" value={new Date(contact.met_date).toLocaleDateString("ru")} />
           )}
           {location && <Detail label="Город" value={location} />}
+          {contact.met_country && (
+            <Detail
+              label="Где встретились"
+              value={`${countryCodeToFlag(contact.met_country)} ${getCountryName(contact.met_country)}`}
+            />
+          )}
+          {contact.origin_country && (
+            <Detail
+              label="Откуда родом"
+              value={`${countryCodeToFlag(contact.origin_country)} ${getCountryName(contact.origin_country)}`}
+            />
+          )}
           {contact.social_links && Object.keys(contact.social_links).length > 0 && (
             <div className="mb-2">
               <p className="text-xs text-neutral-500">Соцсети</p>

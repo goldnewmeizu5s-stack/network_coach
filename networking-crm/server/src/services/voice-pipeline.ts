@@ -214,6 +214,8 @@ async function updateExistingContact(
       ...(extracted.company && { company: extracted.company }),
       ...(extracted.city && { city: extracted.city }),
       ...(extracted.country && { country: extracted.country }),
+      ...(extracted.met_country && { met_country: extracted.met_country }),
+      ...(extracted.origin_country && { origin_country: extracted.origin_country }),
       ...(extracted.key_interests.length && {
         key_interests: extracted.key_interests,
       }),
@@ -267,6 +269,8 @@ export async function createContact(extracted: Awaited<ReturnType<typeof extract
       company: extracted.company,
       city: extracted.city,
       country: extracted.country,
+      met_country: extracted.met_country,
+      origin_country: extracted.origin_country,
       key_interests: extracted.key_interests,
       what_impressed_me: extracted.what_impressed_me,
       potential_synergies: extracted.potential_synergies,

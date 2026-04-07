@@ -32,6 +32,8 @@ model Contact {
   company             String?
   city                String?
   country             String?
+  met_country         String?
+  origin_country      String?
   key_interests       String[]
   what_impressed_me   String?
   potential_synergies String?
