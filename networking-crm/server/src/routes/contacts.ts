@@ -31,6 +31,8 @@ router.get("/", async (req, res, next) => {
       order = "desc",
       category,
       city,
+      met_country,
+      origin_country,
       dormant,
       limit: limitStr,
       offset: offsetStr,
@@ -55,6 +57,18 @@ router.get("/", async (req, res, next) => {
     if (city) {
       conditions.push({
         city: { contains: city, mode: "insensitive" },
+      });
+    }
+
+    if (met_country) {
+      conditions.push({
+        met_country: { in: met_country.split(",").map((s) => s.trim()) },
+      });
+    }
+
+    if (origin_country) {
+      conditions.push({
+        origin_country: { in: origin_country.split(",").map((s) => s.trim()) },
       });
     }
 
@@ -122,6 +136,8 @@ router.get("/", async (req, res, next) => {
           photo_url: true,
           occupation: true,
           company: true,
+          met_country: true,
+          origin_country: true,
           warmth_status: true,
           warmth_score: true,
           relationship_category: true,
@@ -160,6 +176,38 @@ router.get("/counts", async (_req, res, next) => {
     }
     counts.all = Object.values(counts).reduce((a, b) => a + b, 0);
     res.json(counts);
+  } catch (err) {
+    next(err);
+  }
+});
+
+// GET /api/contacts/countries
+router.get("/countries", async (_req, res, next) => {
+  try {
+    const [metGroups, originGroups] = await Promise.all([
+      prisma.contact.groupBy({
+        by: ["met_country"],
+        where: { met_country: { not: null }, warmth_status: { not: "archived" } },
+        _count: true,
+      }),
+      prisma.contact.groupBy({
+        by: ["origin_country"],
+        where: { origin_country: { not: null }, warmth_status: { not: "archived" } },
+        _count: true,
+      }),
+    ]);
+
+    const met: Record<string, number> = {};
+    for (const g of metGroups) {
+      if (g.met_country) met[g.met_country] = g._count;
+    }
+
+    const origin: Record<string, number> = {};
+    for (const g of originGroups) {
+      if (g.origin_country) origin[g.origin_country] = g._count;
+    }
+
+    res.json({ met, origin });
   } catch (err) {
     next(err);
   }

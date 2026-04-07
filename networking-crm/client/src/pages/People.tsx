@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import { api } from "../lib/api";
 import { getWarmthColor, getInitials, timeAgo } from "../lib/warmth";
+import { countryCodeToFlag, getCountryLabel } from "../lib/countries";
 import { useDebounce } from "../lib/useDebounce";
 import { SkeletonList } from "../components/Skeleton";
 import ErrorState from "../components/ErrorState";
@@ -15,6 +16,8 @@ interface ContactListItem {
   photo_url: string | null;
   occupation: string | null;
   company: string | null;
+  met_country: string | null;
+  origin_country: string | null;
   warmth_status: string;
   warmth_score: number;
   relationship_category: string | null;
@@ -80,6 +83,9 @@ export default function People() {
   const [showSort, setShowSort] = useState(false);
   const [showMoreFilters, setShowMoreFilters] = useState(false);
   const [categoryFilter, setCategoryFilter] = useState("");
+  const [countryFilterType, setCountryFilterType] = useState<"met" | "origin">("met");
+  const [countryFilter, setCountryFilter] = useState("");
+  const [countryCounts, setCountryCounts] = useState<{ met: Record<string, number>; origin: Record<string, number> }>({ met: {}, origin: {} });
   const [dormantFilter, setDormantFilter] = useState(false);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(false);
@@ -99,17 +105,25 @@ export default function People() {
       if (debouncedSearch) p.set("search", debouncedSearch);
       if (sort !== "last_interaction") p.set("sort", sort);
       if (categoryFilter) p.set("category", categoryFilter);
+      if (countryFilter) {
+        p.set(countryFilterType === "met" ? "met_country" : "origin_country", countryFilter);
+      }
       if (dormantFilter) p.set("dormant", "true");
       p.set("limit", "20");
       if (offset) p.set("offset", String(offset));
       return p.toString();
     },
-    [filter, debouncedSearch, sort, categoryFilter, dormantFilter]
+    [filter, debouncedSearch, sort, categoryFilter, countryFilter, countryFilterType, dormantFilter]
   );
 
   const fetchCounts = useCallback(async () => {
     try {
-      setCounts(await api.get<Record<string, number>>("/contacts/counts"));
+      const [statusCounts, cCounts] = await Promise.all([
+        api.get<Record<string, number>>("/contacts/counts"),
+        api.get<{ met: Record<string, number>; origin: Record<string, number> }>("/contacts/countries"),
+      ]);
+      setCounts(statusCounts);
+      setCountryCounts(cCounts);
     } catch {
       /* ignore */
     }
@@ -353,6 +367,55 @@ export default function People() {
           >
             Забытые (30+ дней)
           </button>
+
+          {/* Country filter */}
+          {(Object.keys(countryCounts.met).length > 0 || Object.keys(countryCounts.origin).length > 0) && (
+            <div className="flex flex-col gap-1.5">
+              <div className="flex gap-1.5">
+                <button
+                  onClick={() => { setCountryFilterType("met"); setCountryFilter(""); }}
+                  className={`rounded-full px-2.5 py-1 text-[11px] font-medium transition-colors ${
+                    countryFilterType === "met"
+                      ? "bg-blue-600/30 text-blue-300"
+                      : "bg-card text-neutral-400"
+                  }`}
+                >
+                  Где встретились
+                </button>
+                <button
+                  onClick={() => { setCountryFilterType("origin"); setCountryFilter(""); }}
+                  className={`rounded-full px-2.5 py-1 text-[11px] font-medium transition-colors ${
+                    countryFilterType === "origin"
+                      ? "bg-purple-600/30 text-purple-300"
+                      : "bg-card text-neutral-400"
+                  }`}
+                >
+                  Откуда родом
+                </button>
+              </div>
+              <div className="flex flex-wrap gap-1.5">
+                {Object.entries(
+                  countryFilterType === "met" ? countryCounts.met : countryCounts.origin
+                )
+                  .sort(([, a], [, b]) => b - a)
+                  .map(([code, count]) => (
+                    <button
+                      key={code}
+                      onClick={() => setCountryFilter(countryFilter === code ? "" : code)}
+                      className={`rounded-full px-2.5 py-1 text-[11px] font-medium transition-colors ${
+                        countryFilter === code
+                          ? countryFilterType === "met"
+                            ? "bg-blue-600/30 text-blue-300"
+                            : "bg-purple-600/30 text-purple-300"
+                          : "bg-card text-neutral-400"
+                      }`}
+                    >
+                      {countryCodeToFlag(code)} {count}
+                    </button>
+                  ))}
+              </div>
+            </div>
+          )}
         </div>
       )}
 
@@ -390,7 +453,7 @@ export default function People() {
         <ErrorState message="Не удалось загрузить контакты" onRetry={fetchContacts} />
       ) : contacts.length === 0 ? (
         <div className="flex flex-1 flex-col items-center justify-center gap-3 text-center">
-          {debouncedSearch || filter || categoryFilter || dormantFilter ? (
+          {debouncedSearch || filter || categoryFilter || countryFilter || dormantFilter ? (
             <>
               <div className="text-3xl">{"\u{1F50D}"}</div>
               <p className="text-neutral-400">Никого не найдено</p>
@@ -616,6 +679,18 @@ function ContactCard({
             <p className="truncate text-sm font-medium text-white">
               {c.full_name}
             </p>
+            {(c.met_country || c.origin_country) && (
+              <span className="shrink-0 text-[11px]" title={
+                [
+                  c.met_country && `Встреча: ${getCountryLabel(c.met_country)}`,
+                  c.origin_country && `Родом: ${getCountryLabel(c.origin_country)}`,
+                ].filter(Boolean).join(" | ")
+              }>
+                {c.met_country && countryCodeToFlag(c.met_country)}
+                {c.met_country && c.origin_country && "/"}
+                {c.origin_country && countryCodeToFlag(c.origin_country)}
+              </span>
+            )}
             {c.relationship_category && (
               <span className="shrink-0 rounded bg-neutral-700 px-1.5 py-0.5 text-[9px] text-neutral-400">
                 {CAT_LABELS[c.relationship_category] || c.relationship_category}
