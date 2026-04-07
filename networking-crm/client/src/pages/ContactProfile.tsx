@@ -45,6 +45,7 @@ interface Contact {
   potential_synergies: string | null;
   personality_notes: string | null;
   memory_summary: string | null;
+  memory_notes: string[];
   relationship_category: string | null;
   personal_notes: string | null;
   social_links: Record<string, string> | null;
@@ -458,6 +459,26 @@ export default function ContactProfile() {
             <p className="text-sm leading-relaxed text-neutral-200">
               {contact.memory_summary}
             </p>
+          </div>
+        )}
+
+        {/* Memory notes — personal hooks */}
+        {contact.memory_notes && contact.memory_notes.length > 0 && (
+          <div className="rounded-2xl border border-amber-500/30 bg-amber-500/10 p-4">
+            <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-amber-400">
+              Запомни о нём
+            </p>
+            <ul className="flex flex-col gap-1.5">
+              {contact.memory_notes.map((note, i) => (
+                <li
+                  key={i}
+                  className="flex items-start gap-2 text-sm text-neutral-200"
+                >
+                  <span className="mt-0.5 text-amber-400">•</span>
+                  <span>{note}</span>
+                </li>
+              ))}
+            </ul>
           </div>
         )}
 

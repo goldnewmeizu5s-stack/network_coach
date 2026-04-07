@@ -464,6 +464,15 @@ async function showContactCard(ctx: Context, contactId: string) {
       lines.push(`💭 <i>${esc(contact.memory_summary)}</i>`);
     }
 
+    // ── Memory hooks ──
+    if (contact.memory_notes && contact.memory_notes.length > 0) {
+      lines.push("");
+      lines.push("🔖 <b>Запомни:</b>");
+      for (const note of contact.memory_notes) {
+        lines.push(`  • ${esc(note)}`);
+      }
+    }
+
     // ── Interests ──
     if (contact.key_interests.length > 0) {
       lines.push("");

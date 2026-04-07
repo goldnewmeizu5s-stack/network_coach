@@ -30,6 +30,8 @@ function buildContactContext(contact: NonNullable<Awaited<ReturnType<typeof load
     contact.personality_notes &&
       `Personality notes: ${contact.personality_notes}`,
     contact.memory_summary && `Summary: ${contact.memory_summary}`,
+    contact.memory_notes?.length > 0 &&
+      `Memory hooks: ${contact.memory_notes.join(" | ")}`,
     contact.personal_notes && `Personal notes: ${contact.personal_notes}`,
     contact.relationship_category &&
       `Category: ${contact.relationship_category}`,

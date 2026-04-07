@@ -81,6 +81,7 @@ router.get("/", async (req, res, next) => {
           { occupation: { contains: search, mode: "insensitive" } },
           { company: { contains: search, mode: "insensitive" } },
           { memory_summary: { contains: search, mode: "insensitive" } },
+          { memory_notes: { has: search } },
           { what_impressed_me: { contains: search, mode: "insensitive" } },
         ],
       });

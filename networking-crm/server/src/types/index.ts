@@ -20,6 +20,7 @@ export interface ExtractedContact {
   urgency_score: number;
   relationship_category: string;
   memory_summary: string | null;
+  memory_hook: string | null;
   is_update: boolean | null;
   follow_up_questions: string[];
 }

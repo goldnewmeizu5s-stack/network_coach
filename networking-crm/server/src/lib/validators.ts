@@ -52,6 +52,7 @@ export const updateContactSchema = z.object({
   country: z.string().max(100).nullable().optional(),
   where_met: z.string().max(500).nullable().optional(),
   key_interests: z.array(z.string()).optional(),
+  memory_notes: z.array(z.string().max(500)).optional(),
   personal_notes: z.string().max(5000).nullable().optional(),
   warmth_status: z.enum(WARMTH_STATUSES).optional(),
   relationship_category: z.string().max(50).nullable().optional(),
