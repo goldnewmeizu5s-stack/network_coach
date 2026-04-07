@@ -544,6 +544,7 @@ function ContactCard({
   onPause: () => void;
 }) {
   const [offset, setOffset] = useState(0);
+  const [imgFailed, setImgFailed] = useState(false);
   const startX = useRef(0);
   const startY = useRef(0);
   const direction = useRef<"none" | "horizontal" | "vertical">("none");
@@ -657,16 +658,14 @@ function ContactCard({
             boxShadow: `0 0 0 2px ${warmthColor}`,
           }}
         >
-          {c.photo_url ? (
+          {c.photo_url && !imgFailed ? (
             <img
               src={c.photo_url}
               alt={c.full_name}
               className="h-full w-full object-cover"
-              onError={(e) => {
-                const el = e.currentTarget;
-                el.style.display = "none";
-                el.parentElement!.textContent = getInitials(c.full_name);
-              }}
+              loading="lazy"
+              decoding="async"
+              onError={() => setImgFailed(true)}
             />
           ) : (
             getInitials(c.full_name)

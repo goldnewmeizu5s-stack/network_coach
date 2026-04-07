@@ -105,14 +105,32 @@ export default function ContactProfile() {
   const [slInstagram, setSlInstagram] = useState("");
   const [slSaving, setSlSaving] = useState(false);
   const [photoUploading, setPhotoUploading] = useState(false);
+  const [imgFailed, setImgFailed] = useState(false);
   const photoInputRef = useRef<HTMLInputElement>(null);
+
+  const resizeImage = (file: File, maxSize: number): Promise<Blob> =>
+    new Promise((resolve) => {
+      const img = new Image();
+      img.onload = () => {
+        const scale = Math.min(1, maxSize / Math.max(img.width, img.height));
+        const canvas = document.createElement("canvas");
+        canvas.width = Math.round(img.width * scale);
+        canvas.height = Math.round(img.height * scale);
+        canvas.getContext("2d")!.drawImage(img, 0, 0, canvas.width, canvas.height);
+        canvas.toBlob((blob) => resolve(blob || file), "image/jpeg", 0.85);
+        URL.revokeObjectURL(img.src);
+      };
+      img.src = URL.createObjectURL(file);
+    });
 
   const uploadPhoto = async (file: File) => {
     if (!id) return;
     setPhotoUploading(true);
     try {
+      // Resize to max 400px (avatars don't need more) to reduce upload size and lag
+      const resized = await resizeImage(file, 400);
       const formData = new FormData();
-      formData.append("photo", file);
+      formData.append("photo", resized, file.name);
       const res = await fetch(`/api/contacts/${id}/photo`, {
         method: "POST",
         credentials: "same-origin",
@@ -120,7 +138,10 @@ export default function ContactProfile() {
       });
       if (!res.ok) throw new Error("Upload failed");
       const data = await res.json();
-      setContact((prev) => prev ? { ...prev, photo_url: data.photo_url } : prev);
+      // Add cache-busting timestamp so browser fetches the new image
+      const bustUrl = `${data.photo_url}?t=${Date.now()}`;
+      setContact((prev) => prev ? { ...prev, photo_url: bustUrl } : prev);
+      setImgFailed(false);
       show("Фото обновлено");
     } catch {
       show("Не удалось загрузить фото");
@@ -382,20 +403,13 @@ export default function ContactProfile() {
             style={{ backgroundColor: warmthColor }}
             onClick={() => photoInputRef.current?.click()}
           >
-            {contact.photo_url ? (
+            {contact.photo_url && !imgFailed ? (
               <img
                 src={contact.photo_url}
                 alt={contact.full_name}
                 className="h-full w-full object-cover"
-                onError={(e) => {
-                  const el = e.currentTarget;
-                  el.style.display = "none";
-                  if (el.parentElement) {
-                    const span = document.createElement("span");
-                    span.textContent = getInitials(contact.full_name);
-                    el.parentElement.insertBefore(span, el);
-                  }
-                }}
+                decoding="async"
+                onError={() => setImgFailed(true)}
               />
             ) : (
               getInitials(contact.full_name)

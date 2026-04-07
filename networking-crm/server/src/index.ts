@@ -110,7 +110,15 @@ app.use("/api/auth", authLimiter, authRoutes);
 app.use(
   "/api/contacts/photos",
   authMiddleware,
-  express.static(path.join(__dirname, "../uploads/photos"), { maxAge: "30d" }),
+  express.static(path.join(__dirname, "../uploads/photos"), {
+    maxAge: "1d",
+    etag: true,
+    lastModified: true,
+    setHeaders: (res) => {
+      // Allow revalidation so updated photos are fetched promptly
+      res.setHeader("Cache-Control", "public, max-age=86400, must-revalidate");
+    },
+  }),
 );
 
 // Protected routes

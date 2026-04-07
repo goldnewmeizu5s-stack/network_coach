@@ -78,6 +78,7 @@ export default function FollowUpCard({ item, onRemoved, compact }: Props) {
     }
   };
 
+  const [imgFailed, setImgFailed] = useState(false);
   const lastCopied = { current: "" };
 
   const copyText = async (text: string) => {
@@ -124,16 +125,14 @@ export default function FollowUpCard({ item, onRemoved, compact }: Props) {
               backgroundColor: getWarmthColor(item.contact.warmth_status),
             }}
           >
-            {item.contact.photo_url ? (
+            {item.contact.photo_url && !imgFailed ? (
               <img
                 src={item.contact.photo_url}
                 alt={item.contact.full_name}
                 className="h-full w-full object-cover"
-                onError={(e) => {
-                  const el = e.currentTarget;
-                  el.style.display = "none";
-                  el.parentElement!.textContent = getInitials(item.contact.full_name);
-                }}
+                loading="lazy"
+                decoding="async"
+                onError={() => setImgFailed(true)}
               />
             ) : (
               getInitials(item.contact.full_name)
