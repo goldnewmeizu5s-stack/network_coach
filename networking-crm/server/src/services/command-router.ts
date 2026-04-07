@@ -1018,6 +1018,7 @@ export async function routeCommand(message: string): Promise<string> {
         if (attempt < 2) {
           logger.warn(
             `Command router Claude attempt ${attempt + 1} failed, retrying`,
+            { error: err instanceof Error ? err.message : String(err) },
           );
           await sleep(backoff[attempt]);
         } else {
