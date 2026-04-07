@@ -333,6 +333,88 @@ const TOOLS: Anthropic.Tool[] = [
     },
   },
   {
+    name: "edit_contact",
+    description:
+      "Edit/update an existing contact's fields. Use this when the user wants to correct or change any contact information (name, occupation, company, city, interests, notes, etc.).",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        contact_name: {
+          type: "string",
+          description:
+            "Current name (or partial name) of the contact to find and edit",
+        },
+        full_name: {
+          type: "string",
+          description: "New full name (if renaming the contact)",
+        },
+        nickname: {
+          type: "string",
+          description: "New nickname",
+        },
+        occupation: {
+          type: "string",
+          description: "New job title or occupation",
+        },
+        company: {
+          type: "string",
+          description: "New company or organization",
+        },
+        city: {
+          type: "string",
+          description: "New city",
+        },
+        country: {
+          type: "string",
+          description: "New country",
+        },
+        met_country: {
+          type: "string",
+          description: "Country where they met",
+        },
+        origin_country: {
+          type: "string",
+          description: "Contact's origin country",
+        },
+        where_met: {
+          type: "string",
+          description: "Where/how they met",
+        },
+        key_interests: {
+          type: "array",
+          items: { type: "string" },
+          description: "Updated list of interests/topics",
+        },
+        what_impressed_me: {
+          type: "string",
+          description: "What impressed the user about this person",
+        },
+        potential_synergies: {
+          type: "string",
+          description: "Potential collaboration or mutual benefit",
+        },
+        personality_notes: {
+          type: "string",
+          description: "Personality observations",
+        },
+        memory_summary: {
+          type: "string",
+          description: "Short portrait/summary of the person",
+        },
+        personal_notes: {
+          type: "string",
+          description: "Personal notes about the contact",
+        },
+        relationship_category: {
+          type: "string",
+          description:
+            "Relationship category (e.g. business, friendship, mentor)",
+        },
+      },
+      required: ["contact_name"],
+    },
+  },
+  {
     name: "list_contacts",
     description:
       "List contacts, optionally filtered by warmth status. Returns names, status, occupation, last interaction.",
@@ -364,6 +446,7 @@ RULES:
 - After calling tools, provide a concise, friendly summary of what was done or found
 - If the user's request is conversational (greeting, general question about networking), respond directly without tools
 - If the user mentions a person's name, try to find them in contacts first
+- If the user corrects or updates any contact info (name, occupation, city, etc.), use edit_contact to apply the change directly
 - Be proactive: if user says "I met with Alex today", search for Alex and add a note about the meeting
 - When unsure which contact the user means, search first and pick the best match
 - Keep responses SHORT and actionable — this is a Telegram chat, not an essay
@@ -875,6 +958,53 @@ async function executeTool(
 
         createdContactIds.push(contact.id);
         return `Created new contact: ${contact.full_name} (id: ${contact.id}, status: new). You can now add notes, create follow-ups, and more.`;
+      }
+
+      case "edit_contact": {
+        const contact = await findContactByName(input.contact_name as string);
+        if (!contact) return `Contact "${input.contact_name}" not found.`;
+
+        // Build update data from provided fields (skip contact_name — it's the search key)
+        const editableFields = [
+          "full_name", "nickname", "occupation", "company",
+          "city", "country", "met_country", "origin_country",
+          "where_met", "what_impressed_me", "potential_synergies",
+          "personality_notes", "memory_summary", "personal_notes",
+          "relationship_category",
+        ];
+
+        const updateData: Record<string, unknown> = {};
+        for (const field of editableFields) {
+          if (input[field] !== undefined) {
+            updateData[field] = input[field] as string;
+          }
+        }
+        if (input.key_interests !== undefined) {
+          updateData.key_interests = input.key_interests as string[];
+        }
+
+        if (Object.keys(updateData).length === 0) {
+          return `No fields to update for ${contact.full_name}. Specify what to change.`;
+        }
+
+        const oldName = contact.full_name;
+        await prisma.contact.update({
+          where: { id: contact.id },
+          data: updateData,
+        });
+
+        // Log the edit as an interaction
+        const changedFields = Object.keys(updateData).join(", ");
+        await prisma.interaction.create({
+          data: {
+            contact_id: contact.id,
+            type: "note",
+            content: `Contact edited: updated ${changedFields}`,
+          },
+        });
+
+        const newName = (updateData.full_name as string) || oldName;
+        return `Updated ${oldName}${updateData.full_name ? ` → ${newName}` : ""}: changed ${changedFields}`;
       }
 
       case "list_contacts": {
