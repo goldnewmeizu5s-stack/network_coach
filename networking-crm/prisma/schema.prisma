@@ -101,19 +101,22 @@ model FollowUp {
 }
 
 model Challenge {
-  id             String       @id @default(uuid())
-  date           DateTime     @default(now())
-  title          String
-  description    String
-  category       String
-  difficulty     Int          @default(5)
-  methodology_id String?
-  methodology    Methodology? @relation(fields: [methodology_id], references: [id])
-  status         String       @default("pending")
-  reflection     String?
-  rating         Int?
-  created_at     DateTime     @default(now())
-  completed_at   DateTime?
+  id                     String       @id @default(uuid())
+  date                   DateTime     @default(now())
+  title                  String
+  description            String
+  category               String
+  difficulty             Int          @default(5)
+  methodology_id         String?
+  methodology            Methodology? @relation(fields: [methodology_id], references: [id])
+  status                 String       @default("pending")
+  reflection             String?
+  rating                 Int?
+  xp_earned              Int          @default(0)
+  estimated_time_minutes Int?
+  is_bonus               Boolean      @default(false)
+  created_at             DateTime     @default(now())
+  completed_at           DateTime?
 
   @@index([date])
   @@index([status, date])

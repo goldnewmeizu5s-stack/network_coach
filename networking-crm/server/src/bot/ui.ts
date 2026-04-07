@@ -264,6 +264,100 @@ export function markdownToTelegramHtml(text: string): string {
   return result;
 }
 
+// ── XP & Rank System ────────────────────────────────
+
+export interface RankInfo {
+  rank: string;
+  emoji: string;
+  level: number;
+  currentXp: number;
+  nextLevelXp: number;
+  progressInLevel: number;
+}
+
+const RANKS = [
+  { name: "Новичок", emoji: "🌱", minXp: 0 },
+  { name: "Знакомец", emoji: "👋", minXp: 50 },
+  { name: "Коммуникатор", emoji: "💬", minXp: 150 },
+  { name: "Нетворкер", emoji: "🌐", minXp: 350 },
+  { name: "Коннектор", emoji: "⚡", minXp: 600 },
+  { name: "Мастер связей", emoji: "👑", minXp: 1000 },
+];
+
+/** Calculate XP earned for a challenge based on difficulty */
+export function calculateXp(difficulty: number, hadReflection: boolean): number {
+  const base = difficulty * 10;
+  const reflectionBonus = hadReflection ? 15 : 0;
+  return base + reflectionBonus;
+}
+
+/** Get rank info for a given total XP */
+export function getRankInfo(totalXp: number): RankInfo {
+  let rankIndex = 0;
+  for (let i = RANKS.length - 1; i >= 0; i--) {
+    if (totalXp >= RANKS[i].minXp) {
+      rankIndex = i;
+      break;
+    }
+  }
+  const current = RANKS[rankIndex];
+  const next = RANKS[rankIndex + 1] || { minXp: current.minXp + 500 };
+  const progressInLevel = next.minXp > current.minXp
+    ? Math.round(((totalXp - current.minXp) / (next.minXp - current.minXp)) * 100)
+    : 100;
+
+  return {
+    rank: current.name,
+    emoji: current.emoji,
+    level: rankIndex + 1,
+    currentXp: totalXp,
+    nextLevelXp: next.minXp,
+    progressInLevel,
+  };
+}
+
+/** Render rank badge: 🌐 Нетворкер (Ур.4) */
+export function rankBadge(info: RankInfo): string {
+  return `${info.emoji} ${info.rank} (Ур.${info.level})`;
+}
+
+/** Render XP progress bar */
+export function xpProgressBar(info: RankInfo): string {
+  const filled = Math.round((info.progressInLevel / 100) * 8);
+  const empty = 8 - filled;
+  return "▰".repeat(filled) + "▱".repeat(empty) + ` ${info.currentXp}/${info.nextLevelXp} XP`;
+}
+
+/** Difficulty label in Russian */
+export function difficultyLabel(level: number): string {
+  if (level <= 3) return "Легко";
+  if (level <= 6) return "Средне";
+  if (level <= 8) return "Сложно";
+  return "Хардкор";
+}
+
+/** Time estimate badge */
+export function timeBadge(minutes: number | null | undefined): string {
+  if (!minutes) return "";
+  if (minutes < 5) return `⚡ ~${minutes} мин`;
+  if (minutes <= 15) return `⏱ ~${minutes} мин`;
+  if (minutes <= 30) return `⏰ ~${minutes} мин`;
+  return `🕐 ~${minutes} мин`;
+}
+
+/** Category accent line (decorative border) */
+export function categoryAccent(category: string): string {
+  const accents: Record<string, string> = {
+    conversation: "┃🟣",
+    follow_up: "┃🟢",
+    digital: "┃🔵",
+    skill: "┃🟡",
+    mindset: "┃🟣",
+    stretch: "┃🔴",
+  };
+  return accents[category] || "┃⚪";
+}
+
 // ── Error formatting for debug ──────────────────────────
 
 /** Format error for display in Telegram (truncated, escaped) */
