@@ -408,6 +408,7 @@ async function findContactByName(
 async function executeTool(
   name: string,
   input: Record<string, unknown>,
+  createdContactIds: string[],
 ): Promise<string> {
   try {
     switch (name) {
@@ -1069,7 +1070,7 @@ export async function routeCommand(message: string): Promise<RouteResult> {
       logger.info(`Command router: executing tool ${tu.name}`, {
         input: JSON.stringify(tu.input).slice(0, 200),
       });
-      const result = await executeTool(tu.name, tu.input);
+      const result = await executeTool(tu.name, tu.input, createdContactIds);
       toolResults.push({
         type: "tool_result",
         tool_use_id: tu.id,
