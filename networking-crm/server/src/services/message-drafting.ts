@@ -231,56 +231,219 @@ Write in the same language as the contact's notes.`;
 
 export async function generateDailyInsight(): Promise<string> {
   try {
-    const coolingContacts = await prisma.contact.findMany({
-      where: { warmth_status: "cooling" },
-      select: { full_name: true, key_interests: true },
-      take: 5,
-    });
+    const now = new Date();
+    const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
 
-    const newContacts = await prisma.contact.count({
-      where: { warmth_status: "new" },
-    });
+    const [
+      user,
+      overdueFollowUps,
+      recentInteractions,
+      mostNeglected,
+      newContacts,
+      contactsWithSynergies,
+      statusCounts,
+    ] = await Promise.all([
+      // User goals and context
+      prisma.user.findFirst({
+        select: { goals: true, strengths: true, weaknesses: true },
+      }),
 
-    const pendingFollowUps = await prisma.followUp.count({
-      where: { status: "pending" },
-    });
+      // Overdue follow-ups with contact context
+      prisma.followUp.findMany({
+        where: { status: "pending", due_date: { lte: now } },
+        select: {
+          suggested_action: true,
+          due_date: true,
+          priority: true,
+          contact: { select: { full_name: true, occupation: true, key_interests: true } },
+        },
+        orderBy: { priority: "desc" },
+        take: 3,
+      }),
 
-    const warmContacts = await prisma.contact.count({
-      where: { warmth_status: "warm" },
-    });
+      // Recent interactions (last 7 days) to understand activity patterns
+      prisma.interaction.findMany({
+        where: { created_at: { gte: sevenDaysAgo } },
+        select: {
+          type: true,
+          ai_summary: true,
+          created_at: true,
+          contact: { select: { full_name: true } },
+        },
+        orderBy: { created_at: "desc" },
+        take: 5,
+      }),
 
-    const stats = [
-      `Cooling contacts: ${coolingContacts.length}`,
-      coolingContacts.length > 0 &&
-        `Names: ${coolingContacts.map((c) => `${c.full_name} (interests: ${c.key_interests.join(", ") || "none"})`).join("; ")}`,
-      `New contacts: ${newContacts}`,
-      `Warm contacts: ${warmContacts}`,
-      `Pending follow-ups: ${pendingFollowUps}`,
-    ]
-      .filter(Boolean)
-      .join("\n");
+      // Most neglected contacts (with rich context)
+      prisma.contact.findMany({
+        where: {
+          warmth_status: { in: ["cooling", "warm"] },
+          last_interaction_at: { not: null },
+        },
+        select: {
+          full_name: true,
+          occupation: true,
+          company: true,
+          key_interests: true,
+          potential_synergies: true,
+          what_impressed_me: true,
+          where_met: true,
+          warmth_status: true,
+          last_interaction_at: true,
+          relationship_category: true,
+        },
+        orderBy: { last_interaction_at: "asc" },
+        take: 3,
+      }),
 
-    const prompt = `You are a personal networking coach. Based on the user's CRM stats, write ONE short, actionable insight (1-2 sentences in Russian). Be specific — mention names and interests where relevant.
+      // New contacts needing nurturing
+      prisma.contact.findMany({
+        where: { warmth_status: "new" },
+        select: {
+          full_name: true,
+          occupation: true,
+          key_interests: true,
+          where_met: true,
+          what_impressed_me: true,
+          created_at: true,
+        },
+        orderBy: { created_at: "desc" },
+        take: 3,
+      }),
 
-Stats:
-${stats}
+      // Contacts with potential synergies
+      prisma.contact.findMany({
+        where: {
+          potential_synergies: { not: null },
+          warmth_status: { in: ["new", "warming", "warm", "cooling"] },
+        },
+        select: {
+          full_name: true,
+          potential_synergies: true,
+          key_interests: true,
+          warmth_status: true,
+        },
+        take: 5,
+      }),
 
-Rules:
-- Be encouraging, not guilt-tripping
-- Reference specific contacts and their interests
-- Suggest one concrete action
-- Keep it under 2 sentences
-- Write in Russian`;
+      // Contact counts by status
+      prisma.contact.groupBy({
+        by: ["warmth_status"],
+        _count: true,
+      }),
+    ]);
+
+    const statusMap = Object.fromEntries(
+      statusCounts.map((s) => [s.warmth_status, s._count])
+    );
+
+    const daysSince = (date: Date | null) => {
+      if (!date) return null;
+      return Math.floor((now.getTime() - new Date(date).getTime()) / (1000 * 60 * 60 * 24));
+    };
+
+    // Build rich context for the AI
+    const sections: string[] = [];
+
+    // User profile
+    if (user?.goals || user?.strengths || user?.weaknesses) {
+      const profile = [
+        user.goals && `Goals: ${user.goals}`,
+        user.strengths && `Strengths: ${user.strengths}`,
+        user.weaknesses && `Growth areas: ${user.weaknesses}`,
+      ].filter(Boolean);
+      sections.push(`USER PROFILE:\n${profile.join("\n")}`);
+    }
+
+    // Network overview
+    sections.push(
+      `NETWORK: ${Object.entries(statusMap).map(([s, c]) => `${s}: ${c}`).join(", ")}`
+    );
+
+    // Activity this week
+    if (recentInteractions.length > 0) {
+      const activity = recentInteractions.map((i) =>
+        `- ${i.type} with ${i.contact?.full_name || "unknown"} (${daysSince(i.created_at)}d ago)${i.ai_summary ? `: ${i.ai_summary.slice(0, 100)}` : ""}`
+      ).join("\n");
+      sections.push(`RECENT ACTIVITY (last 7 days):\n${activity}`);
+    } else {
+      sections.push("RECENT ACTIVITY: No interactions in the last 7 days.");
+    }
+
+    // Overdue follow-ups
+    if (overdueFollowUps.length > 0) {
+      const fups = overdueFollowUps.map((f) =>
+        `- ${f.contact.full_name}${f.contact.occupation ? ` (${f.contact.occupation})` : ""}: "${f.suggested_action}" (overdue ${daysSince(f.due_date)}d, priority ${f.priority}/10)`
+      ).join("\n");
+      sections.push(`OVERDUE FOLLOW-UPS:\n${fups}`);
+    }
+
+    // Most neglected contacts
+    if (mostNeglected.length > 0) {
+      const neglected = mostNeglected.map((c) => {
+        const details = [
+          c.occupation && `works as ${c.occupation}`,
+          c.company && `at ${c.company}`,
+          c.where_met && `met at ${c.where_met}`,
+          c.key_interests.length > 0 && `interests: ${c.key_interests.join(", ")}`,
+          c.potential_synergies && `synergy: ${c.potential_synergies}`,
+          c.what_impressed_me && `impressed you: ${c.what_impressed_me}`,
+        ].filter(Boolean).join("; ");
+        return `- ${c.full_name} (${c.warmth_status}, last contact ${daysSince(c.last_interaction_at)}d ago): ${details}`;
+      }).join("\n");
+      sections.push(`MOST NEGLECTED:\n${neglected}`);
+    }
+
+    // New contacts
+    if (newContacts.length > 0) {
+      const nc = newContacts.map((c) => {
+        const details = [
+          c.occupation && `${c.occupation}`,
+          c.where_met && `met at ${c.where_met}`,
+          c.key_interests.length > 0 && `interests: ${c.key_interests.join(", ")}`,
+          c.what_impressed_me && `impressed you: ${c.what_impressed_me}`,
+        ].filter(Boolean).join("; ");
+        return `- ${c.full_name} (added ${daysSince(c.created_at)}d ago): ${details}`;
+      }).join("\n");
+      sections.push(`NEW CONTACTS:\n${nc}`);
+    }
+
+    // Synergy opportunities
+    const synergyPairs = findSynergyOpportunities(contactsWithSynergies);
+    if (synergyPairs.length > 0) {
+      sections.push(`POTENTIAL CONNECTIONS:\n${synergyPairs.join("\n")}`);
+    }
+
+    const context = sections.join("\n\n");
+
+    const prompt = `You are an expert networking strategist and relationship coach. Analyze the user's CRM data below and produce ONE high-value, non-obvious insight in Russian.
+
+${context}
+
+INSIGHT TYPES (pick the most impactful one for today):
+1. SYNERGY ALERT — two contacts who should meet each other, or a contact who can help with the user's goals
+2. TIMING INSIGHT — a contact worth reaching out to NOW based on their work, interests, or how long it's been
+3. RELATIONSHIP PATTERN — an observation about the user's networking habits (e.g. neglecting a category, not following up)
+4. STRATEGIC MOVE — a specific action tied to the user's goals that leverages an existing contact
+5. RECONNECTION HOOK — a creative, non-generic reason to reach out to a neglected contact (based on their interests/work, NOT just "давно не общались")
+
+RULES:
+- Write 2-3 sentences in Russian, conversational tone
+- Be SPECIFIC: use names, occupations, interests, synergies — whatever makes the insight feel personal and non-generic
+- The insight must be something the user couldn't figure out by just looking at a contact list
+- Suggest a CONCRETE next step (not "напиши сообщение", but what specifically to write about or propose)
+- Never guilt-trip, be encouraging and strategic
+- Do NOT start with generic phrases like "У тебя есть контакт..." or "Обрати внимание..."`;
 
     const message = await anthropic.messages.create({
       model: config.claudeModel,
-      max_tokens: 200,
+      max_tokens: 300,
       messages: [{ role: "user", content: prompt }],
     });
 
     return message.content[0].type === "text"
       ? message.content[0].text
-      : getFallbackInsight(coolingContacts.length, pendingFollowUps);
+      : getFallbackInsight(statusMap["cooling"] ?? 0, overdueFollowUps.length);
   } catch (err) {
     logger.error("Claude API error in daily insight", { error: String(err) });
     const cooling = await prisma.contact.count({
@@ -291,6 +454,25 @@ Rules:
     });
     return getFallbackInsight(cooling, pending);
   }
+}
+
+function findSynergyOpportunities(
+  contacts: { full_name: string; potential_synergies: string | null; key_interests: string[]; warmth_status: string }[]
+): string[] {
+  const pairs: string[] = [];
+  for (let i = 0; i < contacts.length; i++) {
+    for (let j = i + 1; j < contacts.length; j++) {
+      const a = contacts[i];
+      const b = contacts[j];
+      const sharedInterests = a.key_interests.filter((int) =>
+        b.key_interests.some((bi) => bi.toLowerCase() === int.toLowerCase())
+      );
+      if (sharedInterests.length > 0) {
+        pairs.push(`- ${a.full_name} & ${b.full_name} share interests: ${sharedInterests.join(", ")}`);
+      }
+    }
+  }
+  return pairs.slice(0, 3);
 }
 
 export async function personalizeFollowUpText(
