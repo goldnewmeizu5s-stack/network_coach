@@ -1,7 +1,7 @@
 import prisma from "../lib/prisma";
 import { anthropic } from "../lib/ai";
 import { config } from "../config";
-import { logger } from "../lib/logger";
+import { logger, extractErrorDetails } from "../lib/logger";
 import { buildChatContext, buildContactContext } from "./context-builder";
 import { recalcAndAutoStatus, isValidTransition } from "./warmth";
 import { suggestActions } from "./message-drafting";
@@ -1018,10 +1018,14 @@ export async function routeCommand(message: string): Promise<string> {
         if (attempt < 2) {
           logger.warn(
             `Command router Claude attempt ${attempt + 1} failed, retrying`,
-            { error: err instanceof Error ? err.message : String(err) },
+            extractErrorDetails(err),
           );
           await sleep(backoff[attempt]);
         } else {
+          logger.error(
+            "Command router Claude failed after all attempts",
+            { model: config.claudeModel, ...extractErrorDetails(err) },
+          );
           throw err;
         }
       }

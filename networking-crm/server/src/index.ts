@@ -181,6 +181,7 @@ const server = app.listen(config.port, () => {
 
     await ensureUser();
     logger.info("Default user ensured");
+    logger.info(`Claude model: ${config.claudeModel}`);
 
     startCron();
     logger.info("Cron started");

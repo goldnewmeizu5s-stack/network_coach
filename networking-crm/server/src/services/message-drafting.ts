@@ -1,7 +1,7 @@
 import { anthropic } from "../lib/ai";
 import { config } from "../config";
 import prisma from "../lib/prisma";
-import { logger } from "../lib/logger";
+import { logger, extractErrorDetails } from "../lib/logger";
 
 const TONE_GUIDE: Record<string, string> = {
   new: 'Formal but friendly. Style: "Было приятно познакомиться на [event]...", "Рад(а) знакомству..."',
@@ -148,7 +148,7 @@ Return as JSON array of 3 strings: ["message1", "message2", "message3"]`;
     if (parsed && parsed.length > 0) return parsed.slice(0, 3);
     return [text];
   } catch (err) {
-    logger.error("Claude API error in message drafting", { error: String(err) });
+    logger.error("Claude API error in message drafting", extractErrorDetails(err));
     // Fallback templates
     return generateFallbackMessages(contact.full_name, action, contact.warmth_status);
   }
@@ -222,7 +222,7 @@ Write in the same language as the contact's notes.`;
     }
     return [];
   } catch (err) {
-    logger.error("Claude API error in suggest-actions", { error: String(err) });
+    logger.error("Claude API error in suggest-actions", extractErrorDetails(err));
     return getFallbackSuggestions(contact.full_name, contact.warmth_status);
   }
 }
@@ -280,7 +280,7 @@ Rules:
       ? message.content[0].text
       : getFallbackInsight(coolingContacts.length, pendingFollowUps);
   } catch (err) {
-    logger.error("Claude API error in daily insight", { error: String(err) });
+    logger.error("Claude API error in daily insight", extractErrorDetails(err));
     const cooling = await prisma.contact.count({
       where: { warmth_status: "cooling" },
     });
@@ -387,7 +387,7 @@ Example format: ["personalized text 1", "personalized text 2", ...]`;
       }
     }
   } catch (err) {
-    logger.error("Claude API error in batch personalization", { error: String(err) });
+    logger.error("Claude API error in batch personalization", extractErrorDetails(err));
   }
 
   return result;

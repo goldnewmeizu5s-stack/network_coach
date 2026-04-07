@@ -1,7 +1,7 @@
 import prisma from "../lib/prisma";
 import { anthropic } from "../lib/ai";
 import { config } from "../config";
-import { logger } from "../lib/logger";
+import { logger, extractErrorDetails } from "../lib/logger";
 import { buildChatContext, buildContactContext } from "./context-builder";
 import {
   getRelevantMethodologies,
@@ -65,11 +65,15 @@ async function callClaude(
         : "";
     } catch (err) {
       if (attempt < 2) {
-        logger.warn(`Claude attempt ${attempt + 1} failed, retrying`);
+        logger.warn(
+          `Claude attempt ${attempt + 1} failed, retrying`,
+          extractErrorDetails(err),
+        );
         await sleep(backoff[attempt]);
       } else {
         logger.error("Claude API failed after 3 attempts", {
-          error: String(err),
+          model: config.claudeModel,
+          ...extractErrorDetails(err),
         });
         throw err;
       }

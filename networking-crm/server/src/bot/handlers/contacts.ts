@@ -1,7 +1,7 @@
 import { Telegraf, Markup } from "telegraf";
 import type { Context } from "telegraf";
 import prisma from "../../lib/prisma";
-import { logger } from "../../lib/logger";
+import { logger, extractErrorDetails } from "../../lib/logger";
 import { config } from "../../config";
 import {
   getAllowedTransitions,
@@ -206,8 +206,7 @@ export async function handleSmartMessage(ctx: Context, text: string) {
       }
     }
   } catch (err) {
-    const errDetail = err instanceof Error ? { message: err.message, stack: err.stack } : String(err);
-    logger.error("Smart message routing error", { error: errDetail });
+    logger.error("Smart message routing error", extractErrorDetails(err));
     await ctx.reply(
       "❌ Не удалось обработать запрос. Попробуй ещё раз или /menu.",
       { parse_mode: "HTML" },

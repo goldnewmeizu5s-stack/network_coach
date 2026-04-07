@@ -2,7 +2,7 @@ import { anthropic } from "../lib/ai";
 import { config } from "../config";
 import prisma from "../lib/prisma";
 import { ExtractedContact, MultiExtractionResult, FollowUpSuggestion } from "../types";
-import { logger } from "../lib/logger";
+import { logger, extractErrorDetails } from "../lib/logger";
 
 const SYSTEM_PROMPT = `You are analyzing a voice note or text message where the user describes someone they just met or wants to update information about an existing contact.
 
@@ -136,8 +136,7 @@ export async function extractContactData(
       const isLast = attempt === maxRetries - 1;
       if (isLast) throw err;
 
-      const message = err instanceof Error ? err.message : String(err);
-      logger.warn(`AI extraction attempt ${attempt + 1} failed, retrying`, { delay: backoff[attempt] });
+      logger.warn(`AI extraction attempt ${attempt + 1} failed, retrying`, { delay: backoff[attempt], ...extractErrorDetails(err) });
       await sleep(backoff[attempt]);
     }
   }
@@ -288,7 +287,7 @@ export async function extractMultipleContacts(
       const isLast = attempt === maxRetries - 1;
       if (isLast) throw err;
 
-      logger.warn(`Multi-extraction attempt ${attempt + 1} failed, retrying`, { delay: backoff[attempt] });
+      logger.warn(`Multi-extraction attempt ${attempt + 1} failed, retrying`, { delay: backoff[attempt], ...extractErrorDetails(err) });
       await sleep(backoff[attempt]);
     }
   }
