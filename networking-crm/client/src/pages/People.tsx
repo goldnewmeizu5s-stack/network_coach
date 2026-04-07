@@ -679,7 +679,7 @@ function ContactCard({
 
         {/* Info */}
         <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1.5">
             <p className="truncate text-[15px] font-semibold text-white leading-tight">
               {c.full_name}
             </p>
@@ -691,10 +691,16 @@ function ContactCard({
                 ].filter(Boolean).join(" | ")
               }>
                 {c.met_country && countryCodeToFlag(c.met_country)}
-                {c.met_country && c.origin_country && "/"}
-                {c.origin_country && countryCodeToFlag(c.origin_country)}
+                {c.origin_country && c.met_country !== c.origin_country && (
+                  <>{" "}{countryCodeToFlag(c.origin_country)}</>
+                )}
               </span>
             )}
+          </div>
+          <div className="mt-0.5 flex items-center gap-1.5">
+            <p className="truncate text-xs text-neutral-500">
+              {[c.occupation, c.company].filter(Boolean).join(" @ ") || "\u2014"}
+            </p>
             {c.relationship_category && (
               <span
                 className="shrink-0 rounded-md px-1.5 py-0.5 text-[9px] font-medium"
@@ -707,9 +713,6 @@ function ContactCard({
               </span>
             )}
           </div>
-          <p className="mt-0.5 truncate text-xs text-neutral-500">
-            {[c.occupation, c.company].filter(Boolean).join(" @ ") || "\u2014"}
-          </p>
           {/* Memory preview */}
           {c.memory_summary && (
             <p className="mt-1 truncate text-[11px] text-neutral-400 italic">

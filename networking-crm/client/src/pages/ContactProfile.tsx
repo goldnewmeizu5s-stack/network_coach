@@ -400,7 +400,11 @@ export default function ContactProfile() {
         <div className="flex flex-col items-center gap-3 pt-2">
           <div
             className="relative flex h-20 w-20 cursor-pointer items-center justify-center rounded-full text-2xl font-bold text-white overflow-hidden"
-            style={{ backgroundColor: warmthColor }}
+            style={{
+              backgroundColor: warmthColor + "33",
+              color: warmthColor,
+              boxShadow: `0 0 0 3px ${warmthColor}, 0 0 20px ${warmthColor}30`,
+            }}
             onClick={() => photoInputRef.current?.click()}
           >
             {contact.photo_url && !imgFailed ? (
@@ -451,12 +455,13 @@ export default function ContactProfile() {
               {WARMTH_LABELS[contact.warmth_status] || contact.warmth_status}
             </span>
             <div className="flex w-full items-center gap-2">
-              <div className="h-2 flex-1 overflow-hidden rounded-full bg-neutral-700">
+              <div className="h-2 flex-1 overflow-hidden rounded-full bg-neutral-700/60">
                 <div
                   className="h-full rounded-full transition-all duration-500"
                   style={{
                     width: `${contact.warmth_score}%`,
                     backgroundColor: warmthColor,
+                    boxShadow: `0 0 8px ${warmthColor}60`,
                   }}
                 />
               </div>
