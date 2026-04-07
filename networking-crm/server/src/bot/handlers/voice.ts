@@ -730,7 +730,9 @@ export async function handleTextContactCreation(ctx: Context, text: string) {
 async function handleSocialsSkip(ctx: Context) {
   const match = (ctx as any).match as RegExpMatchArray;
   const contactId = match[1];
-  clearState(ctx.chat!.id);
+  const chatId = ctx.chat!.id;
+  const state = getState(chatId);
+  clearState(chatId);
 
   try {
     await ctx.answerCbQuery();
@@ -746,6 +748,52 @@ async function handleSocialsSkip(ctx: Context) {
           Markup.button.callback("📋 Follow-ups", `contact_fups:${contactId}`),
         ],
         [Markup.button.callback("🏠 Меню", "main_menu")],
+      ]),
+    },
+  );
+
+  // If there are more contacts in queue, ask for their socials
+  await askNextContactSocials(ctx, chatId, state);
+}
+
+/**
+ * If there are more contacts queued for social links collection,
+ * set state and prompt for the next one.
+ */
+async function askNextContactSocials(
+  ctx: Context,
+  chatId: number,
+  previousState: ReturnType<typeof getState>,
+) {
+  const pending = (previousState?.data?.pendingContactIds as string[]) || [];
+  if (pending.length === 0) return;
+
+  const nextId = pending[0];
+  const remaining = pending.slice(1);
+
+  const contact = await prisma.contact.findUnique({
+    where: { id: nextId },
+    select: { full_name: true },
+  });
+
+  setState(chatId, "awaiting_socials", {
+    contactId: nextId,
+    pendingContactIds: remaining,
+  });
+
+  await ctx.reply(
+    [
+      `📲 <b>А соцсети для ${esc(contact?.full_name || "контакта")}?</b>`,
+      "",
+      "Отправь ссылки или юзернеймы",
+      "(Telegram, Instagram, LinkedIn, WhatsApp — что угодно).",
+      "",
+      "Можно несколько — каждый с новой строки.",
+    ].join("\n"),
+    {
+      parse_mode: "HTML",
+      ...Markup.inlineKeyboard([
+        [Markup.button.callback("⏭ Пропустить", `socials_skip:${nextId}`)],
       ]),
     },
   );
@@ -788,6 +836,7 @@ export async function handleSocialsText(ctx: Context, text: string) {
         ]),
       },
     );
+    await askNextContactSocials(ctx, chatId, state);
     return;
   }
 
@@ -823,6 +872,9 @@ export async function handleSocialsText(ctx: Context, text: string) {
         ]),
       },
     );
+
+    // If there are more contacts in queue, ask for their socials
+    await askNextContactSocials(ctx, chatId, state);
   } catch (err) {
     logger.error("Failed to save social links", { error: String(err) });
     await ctx.reply(`❌ Не удалось сохранить контакты:\n\n<pre>${fmtError(err)}</pre>`, { parse_mode: "HTML" });

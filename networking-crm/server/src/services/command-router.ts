@@ -873,7 +873,8 @@ async function executeTool(
           },
         });
 
-        return `Created new contact: ${contact.full_name} (status: new). You can now add notes, create follow-ups, and more.`;
+        createdContactIds.push(contact.id);
+        return `Created new contact: ${contact.full_name} (id: ${contact.id}, status: new). You can now add notes, create follow-ups, and more.`;
       }
 
       case "list_contacts": {
@@ -935,7 +936,12 @@ function sleep(ms: number) {
  * Route a free-form user message through Claude with tool_use.
  * Returns the final text response to show the user.
  */
-export async function routeCommand(message: string): Promise<string> {
+export interface RouteResult {
+  text: string;
+  createdContactIds: string[];
+}
+
+export async function routeCommand(message: string): Promise<RouteResult> {
   // Build CRM context
   const crmContext = await buildChatContext();
 
@@ -999,6 +1005,7 @@ export async function routeCommand(message: string): Promise<string> {
 
   const MAX_TOOL_ROUNDS = 5;
   let finalText = "";
+  const createdContactIds: string[] = [];
 
   for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
     let response: Anthropic.Message;
@@ -1084,5 +1091,5 @@ export async function routeCommand(message: string): Promise<string> {
     data: { role: "assistant", content: responseText },
   });
 
-  return responseText;
+  return { text: responseText, createdContactIds };
 }

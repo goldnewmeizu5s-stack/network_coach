@@ -180,9 +180,9 @@ export async function handleSmartMessage(ctx: Context, text: string) {
   try {
     await ctx.sendChatAction("typing");
 
-    const response = await routeCommand(text);
+    const result = await routeCommand(text);
     const { markdownToTelegramHtml } = await import("../ui");
-    const sanitized = markdownToTelegramHtml(response);
+    const sanitized = markdownToTelegramHtml(result.text);
 
     // Split long messages
     const TG_LIMIT = 4096;
@@ -204,6 +204,45 @@ export async function handleSmartMessage(ctx: Context, text: string) {
         await ctx.reply(remaining.slice(0, splitAt).trimEnd(), { parse_mode: "HTML" });
         remaining = remaining.slice(splitAt).trimStart();
       }
+    }
+
+    // If contacts were created, ask for social links
+    if (result.createdContactIds.length > 0) {
+      const chatId = ctx.chat!.id;
+
+      // Fetch names for created contacts
+      const contacts = await prisma.contact.findMany({
+        where: { id: { in: result.createdContactIds } },
+        select: { id: true, full_name: true },
+      });
+
+      // Set state to collect socials — store all contact IDs as a queue
+      setState(chatId, "awaiting_socials", {
+        contactId: result.createdContactIds[0],
+        pendingContactIds: result.createdContactIds.slice(1),
+      });
+
+      const namesList = contacts.map((c) => c.full_name);
+      const who = namesList.length === 1
+        ? namesList[0]
+        : namesList.join(", ");
+
+      await ctx.reply(
+        [
+          `📲 <b>Есть соцсети / контакты ${namesList.length > 1 ? "этих людей" : "этого человека"}?</b>`,
+          "",
+          `Отправь ссылки или юзернеймы для <b>${esc(contacts[0]?.full_name || who)}</b>`,
+          "(Telegram, Instagram, LinkedIn, WhatsApp — что угодно).",
+          "",
+          "Можно несколько — каждый с новой строки.",
+        ].join("\n"),
+        {
+          parse_mode: "HTML",
+          ...Markup.inlineKeyboard([
+            [Markup.button.callback("⏭ Пропустить", `socials_skip:${result.createdContactIds[0]}`)],
+          ]),
+        },
+      );
     }
   } catch (err) {
     const errDetail = err instanceof Error ? { message: err.message, stack: err.stack } : String(err);
