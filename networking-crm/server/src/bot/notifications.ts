@@ -2,6 +2,7 @@ import { Markup } from "telegraf";
 import prisma from "../lib/prisma";
 import { logger } from "../lib/logger";
 import { getBotInstance } from "./index";
+import { getStreak } from "./keyboards";
 import {
   esc,
   dayWord,
@@ -70,29 +71,6 @@ async function isQuietHours(): Promise<boolean> {
   } catch {
     return false;
   }
-}
-
-async function getStreak(): Promise<number> {
-  const yearAgo = new Date(Date.now() - 365 * 86400000);
-  const completed = await prisma.challenge.findMany({
-    where: { status: "completed", date: { gte: yearAgo } },
-    select: { date: true },
-  });
-  const completedDays = new Set(
-    completed.map((c: { date: Date }) => c.date.toISOString().slice(0, 10)),
-  );
-  let streak = 0;
-  const now = new Date();
-  now.setHours(0, 0, 0, 0);
-  for (let i = 0; i < 365; i++) {
-    const day = new Date(now.getTime() - i * 86400000);
-    if (completedDays.has(day.toISOString().slice(0, 10))) {
-      streak++;
-    } else {
-      break;
-    }
-  }
-  return streak;
 }
 
 // ── Morning briefing ──────────────────────────────────────

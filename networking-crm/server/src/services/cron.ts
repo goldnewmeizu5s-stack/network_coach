@@ -309,25 +309,41 @@ async function ensureDailyChallenge(): Promise<void> {
   }
 }
 
+const scheduledJobs: ReturnType<typeof cron.schedule>[] = [];
+
 export function startCron(): void {
   // Run daily at 08:00 UTC
-  cron.schedule("0 8 * * *", () => {
-    runDailyJob().catch((err) => logger.error("Cron error", { error: String(err) }));
-  });
+  scheduledJobs.push(
+    cron.schedule("0 8 * * *", () => {
+      runDailyJob().catch((err) => logger.error("Cron error", { error: String(err) }));
+    })
+  );
 
   // Follow-up reminders at 12:00 and 18:00 UTC
-  cron.schedule("0 12,18 * * *", () => {
-    sendFollowUpReminders().catch((err) =>
-      logger.error("Follow-up reminders cron error", { error: String(err) }),
-    );
-  });
+  scheduledJobs.push(
+    cron.schedule("0 12,18 * * *", () => {
+      sendFollowUpReminders().catch((err) =>
+        logger.error("Follow-up reminders cron error", { error: String(err) }),
+      );
+    })
+  );
 
   // Weekly digest on Mondays at 10:00 UTC
-  cron.schedule("0 10 * * 1", () => {
-    sendWeeklyDigest().catch((err) =>
-      logger.error("Weekly digest cron error", { error: String(err) }),
-    );
-  });
+  scheduledJobs.push(
+    cron.schedule("0 10 * * 1", () => {
+      sendWeeklyDigest().catch((err) =>
+        logger.error("Weekly digest cron error", { error: String(err) }),
+      );
+    })
+  );
 
   logger.info("[cron] Scheduled: daily 08:00, reminders 12:00/18:00, weekly Mon 10:00 UTC");
+}
+
+export function stopCron(): void {
+  for (const job of scheduledJobs) {
+    job.stop();
+  }
+  scheduledJobs.length = 0;
+  logger.info("[cron] All scheduled jobs stopped");
 }

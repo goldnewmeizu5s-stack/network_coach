@@ -14,7 +14,7 @@ if [ -n "$DATABASE_URL" ]; then
 fi
 
 echo "Running prisma db push..."
-npx prisma db push --schema=prisma/schema.prisma --accept-data-loss 2>&1 || echo "DB push warning, continuing..."
+npx prisma db push --schema=prisma/schema.prisma 2>&1 || echo "DB push warning, continuing..."
 
 echo "Running seed check..."
 node -e "

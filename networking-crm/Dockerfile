@@ -37,7 +37,11 @@ RUN npx prisma generate --schema=prisma/schema.prisma
 # Stage 4: Production
 FROM node:20-alpine
 WORKDIR /app
-RUN apk add --no-cache openssl
+RUN apk add --no-cache openssl curl
+
+# Create non-root user for security
+RUN addgroup -g 1001 -S appgroup && \
+    adduser -S appuser -u 1001 -G appgroup
 
 COPY --from=server-build /app/server/dist ./server/dist
 COPY --from=server-build /app/server/package.json ./server/
@@ -52,12 +56,17 @@ COPY --from=client-build /app/client/dist ./client/dist
 
 COPY --from=server-build /app/server/dist/seed ./server/dist/seed
 
-RUN mkdir -p /app/server/uploads
+RUN mkdir -p /app/server/uploads && chown -R appuser:appgroup /app
 
 COPY start.sh ./
 RUN chmod +x start.sh
 
+USER appuser
+
 ENV NODE_ENV=production
 EXPOSE 3001
+
+HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
+  CMD curl -f http://localhost:3001/api/health || exit 1
 
 CMD ["./start.sh"]
