@@ -23,6 +23,7 @@ export interface ExtractedContact {
   relationship_category: string;
   memory_summary: string | null;
   memory_hook: string | null;
+  met_date: string | null;
   is_update: boolean | null;
   follow_up_questions: string[];
 }

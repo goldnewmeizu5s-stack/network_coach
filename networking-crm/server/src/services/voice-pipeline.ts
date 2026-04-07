@@ -279,7 +279,7 @@ export async function createContact(extracted: Awaited<ReturnType<typeof extract
       memory_notes: extracted.memory_hook ? [extracted.memory_hook] : [],
       relationship_category: extracted.relationship_category,
       urgency_score: extracted.urgency_score,
-      met_date: new Date(),
+      met_date: extracted.met_date ? new Date(extracted.met_date) : new Date(),
       warmth_status: "new",
       last_interaction_at: new Date(),
     },
