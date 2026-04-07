@@ -189,6 +189,24 @@ async function updateExistingContact(
   contactId: string,
   extracted: Awaited<ReturnType<typeof extractContactData>>
 ) {
+  // If there's a new memory_hook, append it to existing memory_notes (avoid duplicates)
+  let memoryNotesUpdate = {};
+  if (extracted.memory_hook) {
+    const existing = await prisma.contact.findUnique({
+      where: { id: contactId },
+      select: { memory_notes: true },
+    });
+    const currentNotes = existing?.memory_notes || [];
+    // Avoid duplicates (case-insensitive check)
+    const hookLower = extracted.memory_hook.toLowerCase();
+    const isDuplicate = currentNotes.some(
+      (n) => n.toLowerCase() === hookLower
+    );
+    if (!isDuplicate) {
+      memoryNotesUpdate = { memory_notes: [...currentNotes, extracted.memory_hook] };
+    }
+  }
+
   await prisma.contact.update({
     where: { id: contactId },
     data: {
@@ -214,6 +232,7 @@ async function updateExistingContact(
       ...(extracted.relationship_category && {
         relationship_category: extracted.relationship_category,
       }),
+      ...memoryNotesUpdate,
       urgency_score: extracted.urgency_score,
       last_interaction_at: new Date(),
     },
@@ -253,6 +272,7 @@ export async function createContact(extracted: Awaited<ReturnType<typeof extract
       potential_synergies: extracted.potential_synergies,
       personality_notes: extracted.personality_notes,
       memory_summary: extracted.memory_summary,
+      memory_notes: extracted.memory_hook ? [extracted.memory_hook] : [],
       relationship_category: extracted.relationship_category,
       urgency_score: extracted.urgency_score,
       met_date: new Date(),

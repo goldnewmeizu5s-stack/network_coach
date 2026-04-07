@@ -248,6 +248,8 @@ export async function buildContactContext(
     contact.personality_notes &&
       `Personality notes: ${contact.personality_notes}`,
     contact.memory_summary && `AI Summary: ${contact.memory_summary}`,
+    contact.memory_notes.length > 0 &&
+      `Memory hooks: ${contact.memory_notes.join(" | ")}`,
     contact.personal_notes && `My notes: ${contact.personal_notes}`,
     contact.relationship_category &&
       `Category: ${contact.relationship_category}`,

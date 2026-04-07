@@ -39,6 +39,7 @@ model Contact {
   memory_summary      String?
   relationship_category String?
   social_links        Json?
+  memory_notes        String[]
   personal_notes      String?
   warmth_status       String   @default("new")
   warmth_score        Float    @default(0)

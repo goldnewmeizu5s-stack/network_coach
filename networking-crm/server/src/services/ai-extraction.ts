@@ -29,9 +29,19 @@ Extract the following into structured JSON (use null for unknown fields):
   "urgency_score": 5,
   "relationship_category": "business|friendship|mentor|connector|investor|creative|other",
   "memory_summary": "short portrait of this person",
+  "memory_hook": "one tiny personal detail to remember — the kind of thing that makes you 'their person'",
   "is_update": false,
   "follow_up_questions": ["question1", "question2"]
 }
+
+STYLE for memory_hook (VERY IMPORTANT):
+- Extract ONE tiny, personal, memorable detail about this person — something most people would forget
+- This is the kind of detail that, when you remember it months later, makes the person feel truly seen
+- Examples: "любит горький шоколад Lindt 85% — отец привозил из командировок", "собака Рекс болеет", "мечтает переехать в Лиссабон", "не пьёт кофе, только матча", "дочка идёт в первый класс в сентябре"
+- Keep it SHORT — one sentence max, like a sticky note to yourself
+- Focus on: personal stories, family details, habits, dreams, health, pets, food preferences, emotional moments
+- Do NOT repeat what's already in memory_summary — this is about the HUMAN side, not the professional side
+- If nothing personal was mentioned, return null — don't force it
 
 STYLE for memory_summary (VERY IMPORTANT):
 - Write 2-4 SHORT sentences. No fluff, no "beautiful words", no filler.
@@ -127,6 +137,7 @@ export async function extractContactData(
             : 5,
         relationship_category: parsed.relationship_category ?? "other",
         memory_summary: parsed.memory_summary ?? null,
+        memory_hook: parsed.memory_hook ?? null,
         is_update: parsed.is_update ?? null,
         follow_up_questions: Array.isArray(parsed.follow_up_questions)
           ? parsed.follow_up_questions.filter((q: unknown) => typeof q === "string")
@@ -175,11 +186,21 @@ Return a JSON object with the following structure:
       "urgency_score": 5,
       "relationship_category": "business|friendship|mentor|connector|investor|creative|other",
       "memory_summary": "short portrait of this person",
+      "memory_hook": "one tiny personal detail to remember",
       "is_update": false,
       "follow_up_questions": []
     }
   ]
 }
+
+STYLE for memory_hook (VERY IMPORTANT):
+- Extract ONE tiny, personal, memorable detail about this person — something most people would forget
+- This is the kind of detail that, when you remember it months later, makes the person feel truly seen
+- Examples: "любит горький шоколад Lindt 85% — отец привозил из командировок", "собака Рекс болеет", "мечтает переехать в Лиссабон", "не пьёт кофе, только матча"
+- Keep it SHORT — one sentence max, like a sticky note to yourself
+- Focus on: personal stories, family details, habits, dreams, health, pets, food preferences, emotional moments
+- Do NOT repeat what's already in memory_summary — this is about the HUMAN side, not the professional side
+- If nothing personal was mentioned, return null
 
 IMPORTANT RULES:
 - If the transcript mentions MULTIPLE people, create a SEPARATE entry in the "contacts" array for EACH person
@@ -276,6 +297,7 @@ export async function extractMultipleContacts(
               : 5,
           relationship_category: (p.relationship_category as string) ?? "other",
           memory_summary: (p.memory_summary as string) ?? null,
+          memory_hook: (p.memory_hook as string) ?? null,
           is_update: p.is_update === true ? true : p.is_update === false ? false : null,
           follow_up_questions: Array.isArray(p.follow_up_questions)
             ? (p.follow_up_questions as unknown[]).filter((q): q is string => typeof q === "string")
