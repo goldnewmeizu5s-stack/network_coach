@@ -110,19 +110,21 @@ export default function FollowUpCard({ item, onRemoved, compact }: Props) {
   return (
     <>
       <div
-        className={`rounded-2xl bg-card p-3 transition-all duration-300 ${
+        className={`rounded-2xl bg-card border border-white/[0.04] p-3.5 transition-all duration-300 ${
           removing ? "max-h-0 scale-95 opacity-0" : "max-h-96 opacity-100"
         }`}
       >
         {/* Top row: avatar + contact name + due date */}
         <div
-          className="flex items-center gap-3 mb-2 cursor-pointer"
+          className="flex items-center gap-3 mb-2.5 cursor-pointer"
           onClick={() => navigate(`/people/${item.contact_id}`)}
         >
           <div
-            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-xs font-bold text-white overflow-hidden"
+            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-xs font-bold text-white overflow-hidden"
             style={{
-              backgroundColor: getWarmthColor(item.contact.warmth_status),
+              backgroundColor: getWarmthColor(item.contact.warmth_status) + "33",
+              color: getWarmthColor(item.contact.warmth_status),
+              boxShadow: `0 0 0 2px ${getWarmthColor(item.contact.warmth_status)}, 0 0 10px ${getWarmthColor(item.contact.warmth_status)}20`,
             }}
           >
             {item.contact.photo_url && !imgFailed ? (
@@ -139,17 +141,23 @@ export default function FollowUpCard({ item, onRemoved, compact }: Props) {
             )}
           </div>
           <div className="min-w-0 flex-1">
-            <p className="truncate text-sm font-medium text-white">
+            <p className="truncate text-[15px] font-semibold text-white leading-tight">
               {item.contact.full_name}
             </p>
           </div>
-          <span className="text-xs font-medium" style={{ color: dateInfo.color }}>
+          <span
+            className="shrink-0 rounded-md px-2 py-0.5 text-[10px] font-semibold"
+            style={{
+              color: dateInfo.color,
+              backgroundColor: dateInfo.color + "18",
+            }}
+          >
             {dateInfo.text}
           </span>
         </div>
 
         {/* Action text */}
-        <p className={`text-sm text-neutral-300 ${compact ? "line-clamp-2" : ""} mb-3`}>
+        <p className={`text-sm text-neutral-300 leading-relaxed ${compact ? "line-clamp-2" : ""} mb-3`}>
           {item.suggested_action}
         </p>
 

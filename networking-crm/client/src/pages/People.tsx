@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import { api } from "../lib/api";
-import { getWarmthColor, getInitials, timeAgo } from "../lib/warmth";
+import { getWarmthColor, getInitials, timeAgo, WARMTH_LABELS } from "../lib/warmth";
 import { countryCodeToFlag, getCountryLabel } from "../lib/countries";
 import { useDebounce } from "../lib/useDebounce";
 import { SkeletonList } from "../components/Skeleton";
@@ -608,20 +608,26 @@ function ContactCard({
       <div className="absolute right-0 top-0 flex h-full items-stretch">
         <button
           onClick={onPause}
-          className="flex w-[70px] items-center justify-center bg-neutral-600 text-xs font-medium text-white"
+          className="flex w-[70px] flex-col items-center justify-center gap-1 bg-neutral-600 text-white"
         >
-          Пауза
+          <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M10 9v6m4-6v6m7-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+          </svg>
+          <span className="text-[10px] font-medium">Пауза</span>
         </button>
         <button
           onClick={onArchive}
-          className="flex w-[70px] items-center justify-center bg-red-600 text-xs font-medium text-white"
+          className="flex w-[70px] flex-col items-center justify-center gap-1 bg-red-600 text-white"
         >
-          Архив
+          <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
+          </svg>
+          <span className="text-[10px] font-medium">Архив</span>
         </button>
       </div>
       <div
-        className={`relative flex items-center gap-3 bg-card p-3 transition-transform ${
-          selected ? "ring-2 ring-accent" : ""
+        className={`relative flex items-center gap-3 bg-card border border-white/[0.04] p-3.5 transition-transform ${
+          selected ? "ring-2 ring-accent border-accent/30" : ""
         }`}
         style={{ transform: `translateX(${offset}px)`, touchAction: "pan-y", willChange: offset !== 0 ? "transform" : "auto" }}
         onTouchStart={handleTouchStart}
@@ -648,14 +654,13 @@ function ContactCard({
           </div>
         )}
 
-        {/* Avatar with warmth ring */}
+        {/* Avatar with warmth ring + glow */}
         <div
-          className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-sm font-bold text-white ring-2 overflow-hidden"
+          className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full text-sm font-bold text-white overflow-hidden"
           style={{
             backgroundColor: warmthColor + "33",
             color: warmthColor,
-            borderColor: warmthColor,
-            boxShadow: `0 0 0 2px ${warmthColor}`,
+            boxShadow: `0 0 0 2.5px ${warmthColor}, 0 0 12px ${warmthColor}25`,
           }}
         >
           {c.photo_url && !imgFailed ? (
@@ -675,7 +680,7 @@ function ContactCard({
         {/* Info */}
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-1.5">
-            <p className="truncate text-sm font-medium text-white">
+            <p className="truncate text-[15px] font-semibold text-white leading-tight">
               {c.full_name}
             </p>
             {(c.met_country || c.origin_country) && (
@@ -686,33 +691,57 @@ function ContactCard({
                 ].filter(Boolean).join(" | ")
               }>
                 {c.met_country && countryCodeToFlag(c.met_country)}
-                {c.met_country && c.origin_country && "/"}
-                {c.origin_country && countryCodeToFlag(c.origin_country)}
+                {c.origin_country && c.met_country !== c.origin_country && (
+                  <>{" "}{countryCodeToFlag(c.origin_country)}</>
+                )}
               </span>
             )}
+          </div>
+          <div className="mt-0.5 flex items-center gap-1.5">
+            <p className="truncate text-xs text-neutral-500">
+              {[c.occupation, c.company].filter(Boolean).join(" @ ") || "\u2014"}
+            </p>
             {c.relationship_category && (
-              <span className="shrink-0 rounded bg-neutral-700 px-1.5 py-0.5 text-[9px] text-neutral-400">
+              <span
+                className="shrink-0 rounded-md px-1.5 py-0.5 text-[9px] font-medium"
+                style={{
+                  backgroundColor: warmthColor + "18",
+                  color: warmthColor,
+                }}
+              >
                 {CAT_LABELS[c.relationship_category] || c.relationship_category}
               </span>
             )}
           </div>
-          <p className="truncate text-xs text-neutral-400">
-            {[c.occupation, c.company].filter(Boolean).join(" @ ") || "\u2014"}
-          </p>
-          {/* Warmth bar */}
-          <div className="mt-1.5 h-1 w-full overflow-hidden rounded-full bg-neutral-700">
-            <div
-              className="h-full rounded-full transition-all"
-              style={{
-                width: `${c.warmth_score}%`,
-                backgroundColor: warmthColor,
-              }}
-            />
+          {/* Memory preview */}
+          {c.memory_summary && (
+            <p className="mt-1 truncate text-[11px] text-neutral-400 italic">
+              {c.memory_summary}
+            </p>
+          )}
+          {/* Warmth bar + label */}
+          <div className="mt-2 flex items-center gap-2">
+            <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-neutral-700/60">
+              <div
+                className="h-full rounded-full transition-all"
+                style={{
+                  width: `${c.warmth_score}%`,
+                  backgroundColor: warmthColor,
+                  boxShadow: `0 0 6px ${warmthColor}60`,
+                }}
+              />
+            </div>
+            <span
+              className="shrink-0 text-[10px] font-medium"
+              style={{ color: warmthColor }}
+            >
+              {WARMTH_LABELS[c.warmth_status] || c.warmth_status}
+            </span>
           </div>
         </div>
 
-        {/* Right */}
-        <div className="flex shrink-0 flex-col items-end gap-1">
+        {/* Right - time */}
+        <div className="flex shrink-0 flex-col items-end gap-1.5 self-start pt-0.5">
           <span className="text-[10px] text-neutral-500">
             {timeAgo(c.last_interaction_at || c.created_at)}
           </span>
