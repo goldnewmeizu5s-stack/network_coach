@@ -142,6 +142,7 @@ router.get("/", async (req, res, next) => {
           warmth_score: true,
           relationship_category: true,
           memory_summary: true,
+          location_status: true,
           last_interaction_at: true,
           created_at: true,
         },
@@ -539,6 +540,35 @@ router.delete("/:id", async (req, res, next) => {
       });
       res.json({ archived: true });
     }
+  } catch (err) {
+    next(err);
+  }
+});
+
+// PUT /api/contacts/:id/location-status
+router.put("/:id/location-status", async (req, res, next) => {
+  try {
+    const { location_status } = req.body;
+    if (!["confirmed", "not_here", null].includes(location_status)) {
+      res.status(400).json({ error: "location_status must be 'confirmed', 'not_here', or null" });
+      return;
+    }
+
+    const contact = await prisma.contact.findUnique({
+      where: { id: req.params.id },
+      select: { id: true },
+    });
+    if (!contact) {
+      res.status(404).json({ error: "Contact not found" });
+      return;
+    }
+
+    const updated = await prisma.contact.update({
+      where: { id: req.params.id },
+      data: { location_status },
+    });
+
+    res.json(updated);
   } catch (err) {
     next(err);
   }

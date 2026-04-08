@@ -101,6 +101,16 @@ button, a, input, textarea, [role="button"] {
   animation: shimmer 1.5s infinite;
 }
 
+/* Golden glow pulse for location-matched contacts */
+@keyframes golden-pulse {
+  0%, 100% { box-shadow: 0 0 0 2.5px #fbbf24, 0 0 12px rgba(251, 191, 36, 0.3); }
+  50% { box-shadow: 0 0 0 2.5px #fbbf24, 0 0 20px rgba(251, 191, 36, 0.5); }
+}
+
+.animate-golden-pulse {
+  animation: golden-pulse 2s ease-in-out infinite;
+}
+
 /* Scrollbar hide utility */
 .scrollbar-none::-webkit-scrollbar {
   display: none;

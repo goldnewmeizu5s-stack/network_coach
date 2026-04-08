@@ -10,7 +10,7 @@ export function countryCodeToFlag(code: string): string {
 }
 
 // Common country names (Russian) for display
-const COUNTRY_NAMES: Record<string, string> = {
+export const COUNTRY_NAMES: Record<string, string> = {
   RU: "Россия",
   UA: "Украина",
   BY: "Беларусь",
