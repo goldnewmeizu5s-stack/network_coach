@@ -10,7 +10,8 @@ Extract the following into structured JSON (use null for unknown fields):
 {
   "full_name": "string or null",
   "nickname": "string or null",
-  "where_met": "event, location, context or null",
+  "where_met": "event, location, context or null (do NOT include time references like '2 месяца назад' here — put timing into met_date)",
+  "met_date": "ISO 8601 date string (YYYY-MM-DD) when the meeting took place, or null. If the user mentions a relative time like '2 месяца назад', 'неделю назад', 'вчера', 'на прошлой неделе', 'в январе', calculate the actual date relative to today's date. Today is {{TODAY}}.",
   "occupation": "short role description or null",
   "company": "string or null",
   "city": "string or null",
@@ -87,13 +88,14 @@ export async function extractContactData(
   const backoff = [2000, 6000];
 
   // Load user context for smarter extraction
-  let systemPrompt = SYSTEM_PROMPT;
+  const todayStr = new Date().toISOString().slice(0, 10);
+  let systemPrompt = SYSTEM_PROMPT.replace("{{TODAY}}", todayStr);
   try {
     const user = await prisma.user.findFirst();
     const prefs = (user?.preferences as Record<string, unknown>) || {};
     const navigatorPrompt = prefs.navigator_prompt as string | undefined;
     if (navigatorPrompt) {
-      systemPrompt = `${SYSTEM_PROMPT}\n\n--- USER CONTEXT ---\n${navigatorPrompt}`;
+      systemPrompt = `${systemPrompt}\n\n--- USER CONTEXT ---\n${navigatorPrompt}`;
     }
   } catch { /* use default prompt if DB fails */ }
 
@@ -142,6 +144,7 @@ export async function extractContactData(
         relationship_category: parsed.relationship_category ?? "other",
         memory_summary: parsed.memory_summary ?? null,
         memory_hook: parsed.memory_hook ?? null,
+        met_date: typeof parsed.met_date === "string" ? parsed.met_date : null,
         is_update: parsed.is_update ?? null,
         follow_up_questions: Array.isArray(parsed.follow_up_questions)
           ? parsed.follow_up_questions.filter((q: unknown) => typeof q === "string")
@@ -171,7 +174,8 @@ Return a JSON object with the following structure:
     {
       "full_name": "string or null",
       "nickname": "string or null",
-      "where_met": "event, location, context or null",
+      "where_met": "event, location, context or null (do NOT include time references like '2 месяца назад' here — put timing into met_date)",
+      "met_date": "ISO 8601 date string (YYYY-MM-DD) when the meeting took place, or null. If the user mentions a relative time like '2 месяца назад', 'неделю назад', 'вчера', 'на прошлой неделе', 'в январе', calculate the actual date relative to today's date. Today is {{TODAY}}.",
       "occupation": "short role description or null",
       "company": "string or null",
       "city": "string or null",
@@ -250,13 +254,14 @@ export async function extractMultipleContacts(
   const maxRetries = 2;
   const backoff = [2000, 6000];
 
-  let systemPrompt = MULTI_PERSON_PROMPT;
+  const todayStr = new Date().toISOString().slice(0, 10);
+  let systemPrompt = MULTI_PERSON_PROMPT.replace("{{TODAY}}", todayStr);
   try {
     const user = await prisma.user.findFirst();
     const prefs = (user?.preferences as Record<string, unknown>) || {};
     const navigatorPrompt = prefs.navigator_prompt as string | undefined;
     if (navigatorPrompt) {
-      systemPrompt = `${MULTI_PERSON_PROMPT}\n\n--- USER CONTEXT ---\n${navigatorPrompt}`;
+      systemPrompt = `${systemPrompt}\n\n--- USER CONTEXT ---\n${navigatorPrompt}`;
     }
   } catch { /* use default prompt if DB fails */ }
 
@@ -306,6 +311,7 @@ export async function extractMultipleContacts(
           relationship_category: (p.relationship_category as string) ?? "other",
           memory_summary: (p.memory_summary as string) ?? null,
           memory_hook: (p.memory_hook as string) ?? null,
+          met_date: typeof p.met_date === "string" ? (p.met_date as string) : null,
           is_update: p.is_update === true ? true : p.is_update === false ? false : null,
           follow_up_questions: Array.isArray(p.follow_up_questions)
             ? (p.follow_up_questions as unknown[]).filter((q): q is string => typeof q === "string")

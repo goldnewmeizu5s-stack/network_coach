@@ -328,6 +328,10 @@ const TOOLS: Anthropic.Tool[] = [
           type: "string",
           description: "Any other notes about the contact (optional)",
         },
+        met_date: {
+          type: "string",
+          description: "Date when they met, in ISO 8601 format YYYY-MM-DD. If user says a relative time like '2 months ago', calculate the actual date. (optional)",
+        },
       },
       required: ["full_name"],
     },
@@ -952,7 +956,7 @@ async function executeTool(
             personal_notes: (input.personal_notes as string) || null,
             warmth_status: "new",
             warmth_score: 0,
-            met_date: new Date(),
+            met_date: input.met_date ? new Date(input.met_date as string) : new Date(),
             last_interaction_at: new Date(),
           },
         });
@@ -1076,10 +1080,11 @@ export async function routeCommand(message: string): Promise<RouteResult> {
   // Build CRM context
   const crmContext = await buildChatContext();
 
+  const todayStr = new Date().toISOString().slice(0, 10);
   const systemPrompt = ROUTER_SYSTEM_PROMPT.replace(
     "{crm_context}",
     crmContext,
-  );
+  ) + `\n\nToday's date is ${todayStr}. When the user mentions relative times like "2 месяца назад", "вчера", "на прошлой неделе", calculate the actual date for the met_date field.`;
 
   let messages: Anthropic.MessageParam[] = [
     { role: "user", content: message },
