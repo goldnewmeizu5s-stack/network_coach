@@ -96,6 +96,11 @@ export default function People() {
   // User location for matching
   const [userCountry, setUserCountry] = useState("");
 
+  // Archived contacts section
+  const [showArchived, setShowArchived] = useState(false);
+  const [archivedContacts, setArchivedContacts] = useState<ContactListItem[]>([]);
+  const [archivedLoading, setArchivedLoading] = useState(false);
+
   // Batch selection
   const [selectMode, setSelectMode] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -203,10 +208,33 @@ export default function People() {
     return () => obs.disconnect();
   }, [hasMore, loadingMore, loadMore]);
 
+  const fetchArchived = useCallback(async () => {
+    setArchivedLoading(true);
+    try {
+      const data = await api.get<ContactsResponse>(
+        `/contacts?status=archived&limit=100`
+      );
+      setArchivedContacts(data.contacts);
+    } catch {
+      /* ignore */
+    } finally {
+      setArchivedLoading(false);
+    }
+  }, []);
+
+  const toggleArchived = () => {
+    if (!showArchived) {
+      fetchArchived();
+    }
+    setShowArchived((v) => !v);
+  };
+
   const handleArchive = async (id: string) => {
     await api.del(`/contacts/${id}`);
     setContacts((prev) => prev.filter((c) => c.id !== id));
     fetchCounts();
+    // Refresh archived section if visible
+    if (showArchived) fetchArchived();
   };
 
   const handlePause = async (id: string) => {
@@ -533,6 +561,79 @@ export default function People() {
           {loadingMore && (
             <div className="flex justify-center py-4">
               <div className="h-6 w-6 animate-spin rounded-full border-2 border-accent border-t-transparent" />
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Archived contacts section */}
+      {!loading && !loadError && !filter && (counts.archived ?? 0) > 0 && (
+        <div className="mt-4 mb-2">
+          <button
+            onClick={toggleArchived}
+            className="flex w-full items-center gap-2 rounded-xl bg-card px-4 py-3 text-sm text-neutral-500 active:bg-neutral-800"
+          >
+            <svg
+              className={`h-4 w-4 transition-transform ${showArchived ? "rotate-90" : ""}`}
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+              strokeWidth={2}
+            >
+              <path strokeLinecap="round" strokeLinejoin="round" d="m9 5 7 7-7 7" />
+            </svg>
+            <span>Архив</span>
+            <span className="ml-auto text-xs text-neutral-600">
+              {counts.archived}
+            </span>
+          </button>
+
+          {showArchived && (
+            <div className="mt-2 flex flex-col gap-2">
+              {archivedLoading ? (
+                <div className="flex justify-center py-4">
+                  <div className="h-6 w-6 animate-spin rounded-full border-2 border-neutral-600 border-t-transparent" />
+                </div>
+              ) : archivedContacts.length === 0 ? (
+                <p className="py-3 text-center text-xs text-neutral-600">
+                  Нет архивных контактов
+                </p>
+              ) : (
+                <AnimatePresence>
+                  {archivedContacts.map((c, i) => (
+                    <motion.div
+                      key={c.id}
+                      initial={{ opacity: 0, y: 10 }}
+                      animate={{ opacity: 0.6, y: 0 }}
+                      exit={{ opacity: 0, x: 80 }}
+                      transition={{ duration: 0.2, delay: Math.min(i * 0.03, 0.15) }}
+                    >
+                      <ContactCard
+                        contact={c}
+                        selected={selected.has(c.id)}
+                        selectMode={selectMode}
+                        userCountry={userCountry}
+                        onTap={() => {
+                          if (selectMode) {
+                            toggleSelect(c.id);
+                          } else {
+                            navigate(`/people/${c.id}`);
+                          }
+                        }}
+                        onLongPress={() => {
+                          if (!selectMode) {
+                            setSelectMode(true);
+                            setSelected(new Set([c.id]));
+                          }
+                        }}
+                        onArchive={() => handleArchive(c.id)}
+                        onPause={() => handlePause(c.id)}
+                        onLocationStatus={(status) => handleLocationStatus(c.id, status)}
+                      />
+                    </motion.div>
+                  ))}
+                </AnimatePresence>
+              )}
             </div>
           )}
         </div>
