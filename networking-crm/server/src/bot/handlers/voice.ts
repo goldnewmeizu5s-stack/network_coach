@@ -527,7 +527,7 @@ export async function handleContactAnswerText(ctx: Context, text: string) {
   if (!state || state.action !== "awaiting_contact_answer") return;
 
   const originalText = state.data.originalText as string;
-  const answers = state.data.answers as string[];
+  const answers = [...(state.data.answers as string[])];
   const questions = state.data.questions as string[];
   const currentIndex = state.data.currentQuestionIndex as number;
   const interactionId = state.data.interactionId as string;

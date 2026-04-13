@@ -136,6 +136,11 @@ router.post("/bulk", async (req, res, next) => {
 // DELETE /api/methodologies/:id
 router.delete("/:id", async (req, res, next) => {
   try {
+    const existing = await prisma.methodology.findUnique({ where: { id: req.params.id } });
+    if (!existing) {
+      res.status(404).json({ error: "Methodology not found" });
+      return;
+    }
     await prisma.methodology.delete({ where: { id: req.params.id } });
     res.json({ deleted: true });
   } catch (err) {
