@@ -6,6 +6,7 @@ import {
   generateDailyChallenge,
   generateAlternativeChallenges,
   generateBonusChallenge,
+  generateFlexibleChallenges,
 } from "../../services/challenge-engine";
 import { setState, getState, clearState } from "../state";
 import {
@@ -47,6 +48,7 @@ export function registerChallengeHandlers(bot: Telegraf) {
   bot.action(/^challenge_hist_day:(-?\d+)$/, handleHistoryDay);
   bot.action(/^challenge_pref:(easier|harder)$/, handleDifficultyPref);
   bot.action(/^challenge_share:(.+)$/, handleShare);
+  bot.action(/^challenge_pick:(.+)$/, handlePickTier);
 }
 
 // ── Helpers ───────────────────────────────────────────────
@@ -123,6 +125,99 @@ async function getDifficultyPref(): Promise<string | null> {
   return (prefs.difficulty_pref as string) || null;
 }
 
+// ── Tier rendering ────────────────────────────────────────
+
+const TIER_EMOJI: Record<string, string> = {
+  quick: "⚡",
+  normal: "🎯",
+  stretch: "🔥",
+};
+
+const TIER_LABEL: Record<string, string> = {
+  quick: "Быстрый",
+  normal: "Обычный",
+  stretch: "Амбициозный",
+};
+
+function renderTierMenu(
+  challenges: ChallengeWithMethod[],
+  streak: number,
+  rankInfo: ReturnType<typeof getRankInfo>,
+): string {
+  const lines: string[] = [
+    "🎯 <b>Челлендж дня — выбери уровень!</b>",
+    divider(),
+    "",
+  ];
+
+  const tierOrder = ["quick", "normal", "stretch"];
+
+  for (const tier of tierOrder) {
+    const ch = challenges.find((c: any) => c.tier === tier);
+    if (!ch) continue;
+
+    const emoji = TIER_EMOJI[tier] || "🎯";
+    const label = TIER_LABEL[tier] || tier;
+    const catEmoji = CATEGORY_EMOJI[ch.category] || "🎯";
+    const time = ch.estimated_time_minutes
+      ? `~${ch.estimated_time_minutes} мин`
+      : "";
+    const diffLabel = difficultyLabel(ch.difficulty);
+
+    lines.push(`${emoji} <b>${label}</b> · ${diffLabel} · ${time}`);
+    lines.push(`${catEmoji} ${esc(ch.title)}`);
+    lines.push(`<i>${esc(ch.description)}</i>`);
+    lines.push("");
+  }
+
+  lines.push(thinDivider());
+
+  const footerParts: string[] = [];
+  if (streak > 0) {
+    footerParts.push(`🔥 ${streak} ${dayWord(streak)}`);
+  }
+  footerParts.push(rankBadge(rankInfo));
+  lines.push(footerParts.join("  ·  "));
+  lines.push(xpProgressBar(rankInfo));
+
+  return lines.join("\n");
+}
+
+function tierMenuButtons(
+  challenges: ChallengeWithMethod[],
+): ReturnType<typeof Markup.button.callback>[][] {
+  const tierOrder = ["quick", "normal", "stretch"];
+  const rows: ReturnType<typeof Markup.button.callback>[][] = [];
+
+  // One button per tier
+  const tierRow: ReturnType<typeof Markup.button.callback>[] = [];
+  for (const tier of tierOrder) {
+    const ch = challenges.find((c: any) => c.tier === tier);
+    if (!ch) continue;
+    const emoji = TIER_EMOJI[tier] || "🎯";
+    const label = TIER_LABEL[tier] || tier;
+    tierRow.push(
+      Markup.button.callback(`${emoji} ${label}`, `challenge_pick:${ch.id}`),
+    );
+  }
+  rows.push(tierRow);
+
+  rows.push([
+    Markup.button.callback("📉 Полегче", "challenge_pref:easier"),
+    Markup.button.callback("📈 Потруднее", "challenge_pref:harder"),
+  ]);
+  rows.push([
+    Markup.button.callback("⭐ Бонус", "challenge_bonus"),
+    Markup.button.callback("📅 История", "challenge_history"),
+  ]);
+  rows.push([
+    Markup.button.callback("📊 Статистика", "challenge_stats"),
+    Markup.button.callback("🏠 Меню", "main_menu"),
+  ]);
+
+  return rows;
+}
+
 // ── Card rendering ────────────────────────────────────────
 
 interface ChallengeWithMethod {
@@ -131,6 +226,7 @@ interface ChallengeWithMethod {
   description: string;
   category: string;
   difficulty: number;
+  tier?: string;
   status: string;
   rating: number | null;
   reflection: string | null;
@@ -278,16 +374,40 @@ async function handleChallengeMenu(ctx: Context) {
     await ctx.answerCbQuery();
 
     const { start, end } = todayRange();
+
+    // Check if user already has an accepted/completed challenge today
+    const activeChallenge = await prisma.challenge.findFirst({
+      where: {
+        date: { gte: start, lt: end },
+        is_bonus: false,
+        status: { in: ["accepted", "completed"] },
+      },
+      include: { methodology: { select: { title: true, source: true } } },
+    });
+
+    if (activeChallenge) {
+      // Show the active challenge card as before
+      const [streak, totalXp] = await Promise.all([getStreak(), getTotalXp()]);
+      const rankInfo = getRankInfo(totalXp);
+      const text = renderChallengeCard(activeChallenge, streak, rankInfo);
+      await editOrReply(ctx, text, challengeButtons(activeChallenge));
+      return;
+    }
+
+    // Load or generate flexible challenges (3 tiers)
     let challenges = await prisma.challenge.findMany({
-      where: { date: { gte: start, lt: end }, is_bonus: false },
+      where: { date: { gte: start, lt: end }, is_bonus: false, status: "pending" },
       include: { methodology: { select: { title: true, source: true } } },
       orderBy: { created_at: "asc" },
     });
 
-    if (challenges.length === 0) {
-      const main = await generateDailyChallenge();
-      const alts = await generateAlternativeChallenges();
-      const ids = [main.id, ...alts.map((a: { id: string }) => a.id)];
+    // Check if we have the 3-tier format (quick/normal/stretch)
+    const hasTiers = challenges.some((c: any) => c.tier === "quick") &&
+                     challenges.some((c: any) => c.tier === "stretch");
+
+    if (challenges.length === 0 || !hasTiers) {
+      const generated = await generateFlexibleChallenges();
+      const ids = generated.map((c: { id: string }) => c.id);
       challenges = await prisma.challenge.findMany({
         where: { id: { in: ids } },
         include: { methodology: { select: { title: true, source: true } } },
@@ -295,22 +415,18 @@ async function handleChallengeMenu(ctx: Context) {
       });
     }
 
-    const main = challenges[0];
-    if (!main) {
-      await ctx.reply("❌ Не удалось загрузить челлендж.");
+    if (challenges.length === 0) {
+      await ctx.reply("❌ Не удалось загрузить челленджи.");
       return;
     }
 
     const [streak, totalXp] = await Promise.all([getStreak(), getTotalXp()]);
     const rankInfo = getRankInfo(totalXp);
-    const text = renderChallengeCard(main, streak, rankInfo);
 
-    if (main.status === "skipped" || main.status === "too_hard") {
-      const label = main.status === "skipped" ? "⏭ Пропущено" : "😰 Слишком сложно";
-      await editOrReply(ctx, text + `\n\n${label}`, challengeButtons(main));
-    } else {
-      await editOrReply(ctx, text, challengeButtons(main));
-    }
+    // Render tier selection menu
+    const text = renderTierMenu(challenges, streak, rankInfo);
+    const buttons = tierMenuButtons(challenges);
+    await editOrReply(ctx, text, buttons);
   } catch (err) {
     logger.error("challenge menu error", { error: String(err) });
     await ctx.reply(`❌ Ошибка загрузки челленджа:\n\n<pre>${fmtError(err)}</pre>`, { parse_mode: "HTML" });
@@ -345,38 +461,37 @@ async function handleAccept(ctx: Context) {
   }
 }
 
-async function handleAnother(ctx: Context) {
-  try {
-    await ctx.answerCbQuery();
+async function handlePickTier(ctx: Context) {
+  const match = (ctx as any).match as RegExpMatchArray;
+  const id = match[1];
 
-    const { start, end } = todayRange();
-    const challenges = await prisma.challenge.findMany({
-      where: { date: { gte: start, lt: end }, status: "pending", is_bonus: false },
-      include: { methodology: { select: { title: true, source: true } } },
-      orderBy: { created_at: "asc" },
+  try {
+    await ctx.answerCbQuery("💪 Отличный выбор!");
+
+    await prisma.challenge.update({
+      where: { id },
+      data: { status: "accepted" },
     });
 
-    const pendingAlts = challenges.slice(1);
-    const alt = pendingAlts[0];
-
-    if (!alt) {
-      await ctx.reply("Это последний вариант на сегодня 🤷", {
-        parse_mode: "HTML",
-        ...Markup.inlineKeyboard([
-          [Markup.button.callback("🏠 Меню", "main_menu")],
-        ]),
-      });
-      return;
-    }
+    const ch = await prisma.challenge.findUnique({
+      where: { id },
+      include: { methodology: { select: { title: true, source: true } } },
+    });
+    if (!ch) return;
 
     const [streak, totalXp] = await Promise.all([getStreak(), getTotalXp()]);
     const rankInfo = getRankInfo(totalXp);
-    const text = renderChallengeCard(alt, streak, rankInfo);
-    await editOrReply(ctx, text, challengeButtons(alt));
+    const text = renderChallengeCard(ch, streak, rankInfo);
+    await editOrReply(ctx, text, challengeButtons(ch));
   } catch (err) {
-    logger.error("challenge another error", { error: String(err) });
-    await ctx.reply(`❌ Ошибка загрузки альтернативы:\n\n<pre>${fmtError(err)}</pre>`, { parse_mode: "HTML" });
+    logger.error("challenge pick tier error", { error: String(err) });
+    await ctx.reply(`❌ Ошибка:\n\n<pre>${fmtError(err)}</pre>`, { parse_mode: "HTML" });
   }
+}
+
+async function handleAnother(ctx: Context) {
+  // Redirect to the tier selection menu
+  return handleChallengeMenu(ctx);
 }
 
 async function handleTooHard(ctx: Context) {
