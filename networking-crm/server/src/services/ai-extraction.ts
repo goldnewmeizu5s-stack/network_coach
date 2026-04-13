@@ -109,7 +109,7 @@ export async function extractContactData(
       });
 
       let text =
-        message.content[0].type === "text" ? message.content[0].text : "";
+        message.content[0]?.type === "text" ? message.content[0].text : "";
 
       // Strip markdown code blocks if AI wraps JSON in ```json ... ```
       text = text.trim();
@@ -275,7 +275,7 @@ export async function extractMultipleContacts(
       });
 
       let text =
-        message.content[0].type === "text" ? message.content[0].text : "";
+        message.content[0]?.type === "text" ? message.content[0].text : "";
 
       text = text.trim();
       if (text.startsWith("```")) {
@@ -478,7 +478,7 @@ export async function extractBatchActivity(
       });
 
       let text =
-        message.content[0].type === "text" ? message.content[0].text : "";
+        message.content[0]?.type === "text" ? message.content[0].text : "";
 
       text = text.trim();
       if (text.startsWith("```")) {

@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { api } from "../lib/api";
 import { getWarmthColor, getInitials } from "../lib/warmth";
@@ -85,7 +85,7 @@ export default function FollowUpCard({ item, onRemoved, compact }: Props) {
     setImgFailed(false);
   }, [item.contact.photo_url]);
 
-  const lastCopied = { current: "" };
+  const lastCopied = useRef("");
 
   const copyText = async (text: string) => {
     try {

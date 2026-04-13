@@ -51,7 +51,7 @@ router.post("/upload", upload.single("audio"), async (req, res, next) => {
     // Create interaction + audio file records
     const interaction = await prisma.interaction.create({
       data: {
-        type: mode === "batch_activity" ? "voice_note" : "voice_note",
+        type: "voice_note",
         content: mode === "batch_activity" ? JSON.stringify({ mode: "batch_activity" }) : null,
         ...(contactId && { contact_id: contactId }),
       },
