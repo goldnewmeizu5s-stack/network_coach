@@ -498,13 +498,14 @@ router.post("/:id/photo", photoUpload.single("photo"), async (req, res, next) =>
       return;
     }
 
-    // Delete old photo if it was a local file
-    if (contact.photo_url?.startsWith("/api/contacts/")) {
+    // Delete old photo only if the filename changed (e.g., extension differs)
+    // If the filename is the same, multer already overwrote it — don't delete!
+    const photoUrl = `/api/contacts/photos/${file.filename}`;
+    if (contact.photo_url?.startsWith("/api/contacts/") && contact.photo_url !== photoUrl) {
       const oldPath = path.join(PHOTOS_DIR, path.basename(contact.photo_url));
       try { fs.unlinkSync(oldPath); } catch { /* ignore */ }
     }
 
-    const photoUrl = `/api/contacts/photos/${file.filename}`;
     await prisma.contact.update({
       where: { id: contactId },
       data: { photo_url: photoUrl },
