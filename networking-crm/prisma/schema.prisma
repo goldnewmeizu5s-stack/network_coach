@@ -112,6 +112,7 @@ model Challenge {
   description            String
   category               String
   difficulty             Int          @default(5)
+  tier                   String       @default("normal") // "quick", "normal", "stretch"
   methodology_id         String?
   methodology            Methodology? @relation(fields: [methodology_id], references: [id])
   status                 String       @default("pending")
