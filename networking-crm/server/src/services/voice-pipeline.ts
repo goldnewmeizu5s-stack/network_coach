@@ -2,9 +2,10 @@ import fs from "fs/promises";
 import prisma from "../lib/prisma";
 import { logger } from "../lib/logger";
 import { transcribeAudio } from "./transcription";
-import { extractContactData, extractMultipleContacts } from "./ai-extraction";
+import { extractContactData, extractMultipleContacts, extractBatchActivity, ContactForMatching } from "./ai-extraction";
 import { recalcAndAutoStatus } from "./warmth";
 import { notifyNewContact } from "../bot/notifications";
+import { BatchProcessingResult } from "../types";
 
 export async function processVoiceNote(
   interactionId: string,
@@ -281,6 +282,280 @@ export async function createContact(extracted: Awaited<ReturnType<typeof extract
       urgency_score: extracted.urgency_score,
       met_date: extracted.met_date ? new Date(extracted.met_date) : new Date(),
       warmth_status: "new",
+      last_interaction_at: new Date(),
+    },
+  });
+}
+
+// --- Batch Voice Activity Processing ---
+
+export async function processBatchVoiceActivity(
+  interactionId: string,
+  filePath: string
+): Promise<void> {
+  try {
+    // a. Mark as processing
+    await prisma.audioFile.update({
+      where: { interaction_id: interactionId },
+      data: { transcription_status: "processing" },
+    });
+
+    // b. Transcribe
+    const transcript = await transcribeAudio(filePath);
+
+    // c. Save transcript + delete audio file
+    await prisma.interaction.update({
+      where: { id: interactionId },
+      data: { transcript },
+    });
+    await fs.unlink(filePath).catch(() => {});
+    await prisma.audioFile.update({
+      where: { interaction_id: interactionId },
+      data: { file_path: "deleted" },
+    });
+
+    // d. Load existing contacts for AI matching context
+    const existingContacts: ContactForMatching[] = await prisma.contact.findMany(
+      {
+        where: { warmth_status: { not: "archived" } },
+        select: {
+          id: true,
+          full_name: true,
+          nickname: true,
+          occupation: true,
+          company: true,
+          city: true,
+          warmth_status: true,
+        },
+        orderBy: { last_interaction_at: "desc" },
+        take: 200,
+      }
+    );
+
+    // e. Extract batch activity data
+    const result = await extractBatchActivity(transcript, existingContacts);
+
+    if (!result.is_valid || result.segments.length === 0) {
+      await prisma.interaction.update({
+        where: { id: interactionId },
+        data: { ai_summary: "Голосовое сообщение (активность не распознана)" },
+      });
+      await prisma.audioFile.update({
+        where: { interaction_id: interactionId },
+        data: { transcription_status: "completed" },
+      });
+      return;
+    }
+
+    // f. Process each activity segment
+    const contactIds: string[] = [];
+    const processingResults: BatchProcessingResult["segments"] = [];
+    let totalFollowUpsCreated = 0;
+    let contactsCreated = 0;
+    let contactsUpdated = 0;
+
+    for (const segment of result.segments) {
+      let contactId: string;
+      let isNew = false;
+
+      if (segment.is_new_contact && segment.contact_data) {
+        // Create new contact
+        const newContact = await createContact({
+          full_name: segment.contact_data.full_name ?? segment.contact_name,
+          nickname: segment.contact_data.nickname ?? null,
+          where_met: segment.contact_data.where_met ?? null,
+          occupation: segment.contact_data.occupation ?? null,
+          company: segment.contact_data.company ?? null,
+          city: segment.contact_data.city ?? null,
+          country: segment.contact_data.country ?? null,
+          met_country: segment.contact_data.met_country ?? null,
+          origin_country: segment.contact_data.origin_country ?? null,
+          key_interests: segment.contact_data.key_interests ?? [],
+          what_impressed_me: segment.contact_data.what_impressed_me ?? null,
+          potential_synergies: segment.contact_data.potential_synergies ?? null,
+          personality_notes: segment.contact_data.personality_notes ?? null,
+          memory_summary: segment.contact_data.memory_summary ?? null,
+          memory_hook: segment.contact_data.memory_hook ?? null,
+          met_date: segment.contact_data.met_date ?? null,
+          relationship_category:
+            segment.contact_data.relationship_category ?? "other",
+          urgency_score: segment.contact_data.urgency_score ?? 5,
+          suggested_next_steps: [],
+          is_update: false,
+          follow_up_questions: [],
+        });
+        contactId = newContact.id;
+        isNew = true;
+        contactsCreated++;
+
+        notifyNewContact({
+          id: contactId,
+          full_name: segment.contact_name,
+          occupation: segment.contact_data.occupation ?? undefined,
+          company: segment.contact_data.company ?? undefined,
+          city: segment.contact_data.city ?? undefined,
+        }).catch(() => {});
+      } else if (segment.matched_contact_id) {
+        // Matched to existing contact — update
+        contactId = segment.matched_contact_id;
+        await updateContactFromActivity(contactId, segment);
+        contactsUpdated++;
+      } else {
+        // Not matched, not marked as new — try fuzzy match by name
+        const fuzzyMatch = await prisma.contact.findFirst({
+          where: {
+            full_name: { contains: segment.contact_name, mode: "insensitive" },
+            warmth_status: { not: "archived" },
+          },
+        });
+
+        if (fuzzyMatch) {
+          contactId = fuzzyMatch.id;
+          await updateContactFromActivity(contactId, segment);
+          contactsUpdated++;
+        } else {
+          // Create as new contact with minimal data
+          const newContact = await prisma.contact.create({
+            data: {
+              full_name: segment.contact_name,
+              relationship_category: segment.relationship_category,
+              urgency_score: segment.urgency_score,
+              memory_summary: segment.activity_summary,
+              memory_notes: segment.memory_notes,
+              warmth_status: "new",
+              last_interaction_at: new Date(),
+            },
+          });
+          contactId = newContact.id;
+          isNew = true;
+          contactsCreated++;
+        }
+      }
+
+      contactIds.push(contactId);
+
+      // Create interaction record for this contact
+      await prisma.interaction.create({
+        data: {
+          contact_id: contactId,
+          type: segment.interaction_type,
+          content: segment.activity_summary,
+          ai_summary: segment.activity_summary,
+        },
+      });
+
+      // Create follow-ups
+      let followUpsCreated = 0;
+      for (const step of segment.suggested_next_steps) {
+        const dueDate = new Date();
+        dueDate.setDate(dueDate.getDate() + step.due_days);
+        await prisma.followUp.create({
+          data: {
+            contact_id: contactId,
+            suggested_action: step.action,
+            due_date: dueDate,
+            priority: segment.urgency_score,
+          },
+        });
+        followUpsCreated++;
+      }
+      totalFollowUpsCreated += followUpsCreated;
+
+      // Recalculate warmth
+      await recalcAndAutoStatus(contactId);
+
+      processingResults.push({
+        contact_name: segment.contact_name,
+        contact_id: contactId,
+        is_new_contact: isNew,
+        interaction_type: segment.interaction_type,
+        activity_summary: segment.activity_summary,
+        follow_ups_created: followUpsCreated,
+        warmth_change: segment.warmth_change,
+      });
+    }
+
+    // g. Update the original interaction with batch results
+    const batchResult: BatchProcessingResult = {
+      segments: processingResults,
+      overall_summary: result.overall_summary,
+      contacts_updated: contactsUpdated,
+      contacts_created: contactsCreated,
+      follow_ups_created: totalFollowUpsCreated,
+    };
+
+    await prisma.interaction.update({
+      where: { id: interactionId },
+      data: {
+        contact_id: contactIds[0] || null,
+        ai_summary: result.overall_summary,
+        content: JSON.stringify({
+          mode: "batch_activity",
+          contact_ids: contactIds,
+          result: batchResult,
+        }),
+      },
+    });
+
+    // h. Mark as completed
+    await prisma.audioFile.update({
+      where: { interaction_id: interactionId },
+      data: { transcription_status: "completed" },
+    });
+  } catch (err) {
+    logger.error("Batch voice activity pipeline failed", {
+      interactionId,
+      error: String(err),
+    });
+    try {
+      await prisma.audioFile.update({
+        where: { interaction_id: interactionId },
+        data: { transcription_status: "failed" },
+      });
+    } catch {
+      // ignore if update itself fails
+    }
+  }
+}
+
+async function updateContactFromActivity(
+  contactId: string,
+  segment: {
+    activity_summary: string;
+    memory_hook: string | null;
+    memory_notes: string[];
+    urgency_score: number;
+    relationship_category: string;
+  }
+): Promise<void> {
+  const existing = await prisma.contact.findUnique({
+    where: { id: contactId },
+    select: { memory_notes: true },
+  });
+
+  // Merge new memory notes, avoiding duplicates
+  const currentNotes = existing?.memory_notes || [];
+  const newNotes = [...segment.memory_notes];
+  if (segment.memory_hook) {
+    newNotes.push(segment.memory_hook);
+  }
+
+  const mergedNotes = [...currentNotes];
+  for (const note of newNotes) {
+    const noteLower = note.toLowerCase();
+    const isDuplicate = mergedNotes.some(
+      (n) => n.toLowerCase() === noteLower
+    );
+    if (!isDuplicate) {
+      mergedNotes.push(note);
+    }
+  }
+
+  await prisma.contact.update({
+    where: { id: contactId },
+    data: {
+      memory_notes: mergedNotes,
+      urgency_score: segment.urgency_score,
       last_interaction_at: new Date(),
     },
   });

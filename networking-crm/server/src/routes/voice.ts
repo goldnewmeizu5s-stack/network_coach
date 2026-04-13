@@ -3,7 +3,7 @@ import { Router } from "express";
 import multer from "multer";
 import prisma from "../lib/prisma";
 import { logger } from "../lib/logger";
-import { processVoiceNote } from "../services/voice-pipeline";
+import { processVoiceNote, processBatchVoiceActivity } from "../services/voice-pipeline";
 
 const UPLOADS_DIR = path.join(__dirname, "../../uploads");
 const ALLOWED_EXTENSIONS = [".webm", ".mp4", ".mp3", ".wav", ".ogg"];
@@ -46,12 +46,13 @@ router.post("/upload", upload.single("audio"), async (req, res, next) => {
       : null;
 
     const contactId = req.body.contact_id || null;
+    const mode = req.body.mode || "default"; // "default" | "batch_activity"
 
     // Create interaction + audio file records
     const interaction = await prisma.interaction.create({
       data: {
-        type: "voice_note",
-        content: null,
+        type: mode === "batch_activity" ? "voice_note" : "voice_note",
+        content: mode === "batch_activity" ? JSON.stringify({ mode: "batch_activity" }) : null,
         ...(contactId && { contact_id: contactId }),
       },
     });
@@ -66,12 +67,18 @@ router.post("/upload", upload.single("audio"), async (req, res, next) => {
     });
 
     // Return immediately, process async
-    res.json({ id: interaction.id, status: "processing" });
+    res.json({ id: interaction.id, status: "processing", mode });
 
-    // Fire and forget
-    processVoiceNote(interaction.id, file.path).catch((err) => {
-      logger.error("Voice pipeline error", { error: String(err) });
-    });
+    // Fire and forget — route to appropriate pipeline
+    if (mode === "batch_activity") {
+      processBatchVoiceActivity(interaction.id, file.path).catch((err) => {
+        logger.error("Batch voice pipeline error", { error: String(err) });
+      });
+    } else {
+      processVoiceNote(interaction.id, file.path).catch((err) => {
+        logger.error("Voice pipeline error", { error: String(err) });
+      });
+    }
   } catch (err) {
     next(err);
   }
@@ -92,15 +99,25 @@ router.get("/:id/status", async (req, res, next) => {
 
     const status = interaction.audio_file?.transcription_status || "unknown";
 
-    // Extract multiple contact IDs if stored in content field
+    // Extract multiple contact IDs and batch results if stored in content field
     let contactIds: string[] = [];
+    let batchResult = null;
+    let mode = "default";
     if (interaction.contact_id) {
       contactIds.push(interaction.contact_id);
     }
     if (interaction.content) {
       try {
         const parsed = JSON.parse(interaction.content);
-        if (Array.isArray(parsed?.contact_ids)) {
+        if (parsed?.mode === "batch_activity") {
+          mode = "batch_activity";
+          if (Array.isArray(parsed?.contact_ids)) {
+            contactIds = parsed.contact_ids;
+          }
+          if (parsed?.result) {
+            batchResult = parsed.result;
+          }
+        } else if (Array.isArray(parsed?.contact_ids)) {
           contactIds = parsed.contact_ids;
         }
       } catch {
@@ -110,9 +127,11 @@ router.get("/:id/status", async (req, res, next) => {
 
     res.json({
       status,
+      mode,
       contact_id: interaction.contact_id,
       contact_ids: contactIds.length > 0 ? contactIds : undefined,
       transcript: interaction.transcript,
+      ...(batchResult && { batch_result: batchResult }),
     });
   } catch (err) {
     next(err);

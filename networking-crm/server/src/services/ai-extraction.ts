@@ -1,7 +1,7 @@
 import { anthropic } from "../lib/ai";
 import { config } from "../config";
 import prisma from "../lib/prisma";
-import { ExtractedContact, MultiExtractionResult, FollowUpSuggestion } from "../types";
+import { ExtractedContact, MultiExtractionResult, FollowUpSuggestion, BatchActivityResult, ActivitySegment } from "../types";
 import { logger } from "../lib/logger";
 
 const SYSTEM_PROMPT = `You are analyzing a voice note or text message where the user describes someone they just met or wants to update information about an existing contact.
@@ -330,6 +330,276 @@ export async function extractMultipleContacts(
   }
 
   throw new Error("Multi-person AI extraction failed after all retries");
+}
+
+// --- Batch Activity Extraction ---
+
+const BATCH_ACTIVITY_PROMPT = `You are analyzing a long voice note (5-10 minutes) where the user describes their recent networking activity — what happened with various contacts over the past days/weeks.
+
+The user will talk about MULTIPLE people in a single recording: who they met, what they discussed, what follow-ups they need to do, new people they met, etc.
+
+You are given the user's EXISTING CONTACTS list below. Your job is to:
+1. Identify every person mentioned in the transcript
+2. Match them to existing contacts (by name, nickname, company, context — be smart about matching "Ваня" to "Иван Петров", "Маша из Яндекса" to "Мария Иванова" at Яндекс, etc.)
+3. If someone is clearly NEW (not in the existing contacts list), mark them as new
+4. For EACH person, extract what happened, what was discussed, what outcomes there were, and what follow-ups are needed
+
+EXISTING CONTACTS:
+{{CONTACTS_LIST}}
+
+Return a JSON object:
+{
+  "is_valid": true,
+  "overall_summary": "краткое описание всего голосового: сколько людей упомянуто, основные темы",
+  "segments": [
+    {
+      "contact_name": "имя как в существующих контактах, или как назвал пользователь если новый",
+      "matched_contact_id": "uuid существующего контакта или null если новый",
+      "is_new_contact": false,
+      "interaction_type": "meeting|message|voice_note|follow_up|note",
+      "activity_summary": "что произошло с этим человеком — краткий, но содержательный пересказ",
+      "topics_discussed": ["тема1", "тема2"],
+      "outcomes": ["договорились о...", "он прислал...", "решили что..."],
+      "suggested_next_steps": [
+        {
+          "action": "конкретное действие",
+          "due_days": 3,
+          "reason": "почему именно это и почему в эти сроки"
+        }
+      ],
+      "urgency_score": 7,
+      "relationship_category": "business|friendship|mentor|connector|investor|creative|other",
+      "warmth_change": "improved|stable|declined",
+      "warmth_reason": "почему отношения улучшились/ухудшились/стабильны",
+      "memory_hook": "одна маленькая личная деталь, которую стоит запомнить, или null",
+      "memory_notes": ["факт 1", "факт 2"],
+      "contact_data": null
+    }
+  ]
+}
+
+RULES for matching contacts:
+- Match by name similarity: "Ваня" = "Иван", "Саша" = "Александр", "Лёша" = "Алексей", etc.
+- Match by context: if user says "Маша из Яндекса" and there's a contact "Мария Сидорова" at company "Яндекс" — it's a match
+- Match by nickname if exists
+- If you're NOT SURE about a match, set matched_contact_id to null and is_new_contact to false — the system will ask the user
+- For NEW contacts, set is_new_contact to true and fill contact_data with all available info
+
+RULES for contact_data (only for NEW contacts):
+- Fill in: full_name, nickname, where_met, occupation, company, city, country, met_country, origin_country, key_interests, what_impressed_me, potential_synergies, personality_notes, memory_summary, memory_hook, relationship_category, urgency_score, met_date
+- Use null for unknown fields
+- For met_date, calculate from relative dates. Today is {{TODAY}}
+
+RULES for interaction_type:
+- "meeting" — if they met in person (кофе, обед, мероприятие, встреча)
+- "message" — if they communicated via text (написал, переписывались, отправил)
+- "follow_up" — if user completed a planned follow-up action
+- "note" — general update, thinking about the person, plans
+
+RULES for activity_summary:
+- Write dense, factual, 2-4 sentences
+- Include: what happened, where, key topics, any agreements or outcomes
+- No fluff, no filler words
+- Write in the same language as the input
+
+RULES for suggested_next_steps:
+- 0-3 per person
+- ONLY suggest what the user HASN'T already done or planned
+- due_days should be smart: urgent stuff = 1-2 days, regular follow-ups = 3-7 days, low priority = 7-14 days
+- Each step is concrete and actionable
+
+RULES for warmth_change:
+- "improved" — meaningful positive interaction happened (met, had good conversation, helped each other)
+- "stable" — light touch, brief exchange, no significant change
+- "declined" — negative signal (ignored, conflict, ghosted, user expressed doubt)
+
+RULES for memory_hook:
+- ONE tiny personal detail worth remembering
+- The kind of thing that makes you "their person" when you remember it months later
+- null if nothing personal was mentioned
+
+RULES for memory_notes:
+- New facts learned about this person from this activity
+- Can be professional or personal
+- Short bullet-point style
+
+Other rules:
+- If the user speaks in Russian, write ALL text fields in Russian
+- If the transcript doesn't describe any networking activity, set is_valid to false and return empty segments
+- Return ONLY valid JSON, no markdown, no explanation`;
+
+export interface ContactForMatching {
+  id: string;
+  full_name: string;
+  nickname: string | null;
+  occupation: string | null;
+  company: string | null;
+  city: string | null;
+  warmth_status: string;
+}
+
+export async function extractBatchActivity(
+  transcript: string,
+  existingContacts: ContactForMatching[]
+): Promise<BatchActivityResult> {
+  const maxRetries = 2;
+  const backoff = [2000, 6000];
+
+  const todayStr = new Date().toISOString().slice(0, 10);
+  const contactsList = existingContacts
+    .map(
+      (c) =>
+        `- ID: ${c.id} | ${c.full_name}${c.nickname ? ` (${c.nickname})` : ""}${c.occupation ? ` — ${c.occupation}` : ""}${c.company ? ` @ ${c.company}` : ""}${c.city ? `, ${c.city}` : ""} [${c.warmth_status}]`
+    )
+    .join("\n");
+
+  let systemPrompt = BATCH_ACTIVITY_PROMPT
+    .replace("{{TODAY}}", todayStr)
+    .replace("{{CONTACTS_LIST}}", contactsList || "(no existing contacts)");
+
+  try {
+    const user = await prisma.user.findFirst();
+    const prefs = (user?.preferences as Record<string, unknown>) || {};
+    const navigatorPrompt = prefs.navigator_prompt as string | undefined;
+    if (navigatorPrompt) {
+      systemPrompt = `${systemPrompt}\n\n--- USER CONTEXT ---\n${navigatorPrompt}`;
+    }
+  } catch {
+    /* use default prompt if DB fails */
+  }
+
+  for (let attempt = 0; attempt < maxRetries; attempt++) {
+    try {
+      const message = await anthropic.messages.create({
+        model: config.claudeModel,
+        max_tokens: 8192,
+        system: systemPrompt,
+        messages: [{ role: "user", content: transcript }],
+      });
+
+      let text =
+        message.content[0].type === "text" ? message.content[0].text : "";
+
+      text = text.trim();
+      if (text.startsWith("```")) {
+        text = text
+          .replace(/^```(?:json)?\s*\n?/, "")
+          .replace(/\n?```\s*$/, "");
+      }
+
+      const parsed = JSON.parse(text) as Record<string, unknown>;
+
+      const isValid = parsed.is_valid !== false;
+      const overallSummary =
+        typeof parsed.overall_summary === "string"
+          ? parsed.overall_summary
+          : "";
+      const rawSegments = Array.isArray(parsed.segments)
+        ? parsed.segments
+        : [];
+
+      const segments: ActivitySegment[] = rawSegments.map(
+        (raw: unknown) => {
+          const s = raw as Record<string, unknown>;
+          return {
+            contact_name: (s.contact_name as string) ?? "Unknown",
+            matched_contact_id: (s.matched_contact_id as string) ?? null,
+            is_new_contact: s.is_new_contact === true,
+            interaction_type: validateInteractionType(
+              s.interaction_type as string
+            ),
+            activity_summary: (s.activity_summary as string) ?? "",
+            topics_discussed: Array.isArray(s.topics_discussed)
+              ? (s.topics_discussed as string[])
+              : [],
+            outcomes: Array.isArray(s.outcomes)
+              ? (s.outcomes as string[])
+              : [],
+            suggested_next_steps: normalizeFollowUps(s.suggested_next_steps),
+            urgency_score:
+              typeof s.urgency_score === "number"
+                ? Math.min(10, Math.max(1, s.urgency_score))
+                : 5,
+            relationship_category:
+              (s.relationship_category as string) ?? "other",
+            warmth_change: validateWarmthChange(s.warmth_change as string),
+            warmth_reason: (s.warmth_reason as string) ?? "",
+            memory_hook: (s.memory_hook as string) ?? null,
+            memory_notes: Array.isArray(s.memory_notes)
+              ? (s.memory_notes as string[])
+              : [],
+            contact_data: s.is_new_contact === true
+              ? normalizeContactData(s.contact_data)
+              : null,
+          };
+        }
+      );
+
+      return { is_valid: isValid, segments, overall_summary: overallSummary };
+    } catch (err: unknown) {
+      const isLast = attempt === maxRetries - 1;
+      if (isLast) throw err;
+
+      logger.warn(
+        `Batch activity extraction attempt ${attempt + 1} failed, retrying`,
+        { delay: backoff[attempt] }
+      );
+      await sleep(backoff[attempt]);
+    }
+  }
+
+  throw new Error("Batch activity extraction failed after all retries");
+}
+
+function validateInteractionType(
+  type: string
+): ActivitySegment["interaction_type"] {
+  const valid = ["meeting", "message", "voice_note", "follow_up", "note"];
+  return valid.includes(type)
+    ? (type as ActivitySegment["interaction_type"])
+    : "note";
+}
+
+function validateWarmthChange(
+  change: string
+): "improved" | "stable" | "declined" {
+  const valid = ["improved", "stable", "declined"];
+  return valid.includes(change)
+    ? (change as "improved" | "stable" | "declined")
+    : "stable";
+}
+
+function normalizeContactData(
+  raw: unknown
+): Partial<ExtractedContact> | null {
+  if (!raw || typeof raw !== "object") return null;
+  const p = raw as Record<string, unknown>;
+  return {
+    full_name: (p.full_name as string) ?? null,
+    nickname: (p.nickname as string) ?? null,
+    where_met: (p.where_met as string) ?? null,
+    occupation: (p.occupation as string) ?? null,
+    company: (p.company as string) ?? null,
+    city: (p.city as string) ?? null,
+    country: (p.country as string) ?? null,
+    met_country: (p.met_country as string) ?? null,
+    origin_country: (p.origin_country as string) ?? null,
+    key_interests: Array.isArray(p.key_interests) ? p.key_interests : [],
+    what_impressed_me: (p.what_impressed_me as string) ?? null,
+    potential_synergies: (p.potential_synergies as string) ?? null,
+    personality_notes: (p.personality_notes as string) ?? null,
+    memory_summary: (p.memory_summary as string) ?? null,
+    memory_hook: (p.memory_hook as string) ?? null,
+    met_date: typeof p.met_date === "string" ? p.met_date : null,
+    relationship_category: (p.relationship_category as string) ?? "other",
+    urgency_score:
+      typeof p.urgency_score === "number"
+        ? Math.min(10, Math.max(1, p.urgency_score))
+        : 5,
+    suggested_next_steps: normalizeFollowUps(p.suggested_next_steps),
+    is_update: null,
+    follow_up_questions: [],
+  };
 }
 
 function normalizeFollowUps(raw: unknown): FollowUpSuggestion[] {
