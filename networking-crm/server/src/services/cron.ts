@@ -107,61 +107,48 @@ async function applyWarmthDecay(): Promise<void> {
 /**
  * Load only contacts that potentially need follow-ups using targeted queries,
  * generate drafts, batch-personalize with one AI call, and bulk-insert.
+ *
+ * Query strategy: cast a wide net with simple date thresholds, then let the
+ * pure-logic engine decide the exact action. This avoids complex overlapping
+ * time-window queries and keeps the DB filter cheap.
  */
 async function generateAllFollowUps(): Promise<void> {
   const now = new Date();
 
-  // Time boundaries for new/warming contacts (based on created_at)
-  const threeDaysAgo = new Date(now);
-  threeDaysAgo.setDate(threeDaysAgo.getDate() - 3);
+  // new/warming: never contacted and created 1+ day ago, OR contacted 5+ days ago
+  const oneDayAgo = new Date(now);
+  oneDayAgo.setDate(oneDayAgo.getDate() - 1);
   const fiveDaysAgo = new Date(now);
   fiveDaysAgo.setDate(fiveDaysAgo.getDate() - 5);
-  const eightDaysAgo = new Date(now);
-  eightDaysAgo.setDate(eightDaysAgo.getDate() - 8);
+
+  // warm: last interaction 14+ days ago (engine checks 14-22 and 22-30 windows)
   const fourteenDaysAgo = new Date(now);
   fourteenDaysAgo.setDate(fourteenDaysAgo.getDate() - 14);
-  const twentyTwoDaysAgo = new Date(now);
-  twentyTwoDaysAgo.setDate(twentyTwoDaysAgo.getDate() - 22);
 
-  // Time boundaries for warm contacts (based on last_interaction_at)
-  const twentyOneDaysAgo = new Date(now);
-  twentyOneDaysAgo.setDate(twentyOneDaysAgo.getDate() - 21);
-  const twentyNineDaysAgo = new Date(now);
-  twentyNineDaysAgo.setDate(twentyNineDaysAgo.getDate() - 29);
-  const fortyTwoDaysAgo = new Date(now);
-  fortyTwoDaysAgo.setDate(fortyTwoDaysAgo.getDate() - 42);
-  const fiftySevenDaysAgo = new Date(now);
-  fiftySevenDaysAgo.setDate(fiftySevenDaysAgo.getDate() - 57);
-
-  // Time boundary for paused contacts
+  // paused: last interaction 60+ days ago
   const sixtyDaysAgo = new Date(now);
   sixtyDaysAgo.setDate(sixtyDaysAgo.getDate() - 60);
 
-  // Single query: contacts that potentially need follow-ups, with counts
   const candidates = await prisma.contact.findMany({
     where: {
       AND: [
         { warmth_status: { notIn: ["archived"] } },
         {
           OR: [
-            // new/warming: created in relevant time windows
+            // new/warming: never contacted (created 1+ day ago) OR contacted 5+ days ago
             {
               warmth_status: { in: ["new", "warming"] },
               OR: [
-                { created_at: { gte: threeDaysAgo } },
-                { created_at: { gte: eightDaysAgo, lt: fiveDaysAgo } },
-                { created_at: { gte: twentyTwoDaysAgo, lt: fourteenDaysAgo } },
+                { last_interaction_at: null, created_at: { lt: oneDayAgo } },
+                { last_interaction_at: { not: null, lt: fiveDaysAgo } },
               ],
             },
-            // warm: last interaction 21-29 or 42-57 days ago
+            // warm: last interaction 14+ days ago (before 30d decay kicks in)
             {
               warmth_status: "warm",
-              OR: [
-                { last_interaction_at: { gte: twentyNineDaysAgo, lt: twentyOneDaysAgo } },
-                { last_interaction_at: { gte: fiftySevenDaysAgo, lt: fortyTwoDaysAgo } },
-              ],
+              last_interaction_at: { lt: fourteenDaysAgo },
             },
-            // cooling: always eligible
+            // cooling: always eligible (status itself is the trigger)
             { warmth_status: "cooling" },
             // paused: last interaction 60+ days ago
             {
@@ -181,6 +168,8 @@ async function generateAllFollowUps(): Promise<void> {
       warmth_status: true,
       key_interests: true,
       where_met: true,
+      occupation: true,
+      potential_synergies: true,
       last_interaction_at: true,
       created_at: true,
     },
@@ -203,7 +192,7 @@ async function generateAllFollowUps(): Promise<void> {
 
   const filteredIds = filteredCandidates.map((c) => c.id);
 
-  const [pendingCounts, skippedCounts] = await Promise.all([
+  const [pendingCounts, skippedCounts, doneCounts] = await Promise.all([
     prisma.followUp.groupBy({
       by: ["contact_id"],
       where: { contact_id: { in: filteredIds }, status: "pending" },
@@ -214,10 +203,16 @@ async function generateAllFollowUps(): Promise<void> {
       where: { contact_id: { in: filteredIds }, status: "skipped" },
       _count: true,
     }),
+    prisma.followUp.groupBy({
+      by: ["contact_id"],
+      where: { contact_id: { in: filteredIds }, status: "done" },
+      _count: true,
+    }),
   ]);
 
   const pendingMap = new Map(pendingCounts.map((r) => [r.contact_id, r._count]));
   const skippedMap = new Map(skippedCounts.map((r) => [r.contact_id, r._count]));
+  const doneMap = new Map(doneCounts.map((r) => [r.contact_id, r._count]));
 
   // Generate drafts (pure logic, no DB calls)
   const allDrafts: {
@@ -231,10 +226,14 @@ async function generateAllFollowUps(): Promise<void> {
       full_name: candidate.full_name,
       warmth_status: candidate.warmth_status,
       key_interests: candidate.key_interests,
+      where_met: candidate.where_met ?? null,
+      occupation: candidate.occupation ?? null,
+      potential_synergies: candidate.potential_synergies ?? null,
       last_interaction_at: candidate.last_interaction_at,
       created_at: candidate.created_at,
       pendingCount: pendingMap.get(candidate.id) ?? 0,
       skippedCount: skippedMap.get(candidate.id) ?? 0,
+      doneCount: doneMap.get(candidate.id) ?? 0,
     };
 
     const drafts = generateFollowUps(contactData);
