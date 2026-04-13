@@ -106,7 +106,11 @@ export default function ContactProfile() {
   const [slSaving, setSlSaving] = useState(false);
   const [photoUploading, setPhotoUploading] = useState(false);
   const [imgFailed, setImgFailed] = useState(false);
+  const [editingName, setEditingName] = useState(false);
+  const [editName, setEditName] = useState("");
+  const [nameSaving, setNameSaving] = useState(false);
   const photoInputRef = useRef<HTMLInputElement>(null);
+  const nameInputRef = useRef<HTMLInputElement>(null);
 
   const resizeImage = (file: File, maxSize: number): Promise<Blob> =>
     new Promise((resolve) => {
@@ -204,6 +208,37 @@ export default function ContactProfile() {
       // ignore
     } finally {
       setNotesSaving(false);
+    }
+  };
+
+  const startEditingName = () => {
+    if (!contact) return;
+    setEditName(contact.full_name);
+    setEditingName(true);
+    setTimeout(() => nameInputRef.current?.focus(), 50);
+  };
+
+  const saveName = async () => {
+    if (!id || !editName.trim()) {
+      setEditingName(false);
+      return;
+    }
+    if (editName.trim() === contact?.full_name) {
+      setEditingName(false);
+      return;
+    }
+    setNameSaving(true);
+    try {
+      await api.put(`/contacts/${id}`, { full_name: editName.trim() });
+      setContact((prev) =>
+        prev ? { ...prev, full_name: editName.trim() } : prev
+      );
+      show("Имя обновлено");
+    } catch {
+      show("Не удалось сохранить имя");
+    } finally {
+      setNameSaving(false);
+      setEditingName(false);
     }
   };
 
@@ -393,6 +428,13 @@ export default function ContactProfile() {
         <h1 className="flex-1 truncate text-lg font-semibold text-white">
           {contact.full_name}
         </h1>
+        <button
+          onClick={startEditingName}
+          className="flex h-8 w-8 items-center justify-center rounded-full text-neutral-400 active:bg-neutral-700"
+          title="Редактировать имя"
+        >
+          ✏️
+        </button>
       </div>
 
       <div className="flex flex-col gap-4 px-4">
@@ -439,7 +481,49 @@ export default function ContactProfile() {
             />
           </div>
           <div className="text-center">
-            <h2 className="text-xl font-bold text-white">{contact.full_name}</h2>
+            {editingName ? (
+              <div className="flex items-center justify-center gap-2">
+                <input
+                  ref={nameInputRef}
+                  value={editName}
+                  onChange={(e) => setEditName(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") saveName();
+                    if (e.key === "Escape") setEditingName(false);
+                  }}
+                  className="w-56 rounded-xl bg-neutral-800 px-3 py-2 text-center text-xl font-bold text-white outline-none ring-1 ring-neutral-700 focus:ring-accent"
+                  disabled={nameSaving}
+                />
+                <button
+                  onClick={saveName}
+                  disabled={nameSaving}
+                  className="flex h-8 w-8 items-center justify-center rounded-full bg-accent text-white active:bg-accent-hover disabled:opacity-50"
+                >
+                  {nameSaving ? (
+                    <span className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" />
+                  ) : (
+                    "✓"
+                  )}
+                </button>
+                <button
+                  onClick={() => setEditingName(false)}
+                  className="flex h-8 w-8 items-center justify-center rounded-full bg-neutral-700 text-neutral-300 active:bg-neutral-600"
+                >
+                  ✕
+                </button>
+              </div>
+            ) : (
+              <div className="flex items-center justify-center gap-1.5">
+                <h2 className="text-xl font-bold text-white">{contact.full_name}</h2>
+                <button
+                  onClick={startEditingName}
+                  className="flex h-6 w-6 items-center justify-center rounded-full text-neutral-500 hover:text-neutral-300 active:bg-neutral-700"
+                  title="Редактировать имя"
+                >
+                  <span className="text-sm">✏️</span>
+                </button>
+              </div>
+            )}
             {contact.occupation && (
               <p className="text-sm text-neutral-400">
                 {contact.occupation}
