@@ -677,6 +677,12 @@ function ContactCard({
 }) {
   const [offset, setOffset] = useState(0);
   const [imgFailed, setImgFailed] = useState(false);
+
+  // Reset imgFailed when photo URL changes so updated photos display correctly
+  useEffect(() => {
+    setImgFailed(false);
+  }, [c.photo_url]);
+
   const startX = useRef(0);
   const startY = useRef(0);
   const direction = useRef<"none" | "horizontal" | "vertical">("none");

@@ -106,6 +106,12 @@ export default function ContactProfile() {
   const [slSaving, setSlSaving] = useState(false);
   const [photoUploading, setPhotoUploading] = useState(false);
   const [imgFailed, setImgFailed] = useState(false);
+
+  // Reset imgFailed when photo URL changes so updated/re-fetched photos display correctly
+  useEffect(() => {
+    setImgFailed(false);
+  }, [contact?.photo_url]);
+
   const [editingName, setEditingName] = useState(false);
   const [editName, setEditName] = useState("");
   const [nameSaving, setNameSaving] = useState(false);
