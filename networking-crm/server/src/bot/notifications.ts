@@ -92,7 +92,7 @@ export async function sendMorningBriefing(): Promise<void> {
         prisma.challenge.findFirst({
           where: { date: { gte: todayStart, lt: todayEnd } },
           orderBy: { created_at: "asc" },
-          select: { id: true, title: true, category: true, difficulty: true, estimated_minutes: true },
+          select: { id: true, title: true, category: true, difficulty: true, estimated_time_minutes: true },
         }),
         prisma.followUp.findMany({
           where: {
@@ -149,7 +149,7 @@ export async function sendMorningBriefing(): Promise<void> {
       ]);
     } else if (variant === 1 && challenge) {
       // VARIANT 1: "Quick challenge decision" — yes/no, no fluff
-      const minutes = challenge.estimated_minutes || 10;
+      const minutes = challenge.estimated_time_minutes || 10;
       const title = esc(challenge.title);
       const intro = pickRandom([
         `Сегодняшний вызов:`,
