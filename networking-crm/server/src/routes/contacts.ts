@@ -44,6 +44,9 @@ router.get("/", async (req, res, next) => {
       conditions.push({
         warmth_status: { in: status.split(",").map((s) => s.trim()) },
       });
+    } else {
+      // Hide archived contacts from the default list
+      conditions.push({ warmth_status: { not: "archived" } });
     }
 
     if (category) {
@@ -75,10 +78,6 @@ router.get("/", async (req, res, next) => {
     if (dormant === "true") {
       const thirtyDaysAgo = new Date();
       thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-      // Only apply "not archived" if no explicit status filter
-      if (!status) {
-        conditions.push({ warmth_status: { not: "archived" } });
-      }
       conditions.push({
         OR: [
           { last_interaction_at: { lt: thirtyDaysAgo } },
@@ -175,7 +174,7 @@ router.get("/counts", async (_req, res, next) => {
     for (const s of statuses) {
       counts[s] = groups.find((g) => g.warmth_status === s)?._count ?? 0;
     }
-    counts.all = Object.values(counts).reduce((a, b) => a + b, 0);
+    counts.all = Object.values(counts).reduce((a, b) => a + b, 0) - (counts.archived || 0);
     res.json(counts);
   } catch (err) {
     next(err);
