@@ -13,6 +13,19 @@ import {
   sendWeeklyDigest,
 } from "../bot/notifications";
 
+/**
+ * Add a random delay (0–25 min) before sending a notification.
+ * This breaks the "always at XX:00" pattern that the brain learns to ignore.
+ */
+function withJitter(fn: () => Promise<void>, maxMinutes = 25): () => void {
+  return () => {
+    const delayMs = Math.floor(Math.random() * maxMinutes * 60 * 1000);
+    setTimeout(() => {
+      fn().catch((err) => logger.error("Jittered notification error", { error: String(err) }));
+    }, delayMs);
+  };
+}
+
 export async function runDailyJob(): Promise<void> {
   logger.info(`[cron] Running daily job at ${new Date().toISOString()}`);
 
@@ -32,11 +45,16 @@ export async function runDailyJob(): Promise<void> {
     // e. Cleanup expired sessions
     await prisma.session.deleteMany({ where: { expires_at: { lt: new Date() } } });
 
-    // f. Send morning briefing via Telegram
+    // f. Send morning briefing via Telegram (with jitter so it doesn't always arrive at 08:00 sharp)
     try {
-      await sendMorningBriefing();
+      const jitterMs = Math.floor(Math.random() * 20 * 60 * 1000); // 0-20 min
+      setTimeout(() => {
+        sendMorningBriefing().catch((err) =>
+          logger.error("[cron] Morning briefing failed", { error: String(err) }),
+        );
+      }, jitterMs);
     } catch (err) {
-      logger.error("[cron] Morning briefing failed", { error: String(err) });
+      logger.error("[cron] Morning briefing scheduling failed", { error: String(err) });
     }
 
     logger.info(`[cron] Daily job completed`);
@@ -319,22 +337,14 @@ export function startCron(): void {
     })
   );
 
-  // Follow-up reminders at 12:00 and 18:00 UTC
+  // Follow-up reminders at 12:00 and 18:00 UTC (with jitter: +0-25 min)
   scheduledJobs.push(
-    cron.schedule("0 12,18 * * *", () => {
-      sendFollowUpReminders().catch((err) =>
-        logger.error("Follow-up reminders cron error", { error: String(err) }),
-      );
-    })
+    cron.schedule("0 12,18 * * *", withJitter(sendFollowUpReminders, 25))
   );
 
-  // Weekly digest on Mondays at 10:00 UTC
+  // Weekly digest on Mondays at 10:00 UTC (with jitter: +0-20 min)
   scheduledJobs.push(
-    cron.schedule("0 10 * * 1", () => {
-      sendWeeklyDigest().catch((err) =>
-        logger.error("Weekly digest cron error", { error: String(err) }),
-      );
-    })
+    cron.schedule("0 10 * * 1", withJitter(sendWeeklyDigest, 20))
   );
 
   logger.info("[cron] Scheduled: daily 08:00, reminders 12:00/18:00, weekly Mon 10:00 UTC");
