@@ -137,7 +137,6 @@ export default function ContactProfile() {
     if (!id) return;
     setPhotoUploading(true);
     try {
-      // Resize to max 400px (avatars don't need more) to reduce upload size and lag
       const resized = await resizeImage(file, 400);
       const formData = new FormData();
       formData.append("photo", resized, file.name);
@@ -148,9 +147,8 @@ export default function ContactProfile() {
       });
       if (!res.ok) throw new Error("Upload failed");
       const data = await res.json();
-      // Add cache-busting timestamp so browser fetches the new image
-      const bustUrl = `${data.photo_url}?t=${Date.now()}`;
-      setContact((prev) => prev ? { ...prev, photo_url: bustUrl } : prev);
+      // photo_url is now a data URL — no cache busting needed
+      setContact((prev) => prev ? { ...prev, photo_url: data.photo_url } : prev);
       setImgFailed(false);
       show("Фото обновлено");
     } catch {
