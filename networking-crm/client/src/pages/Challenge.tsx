@@ -169,7 +169,7 @@ export default function Challenge() {
         <div className="h-64 animate-pulse rounded-2xl bg-card" />
         <div className="flex justify-center gap-3">
           {[1, 2, 3, 4, 5, 6, 7].map((i) => (
-            <div key={i} className="h-10 w-10 animate-pulse rounded-full bg-neutral-700" />
+            <div key={i} className="h-9 w-9 animate-pulse rounded-xl bg-neutral-700" />
           ))}
         </div>
       </div>
@@ -349,39 +349,45 @@ export default function Challenge() {
         </h3>
         <div className="flex justify-between">
           {weekDays.map((d) => (
-            <div key={d.label} className="flex flex-col items-center gap-1">
+            <div key={d.label} className="flex flex-col items-center gap-1.5">
               <div
-                className={`flex h-10 w-10 items-center justify-center rounded-full text-sm ${
+                className={`flex h-9 w-9 items-center justify-center rounded-xl text-xs font-medium transition-colors ${
                   d.status === "completed"
-                    ? "bg-green-600/20 text-green-400"
+                    ? "bg-green-500/20 text-green-400"
                     : d.status === "skipped"
-                      ? "bg-neutral-700 text-neutral-500"
+                      ? "bg-neutral-700/60 text-neutral-500"
                       : d.status === "too_hard"
-                        ? "bg-red-600/20 text-red-400"
+                        ? "bg-red-500/15 text-red-400"
                         : d.status === "accepted"
                           ? "bg-accent/20 text-accent"
-                          : "bg-neutral-800 text-neutral-600"
-                }`}
+                          : d.status === "pending"
+                            ? "bg-neutral-800/80 text-neutral-600"
+                            : "bg-neutral-800/30 text-neutral-700"
+                }${d.isToday ? " ring-2 ring-accent/50" : ""}`}
               >
                 {d.status === "completed"
-                  ? "\u2705"
+                  ? "\u2713"
                   : d.status === "skipped"
-                    ? "\u23ED"
+                    ? "\u2013"
                     : d.status === "too_hard"
-                      ? "\u{1F630}"
+                      ? "!"
                       : d.status === "accepted"
-                        ? "\u{1F4AA}"
-                        : "\u2B1C"}
+                        ? "\u25CF"
+                        : d.status === "pending"
+                          ? "\u00B7"
+                          : ""}
               </div>
-              <span className="text-[10px] text-neutral-500">{d.label}</span>
+              <span className={`text-[10px] ${d.isToday ? "font-semibold text-white" : "text-neutral-500"}`}>
+                {d.label}
+              </span>
             </div>
           ))}
         </div>
         {stats && (
-          <p className="mt-2 text-center text-xs text-neutral-500">
+          <p className="mt-3 text-center text-xs text-neutral-500">
             Выполнено{" "}
-            {history.filter((h) => h.status === "completed").length} из{" "}
-            {history.length} на этой неделе
+            {weekDays.filter((d) => d.status === "completed").length} из{" "}
+            {weekDays.filter((d) => d.status !== "future").length} на этой неделе
           </p>
         )}
       </section>
@@ -515,9 +521,17 @@ function DifficultyDots({ value }: { value: number }) {
   );
 }
 
+const STATUS_PRIORITY: Record<string, number> = {
+  completed: 4,
+  accepted: 3,
+  too_hard: 2,
+  skipped: 1,
+  pending: 0,
+};
+
 function getWeekDays(
   history: ChallengeItem[]
-): { label: string; status: string }[] {
+): { label: string; status: string; isToday: boolean }[] {
   const days = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"];
   const now = new Date();
   const monday = new Date(now);
@@ -525,19 +539,36 @@ function getWeekDays(
   monday.setDate(now.getDate() - dayOfWeek + 1);
   monday.setHours(0, 0, 0, 0);
 
+  const todayStart = new Date(now);
+  todayStart.setHours(0, 0, 0, 0);
+
   return days.map((label, i) => {
     const dayStart = new Date(monday.getTime() + i * 86400000);
     const dayEnd = new Date(dayStart.getTime() + 86400000);
+    const isToday = dayStart.getTime() === todayStart.getTime();
+    const isFuture = dayStart > todayStart;
 
-    // Find the "best" status for this day (completed > accepted > skipped > too_hard > pending)
-    const dayChallenge = history.find((h) => {
+    if (isFuture && !isToday) {
+      return { label, status: "future", isToday: false };
+    }
+
+    // Find the best status for this day when multiple challenges exist
+    const dayChallenges = history.filter((h) => {
       const d = new Date(h.date);
       return d >= dayStart && d < dayEnd;
     });
 
+    let bestStatus = "pending";
+    for (const ch of dayChallenges) {
+      if ((STATUS_PRIORITY[ch.status] ?? 0) > (STATUS_PRIORITY[bestStatus] ?? 0)) {
+        bestStatus = ch.status;
+      }
+    }
+
     return {
       label,
-      status: dayChallenge?.status || (dayStart <= now ? "pending" : ""),
+      status: dayChallenges.length > 0 ? bestStatus : "pending",
+      isToday,
     };
   });
 }
