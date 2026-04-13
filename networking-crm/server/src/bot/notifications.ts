@@ -6,10 +6,8 @@ import { getStreak } from "./keyboards";
 import {
   esc,
   dayWord,
-  divider,
-  thinDivider,
-  progressBar,
-  difficultyDots,
+  pickRandom,
+  dailyVariant,
 } from "./ui";
 
 // ── Core send function ────────────────────────────────────
@@ -64,7 +62,6 @@ async function isQuietHours(): Promise<boolean> {
     const hour = now.getUTCHours();
 
     if (quietHours.start > quietHours.end) {
-      // Wraps midnight: e.g. 22-08
       return hour >= quietHours.start || hour < quietHours.end;
     }
     return hour >= quietHours.start && hour < quietHours.end;
@@ -73,7 +70,11 @@ async function isQuietHours(): Promise<boolean> {
   }
 }
 
-// ── Morning briefing ──────────────────────────────────────
+// ── Morning briefing (redesigned) ────────────────────────
+//
+// Instead of a dashboard, send ONE focused message in a
+// randomly-varied format. The brain can't auto-filter what
+// it can't predict.
 
 export async function sendMorningBriefing(): Promise<void> {
   const chatId = await getAdminChatId();
@@ -86,30 +87,31 @@ export async function sendMorningBriefing(): Promise<void> {
     const todayEnd = new Date(todayStart.getTime() + 86400000);
 
     const now = new Date();
-    const [challenge, pendingCount, overdueCount, urgent, streak] =
+    const [challenge, pendingFups, overdueCount, urgent, streak] =
       await Promise.all([
         prisma.challenge.findFirst({
           where: { date: { gte: todayStart, lt: todayEnd } },
           orderBy: { created_at: "asc" },
-          select: { title: true, category: true, difficulty: true },
+          select: { id: true, title: true, category: true, difficulty: true, estimated_minutes: true },
         }),
-        prisma.followUp.count({
+        prisma.followUp.findMany({
           where: {
             OR: [
               { status: "pending" },
               { status: "snoozed", snoozed_until: { lte: now } },
             ],
           },
+          include: { contact: { select: { full_name: true } } },
+          orderBy: { due_date: "asc" },
+          take: 3,
         }),
         prisma.followUp.count({
           where: { status: "pending", due_date: { lt: todayStart } },
         }),
         prisma.followUp.findFirst({
           where: {
-            OR: [
-              { status: "pending" },
-              { status: "snoozed", snoozed_until: { lte: now } },
-            ],
+            status: "pending",
+            due_date: { lt: todayStart },
           },
           orderBy: { due_date: "asc" },
           include: { contact: { select: { full_name: true } } },
@@ -117,60 +119,124 @@ export async function sendMorningBriefing(): Promise<void> {
         getStreak(),
       ]);
 
-    const lines = [
-      "☀️ <b>Доброе утро!</b>",
-      divider(),
-      "",
-    ];
+    // Pick a format variant (changes daily so the message looks different each day)
+    const variant = dailyVariant(4);
+    let text: string;
+    let keyboard: ReturnType<typeof Markup.inlineKeyboard>;
 
-    // Challenge
-    if (challenge) {
-      lines.push(`🎯 <b>Челлендж:</b> ${esc(challenge.title)}`);
-      lines.push(`   ${difficultyDots(challenge.difficulty)} сложность ${challenge.difficulty}/10`);
-      lines.push("");
-    } else {
-      lines.push("🎯 Челлендж ещё не готов");
-      lines.push("");
-    }
+    if (variant === 0 && urgent?.contact) {
+      // VARIANT 0: "The urgent person" — loss framing, one person
+      const name = esc(urgent.contact.full_name);
+      const days = Math.floor(
+        (Date.now() - urgent.due_date.getTime()) / 86400000,
+      );
+      const opener = pickRandom([
+        `${name} ждёт уже ${days} ${dayWord(days)}.`,
+        `Ты откладываешь ${name} уже ${days} ${dayWord(days)}.`,
+        `${days} ${dayWord(days)} без ответа для ${name}.`,
+      ]);
+      const nudge = pickRandom([
+        "Одно сообщение. 30 секунд.",
+        "Просто напиши. Не надо идеально.",
+        "Даже короткое \"привет\" — уже шаг.",
+      ]);
+      text = `${opener}\n${nudge}`;
+      keyboard = Markup.inlineKeyboard([
+        [
+          Markup.button.callback("Написать", "followups"),
+          Markup.button.callback("Не сейчас", "main_menu"),
+        ],
+      ]);
+    } else if (variant === 1 && challenge) {
+      // VARIANT 1: "Quick challenge decision" — yes/no, no fluff
+      const minutes = challenge.estimated_minutes || 10;
+      const title = esc(challenge.title);
+      const intro = pickRandom([
+        `Сегодняшний вызов:`,
+        `Вот что на сегодня:`,
+        `Задача дня:`,
+      ]);
+      text = `${intro}\n\n<b>${title}</b>\n~${minutes} мин`;
+      keyboard = Markup.inlineKeyboard([
+        [
+          Markup.button.callback("Берусь", `challenge_accept:${challenge.id}`),
+          Markup.button.callback("Что ещё есть?", "challenge_another"),
+        ],
+      ]);
+    } else if (variant === 2 && pendingFups.length > 0) {
+      // VARIANT 2: "The count" — create urgency with numbers
+      const total = pendingFups.length;
+      const names = pendingFups
+        .slice(0, 2)
+        .map((f: { contact?: { full_name: string } | null }) => esc(f.contact?.full_name || ""))
+        .filter(Boolean);
+      const nameStr = names.join(", ");
 
-    // Follow-ups
-    if (pendingCount > 0) {
-      const overdueStr = overdueCount > 0
-        ? `\n   ⚠️ ${overdueCount} просроченных!`
-        : "";
-      lines.push(`📋 <b>Follow-ups:</b> ${pendingCount} активных${overdueStr}`);
-
-      if (urgent?.contact) {
-        lines.push(`   ⚡ Срочно: написать ${esc(urgent.contact.full_name)}`);
+      let countLine: string;
+      if (overdueCount > 0) {
+        countLine = pickRandom([
+          `${overdueCount} человек ждут ответа. ${nameStr} — дольше всех.`,
+          `У тебя ${overdueCount} просроченных follow-up. В том числе ${nameStr}.`,
+          `${nameStr} — уже просрочено. Всего ${total} в очереди.`,
+        ]);
+      } else {
+        countLine = pickRandom([
+          `${total} follow-up на сегодня. Начни с ${nameStr}.`,
+          `На сегодня: ${nameStr}${total > 2 ? ` и ещё ${total - 2}` : ""}.`,
+          `Сегодня: написать ${nameStr}. Начнёшь?`,
+        ]);
       }
-      lines.push("");
+      text = countLine;
+      keyboard = Markup.inlineKeyboard([
+        [
+          Markup.button.callback("Открыть", "followups"),
+          Markup.button.callback("Потом", "main_menu"),
+        ],
+      ]);
+    } else {
+      // VARIANT 3: "Streak + challenge combo" — minimal, punchy
+      const parts: string[] = [];
+      if (streak > 0) {
+        parts.push(pickRandom([
+          `${streak} ${dayWord(streak)} подряд.`,
+          `Streak: ${streak}. Не ломай.`,
+          `${streak}-й день подряд. Продолжай.`,
+        ]));
+      }
+      if (challenge) {
+        parts.push(`\nЧеллендж: <b>${esc(challenge.title)}</b>`);
+      }
+      if (pendingFups.length > 0) {
+        parts.push(`Follow-ups: ${pendingFups.length}`);
+      }
+      if (parts.length === 0) {
+        parts.push(pickRandom([
+          "Новый день. Кому напишешь сегодня?",
+          "Кто из твоих контактов давно не слышал от тебя?",
+          "С кем давно не общался?",
+        ]));
+      }
+      text = parts.join("\n");
+
+      const buttons: ReturnType<typeof Markup.button.callback>[] = [];
+      if (challenge) buttons.push(Markup.button.callback("Челлендж", "challenge"));
+      if (pendingFups.length > 0) buttons.push(Markup.button.callback("Follow-ups", "followups"));
+      if (buttons.length === 0) buttons.push(Markup.button.callback("Меню", "main_menu"));
+      keyboard = Markup.inlineKeyboard([buttons]);
     }
 
-    // Streak
-    if (streak > 0) {
-      lines.push(`🔥 Streak: ${streak} ${dayWord(streak)}`);
-      lines.push("");
-    }
-
-    lines.push(thinDivider());
-    lines.push("Удачного дня! 💪");
-
-    const keyboard = Markup.inlineKeyboard([
-      [
-        Markup.button.callback("🎯 Челлендж", "challenge"),
-        Markup.button.callback("📋 Follow-ups", "followups"),
-      ],
-      [Markup.button.callback("🏠 Меню", "main_menu")],
-    ]);
-
-    await sendTelegramNotification(chatId, lines.join("\n"), keyboard);
-    logger.info("[notifications] Morning briefing sent");
+    await sendTelegramNotification(chatId, text, keyboard);
+    logger.info("[notifications] Morning briefing sent (variant " + variant + ")");
   } catch (err) {
     logger.error("Morning briefing failed", { error: String(err) });
   }
 }
 
-// ── Follow-up reminders ───────────────────────────────────
+// ── Follow-up reminders (redesigned) ─────────────────────
+//
+// Instead of a list/report, send a personal nudge about ONE
+// person. Rotate which person is highlighted. Include a
+// personal detail to trigger emotional connection.
 
 export async function sendFollowUpReminders(): Promise<void> {
   const chatId = await getAdminChatId();
@@ -180,86 +246,106 @@ export async function sendFollowUpReminders(): Promise<void> {
   try {
     const todayStart = new Date();
     todayStart.setHours(0, 0, 0, 0);
-    const todayEnd = new Date(todayStart.getTime() + 86400000);
 
-    // Due today
-    const dueToday = await prisma.followUp.findMany({
+    // Get the single most urgent follow-up with contact details
+    const mostUrgent = await prisma.followUp.findFirst({
       where: {
-        status: "pending",
-        due_date: { gte: todayStart, lt: todayEnd },
+        OR: [
+          { status: "pending", due_date: { lt: todayStart } },
+          { status: "pending", due_date: { gte: todayStart, lt: new Date(todayStart.getTime() + 86400000) } },
+        ],
       },
-      include: { contact: { select: { full_name: true } } },
-      take: 5,
-    });
-
-    // Overdue > 3 days
-    const threeDaysAgo = new Date();
-    threeDaysAgo.setDate(threeDaysAgo.getDate() - 3);
-
-    const overdue = await prisma.followUp.findMany({
-      where: {
-        status: "pending",
-        due_date: { lt: threeDaysAgo },
+      include: {
+        contact: {
+          select: {
+            full_name: true,
+            memory_summary: true,
+            last_interaction_at: true,
+            key_interests: true,
+          },
+        },
       },
-      include: { contact: { select: { full_name: true } } },
       orderBy: { due_date: "asc" },
-      take: 3,
     });
 
-    // Nothing to send
-    if (dueToday.length === 0 && overdue.length === 0) return;
+    if (!mostUrgent) return;
 
-    const lines = [
-      "⏰ <b>Напоминание</b>",
-      divider(),
-      "",
-    ];
+    const name = esc(mostUrgent.contact?.full_name || "Контакт");
+    const action = esc(mostUrgent.suggested_action);
+    const isOverdue = mostUrgent.due_date < todayStart;
 
-    // Overdue section
-    if (overdue.length > 0) {
-      lines.push("🔴 <b>Просрочено:</b>");
-      for (const fu of overdue) {
-        const name = fu.contact?.full_name || "Контакт";
-        const days = Math.floor(
-          (Date.now() - fu.due_date.getTime()) / 86400000,
-        );
-        lines.push(
-          `   · ${esc(name)} — ${esc(fu.suggested_action)} (${days} дн.)`,
-        );
+    // Build a personal hook — use memory, interests, or time gap
+    let personalHook = "";
+    if (mostUrgent.contact?.memory_summary) {
+      personalHook = `\n<i>${esc(mostUrgent.contact.memory_summary.slice(0, 100))}</i>`;
+    } else if (mostUrgent.contact?.last_interaction_at) {
+      const days = Math.floor(
+        (Date.now() - mostUrgent.contact.last_interaction_at.getTime()) / 86400000,
+      );
+      if (days > 7) {
+        personalHook = `\n<i>Последний контакт: ${days} ${dayWord(days)} назад</i>`;
       }
-      lines.push("");
     }
 
-    // Due today section
-    if (dueToday.length > 0) {
-      lines.push("🟡 <b>На сегодня:</b>");
-      for (const fu of dueToday) {
-        const name = fu.contact?.full_name || "Контакт";
-        lines.push(
-          `   · ${esc(name)} — ${esc(fu.suggested_action)}`,
-        );
-      }
-      lines.push("");
+    // Vary the message format
+    let text: string;
+    if (isOverdue) {
+      const days = Math.floor(
+        (Date.now() - mostUrgent.due_date.getTime()) / 86400000,
+      );
+      text = pickRandom([
+        `<b>${name}</b> — ${days} ${dayWord(days)} просрочено.\n${action}${personalHook}`,
+        `Ты собирался: ${action}\n<b>${name}</b> ждёт ${days} ${dayWord(days)}.${personalHook}`,
+        `${days} дн. назад планировал написать <b>${name}</b>.\n${action}${personalHook}`,
+      ]);
+    } else {
+      text = pickRandom([
+        `<b>${name}</b> — на сегодня.\n${action}${personalHook}`,
+        `Сегодня: ${action}\nКонтакт: <b>${name}</b>${personalHook}`,
+        `Напиши <b>${name}</b> сегодня.\n${action}${personalHook}`,
+      ]);
     }
 
-    lines.push(thinDivider());
-    lines.push("Начни с одного — это уже победа! 💪");
+    // Count remaining to create mild urgency
+    const totalPending = await prisma.followUp.count({
+      where: {
+        OR: [
+          { status: "pending" },
+          { status: "snoozed", snoozed_until: { lte: new Date() } },
+        ],
+      },
+    });
+
+    if (totalPending > 1) {
+      text += `\n\n+${totalPending - 1} ещё`;
+    }
 
     const keyboard = Markup.inlineKeyboard([
-      [Markup.button.callback("📋 К follow-ups", "followups")],
+      [
+        Markup.button.callback("Написать", `fu_draft:${mostUrgent.id}`),
+        Markup.button.callback("Готово", `fu_done:${mostUrgent.id}`),
+      ],
+      [
+        Markup.button.callback("Отложить", `fu_snooze:${mostUrgent.id}:2`),
+        Markup.button.callback("Все задачи", "followups"),
+      ],
     ]);
 
-    await sendTelegramNotification(chatId, lines.join("\n"), keyboard);
-    logger.info("[notifications] Follow-up reminders sent", {
-      dueToday: dueToday.length,
-      overdue: overdue.length,
+    await sendTelegramNotification(chatId, text, keyboard);
+    logger.info("[notifications] Follow-up reminder sent", {
+      contact: mostUrgent.contact?.full_name,
+      isOverdue,
     });
   } catch (err) {
     logger.error("Follow-up reminders failed", { error: String(err) });
   }
 }
 
-// ── Weekly digest ─────────────────────────────────────────
+// ── Weekly digest (redesigned) ───────────────────────────
+//
+// Instead of a stats dashboard, send an honest reflection.
+// When activity was low — be direct about it. When it was
+// good — genuinely celebrate. Always end with ONE action.
 
 export async function sendWeeklyDigest(): Promise<void> {
   const chatId = await getAdminChatId();
@@ -285,7 +371,7 @@ export async function sendWeeklyDigest(): Promise<void> {
           where: { warmth_status: "cooling" },
           select: { full_name: true, last_interaction_at: true },
           orderBy: { last_interaction_at: "asc" },
-          take: 5,
+          take: 3,
         }),
         getStreak(),
       ]);
@@ -294,52 +380,94 @@ export async function sendWeeklyDigest(): Promise<void> {
       (c: { status: string }) => c.status === "completed",
     ).length;
     const challengesTotal = challenges.length;
+    const totalActivity = followUpsDone + challengesDone + newContacts;
 
-    const lines = [
-      "📊 <b>Итоги недели</b>",
-      divider(),
-      "",
-      `✅ Follow-ups: <b>${followUpsDone}</b> выполнено`,
-      `👥 Новых контактов: <b>${newContacts}</b>`,
-      `🎯 Челленджей: <b>${challengesDone}</b>/${challengesTotal}`,
-    ];
+    let text: string;
+    let keyboard: ReturnType<typeof Markup.inlineKeyboard>;
 
-    if (streak > 0) {
-      lines.push(`🔥 Streak: <b>${streak}</b> ${dayWord(streak)}`);
-    }
-
-    if (challengesTotal > 0) {
-      lines.push("");
-      lines.push(progressBar(challengesDone, challengesTotal) + " челленджей");
-    }
-
-    if (coolingContacts.length > 0) {
-      lines.push("", thinDivider(), "");
-      lines.push("⚠️ <b>Остывают:</b>");
-      for (const c of coolingContacts) {
-        const days = c.last_interaction_at
-          ? Math.floor(
-              (Date.now() - c.last_interaction_at.getTime()) / 86400000,
-            )
+    if (totalActivity === 0) {
+      // ZERO activity — be honest, no guilt trip, but direct
+      const mostNeglected = coolingContacts[0];
+      if (mostNeglected) {
+        const name = esc(mostNeglected.full_name);
+        const days = mostNeglected.last_interaction_at
+          ? Math.floor((Date.now() - mostNeglected.last_interaction_at.getTime()) / 86400000)
           : 0;
-        lines.push(
-          `   · ${esc(c.full_name)} — ${days} ${dayWord(days)} без контакта`,
-        );
+        text = pickRandom([
+          `За эту неделю — ноль активности.\n\n<b>${name}</b> не слышал от тебя ${days} ${dayWord(days)}. Начни с одного человека.`,
+          `Эта неделя прошла без нетворкинга.\n\nОдно сообщение для <b>${name}</b> — и ты снова в игре.`,
+          `0 follow-ups. 0 челленджей.\n\nНо вот что можно сделать прямо сейчас: написать <b>${name}</b>.`,
+        ]);
+      } else {
+        text = pickRandom([
+          "За неделю — тишина. Нетворкинг не работает на паузе.\n\nОдно действие сегодня меняет всё.",
+          "Эта неделя прошла мимо. Ничего страшного.\n\nНо следующая начинается сейчас. Одно действие?",
+        ]);
       }
+      keyboard = Markup.inlineKeyboard([
+        [
+          Markup.button.callback("Челлендж", "challenge"),
+          Markup.button.callback("Follow-ups", "followups"),
+        ],
+      ]);
+    } else if (totalActivity <= 3) {
+      // LOW activity — acknowledge effort but push for more
+      const lines: string[] = [];
+      if (followUpsDone > 0) lines.push(`${followUpsDone} follow-up`);
+      if (challengesDone > 0) lines.push(`${challengesDone} челлендж`);
+      if (newContacts > 0) lines.push(`${newContacts} новых контактов`);
+      const summary = lines.join(" · ");
+
+      text = `Неделя: ${summary}.\n\n`;
+      if (coolingContacts.length > 0) {
+        const names = coolingContacts.slice(0, 2).map((c: { full_name: string }) => esc(c.full_name)).join(", ");
+        text += `${coolingContacts.length} контактов остывают. ${names} — в первую очередь.`;
+      } else {
+        text += pickRandom([
+          "Начало есть. На следующей неделе — больше?",
+          "Немного, но не ноль. Можешь больше?",
+        ]);
+      }
+      keyboard = Markup.inlineKeyboard([
+        [
+          Markup.button.callback("Остывающие", "contacts_filter:cooling"),
+          Markup.button.callback("Follow-ups", "followups"),
+        ],
+      ]);
+    } else {
+      // GOOD activity — genuine celebration, show growth
+      const lines: string[] = [];
+      lines.push(pickRandom([
+        "Хорошая неделя.",
+        "Сильная неделя.",
+        "Есть прогресс.",
+      ]));
       lines.push("");
-      lines.push("<i>💡 Напиши хотя бы одному — 5 минут\nсохранят ценную связь.</i>");
+      if (followUpsDone > 0) lines.push(`Follow-ups: ${followUpsDone} выполнено`);
+      if (challengesDone > 0) lines.push(`Челленджи: ${challengesDone}/${challengesTotal}`);
+      if (newContacts > 0) lines.push(`Новые контакты: ${newContacts}`);
+      if (streak > 0) lines.push(`Streak: ${streak} ${dayWord(streak)}`);
+
+      if (coolingContacts.length > 0) {
+        const name = esc(coolingContacts[0].full_name);
+        lines.push(`\nНо <b>${name}</b> остывает. Не забудь.`);
+      }
+
+      text = lines.join("\n");
+      keyboard = Markup.inlineKeyboard([
+        [
+          Markup.button.callback("Продолжить", "challenge"),
+          Markup.button.callback("Меню", "main_menu"),
+        ],
+      ]);
     }
 
-    const keyboard = Markup.inlineKeyboard([
-      [
-        Markup.button.callback("🟠 Cooling", "contacts_filter:cooling"),
-        Markup.button.callback("📋 Follow-ups", "followups"),
-      ],
-      [Markup.button.callback("🏠 Меню", "main_menu")],
-    ]);
-
-    await sendTelegramNotification(chatId, lines.join("\n"), keyboard);
-    logger.info("[notifications] Weekly digest sent");
+    await sendTelegramNotification(chatId, text, keyboard);
+    logger.info("[notifications] Weekly digest sent", {
+      totalActivity,
+      followUpsDone,
+      challengesDone,
+    });
   } catch (err) {
     logger.error("Weekly digest failed", { error: String(err) });
   }
@@ -358,30 +486,22 @@ export async function notifyNewContact(contact: {
   const chatId = await getAdminChatId();
   if (!chatId) return;
 
-  // Don't check quiet hours for this — it's triggered by user action
-
-  const lines = [
-    "✅ <b>Новый контакт</b>",
-    divider(),
-    "",
-    `👤 <b>${esc(contact.full_name)}</b>`,
-  ];
-
+  // Short and personal — not a card, just a confirmation
+  const name = esc(contact.full_name);
   const job = [contact.occupation, contact.company].filter(Boolean).join(" @ ");
-  if (job) lines.push(`💼 ${esc(job)}`);
-  if (contact.city) lines.push(`📍 ${esc(contact.city)}`);
 
+  let text = `<b>${name}</b> добавлен.`;
+  if (job) text += `\n${esc(job)}`;
   if (contact.memory_summary) {
-    lines.push("");
-    lines.push(`💡 <i>${esc(contact.memory_summary)}</i>`);
+    text += `\n\n<i>${esc(contact.memory_summary.slice(0, 120))}</i>`;
   }
 
   const keyboard = Markup.inlineKeyboard([
     [
-      Markup.button.callback("👤 Открыть", `contact_view:${contact.id}`),
-      Markup.button.callback("📋 Follow-ups", `contact_fups:${contact.id}`),
+      Markup.button.callback("Открыть", `contact_view:${contact.id}`),
+      Markup.button.callback("Follow-up", `contact_fups:${contact.id}`),
     ],
   ]);
 
-  await sendTelegramNotification(chatId, lines.join("\n"), keyboard);
+  await sendTelegramNotification(chatId, text, keyboard);
 }

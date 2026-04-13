@@ -358,6 +358,29 @@ export function categoryAccent(category: string): string {
   return accents[category] || "┃⚪";
 }
 
+// ── Variability helpers (anti-skip) ─────────────────────
+
+/** Pick a random element from an array */
+export function pickRandom<T>(arr: T[]): T {
+  return arr[Math.floor(Math.random() * arr.length)];
+}
+
+/** Pick N unique random elements */
+export function pickRandomN<T>(arr: T[], n: number): T[] {
+  const shuffled = [...arr].sort(() => Math.random() - 0.5);
+  return shuffled.slice(0, n);
+}
+
+/** Get a seeded-by-day index (same result within one day, different across days) */
+export function dailyVariant(variants: number): number {
+  const day = new Date().toISOString().slice(0, 10);
+  let hash = 0;
+  for (let i = 0; i < day.length; i++) {
+    hash = (hash * 31 + day.charCodeAt(i)) | 0;
+  }
+  return Math.abs(hash) % variants;
+}
+
 // ── Error formatting for debug ──────────────────────────
 
 /** Format error for display in Telegram (truncated, escaped) */
