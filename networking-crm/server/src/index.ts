@@ -106,21 +106,6 @@ app.get("/api/health", async (_req, res) => {
 // Auth routes (public, with strict rate limit)
 app.use("/api/auth", authLimiter, authRoutes);
 
-// Serve uploaded photos (auth-protected)
-app.use(
-  "/api/contacts/photos",
-  authMiddleware,
-  express.static(path.join(__dirname, "../uploads/photos"), {
-    maxAge: "1d",
-    etag: true,
-    lastModified: true,
-    setHeaders: (res) => {
-      // Allow revalidation so updated photos are fetched promptly
-      res.setHeader("Cache-Control", "public, max-age=86400, must-revalidate");
-    },
-  }),
-);
-
 // Protected routes
 app.use("/api/contacts", authMiddleware, apiLimiter, contactsRoutes);
 app.use("/api/voice", authMiddleware, apiLimiter, voiceRoutes);

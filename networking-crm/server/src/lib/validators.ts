@@ -61,7 +61,7 @@ export const updateContactSchema = z.object({
   warmth_status: z.enum(WARMTH_STATUSES).optional(),
   relationship_category: z.string().max(50).nullable().optional(),
   social_links: z.record(z.string(), z.string()).nullable().optional(),
-  photo_url: z.string().max(500).nullable().optional(),
+  photo_url: z.string().nullable().optional(),
 });
 
 export const createFollowUpSchema = z.object({

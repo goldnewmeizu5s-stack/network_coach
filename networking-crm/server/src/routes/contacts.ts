@@ -1,5 +1,3 @@
-import path from "path";
-import fs from "fs";
 import { Router } from "express";
 import { Prisma } from "@prisma/client";
 import multer from "multer";
@@ -454,28 +452,16 @@ router.post("/:id/interaction", async (req, res, next) => {
   }
 });
 
-// POST /api/contacts/:id/photo — upload contact photo
-const PHOTOS_DIR = path.join(__dirname, "../../uploads/photos");
-const photoStorage = multer.diskStorage({
-  destination: (_req, _file, cb) => {
-    fs.mkdirSync(PHOTOS_DIR, { recursive: true });
-    cb(null, PHOTOS_DIR);
-  },
-  filename: (req, file, cb) => {
-    const ext = path.extname(file.originalname).toLowerCase() || ".jpg";
-    cb(null, `${req.params.id}${ext}`);
-  },
-});
+// POST /api/contacts/:id/photo — upload contact photo (stored as data URL in DB)
 const photoUpload = multer({
-  storage: photoStorage,
+  storage: multer.memoryStorage(),
   limits: { fileSize: 5 * 1024 * 1024 }, // 5MB
   fileFilter: (_req, file, cb) => {
-    const allowed = [".jpg", ".jpeg", ".png", ".webp"];
-    const ext = path.extname(file.originalname).toLowerCase();
-    if (!ext || allowed.includes(ext)) {
+    const allowed = ["image/jpeg", "image/png", "image/webp"];
+    if (allowed.includes(file.mimetype)) {
       cb(null, true);
     } else {
-      cb(new Error("Only .jpg, .png, .webp images are allowed"));
+      cb(new Error("Only JPEG, PNG, WebP images are allowed"));
     }
   },
 });
@@ -491,27 +477,23 @@ router.post("/:id/photo", photoUpload.single("photo"), async (req, res, next) =>
 
     const contact = await prisma.contact.findUnique({
       where: { id: contactId },
-      select: { id: true, photo_url: true },
+      select: { id: true },
     });
     if (!contact) {
       res.status(404).json({ error: "Contact not found" });
       return;
     }
 
-    // Delete old photo only if the filename changed (e.g., extension differs)
-    // If the filename is the same, multer already overwrote it — don't delete!
-    const photoUrl = `/api/contacts/photos/${file.filename}`;
-    if (contact.photo_url?.startsWith("/api/contacts/") && contact.photo_url !== photoUrl) {
-      const oldPath = path.join(PHOTOS_DIR, path.basename(contact.photo_url));
-      try { fs.unlinkSync(oldPath); } catch { /* ignore */ }
-    }
+    // Store photo as data URL directly in DB — no filesystem needed
+    const base64 = file.buffer.toString("base64");
+    const dataUrl = `data:${file.mimetype};base64,${base64}`;
 
     await prisma.contact.update({
       where: { id: contactId },
-      data: { photo_url: photoUrl },
+      data: { photo_url: dataUrl },
     });
 
-    res.json({ photo_url: photoUrl });
+    res.json({ photo_url: dataUrl });
   } catch (err) {
     next(err);
   }
