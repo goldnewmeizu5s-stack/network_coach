@@ -2,6 +2,7 @@ import { anthropic } from "../lib/ai";
 import { config } from "../config";
 import prisma from "../lib/prisma";
 import { logger } from "../lib/logger";
+import { HUMANIZATION_RULES, HUMANIZATION_RULES_SHORT } from "./humanization-prompt";
 
 const TONE_GUIDE: Record<string, string> = {
   new: 'Formal but friendly. Style: "Было приятно познакомиться на [event]...", "Рад(а) знакомству..."',
@@ -127,6 +128,8 @@ Requested action: ${action}
 Current warmth level: ${contact.warmth_status}
 
 Tone guide for this warmth level: ${tone}
+
+${HUMANIZATION_RULES}
 
 Generate 3 short message options (2-4 sentences each) that are:
 - Natural and human, not robotic or generic
@@ -433,7 +436,9 @@ RULES:
 - The insight must be something the user couldn't figure out by just looking at a contact list
 - Suggest a CONCRETE next step (not "напиши сообщение", but what specifically to write about or propose)
 - Never guilt-trip, be encouraging and strategic
-- Do NOT start with generic phrases like "У тебя есть контакт..." or "Обрати внимание..."`;
+- Do NOT start with generic phrases like "У тебя есть контакт..." or "Обрати внимание..."
+
+${HUMANIZATION_RULES_SHORT}`;
 
     const message = await anthropic.messages.create({
       model: config.claudeModel,
@@ -495,6 +500,8 @@ Template: "${templateAction}"
 Contact name: ${contactName}
 ${context ? `Context: ${context}` : ""}
 
+${HUMANIZATION_RULES_SHORT}
+
 Write ONE short sentence in Russian. Reference specific details. Keep it actionable.`;
 
     const message = await anthropic.messages.create({
@@ -544,6 +551,8 @@ Template: "${item.templateAction}"`;
 
   const prompt = `Rewrite each follow-up action below to be more personal and specific.
 For each item, write ONE short sentence in Russian. Reference specific details from the context. Keep it actionable.
+
+${HUMANIZATION_RULES_SHORT}
 
 ${itemDescriptions}
 
