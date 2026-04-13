@@ -2,12 +2,13 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import { api } from "../lib/api";
-import { getWarmthColor, getInitials, timeAgo, WARMTH_LABELS } from "../lib/warmth";
+import { getWarmthColor, getInitials, timeAgo } from "../lib/warmth";
 import { countryCodeToFlag, getCountryLabel } from "../lib/countries";
 import { useDebounce } from "../lib/useDebounce";
 import { SkeletonList } from "../components/Skeleton";
 import ErrorState from "../components/ErrorState";
 import { useToast } from "../components/Toast";
+import WarmthBar from "../components/WarmthBar";
 
 interface ContactListItem {
   id: string;
@@ -971,27 +972,22 @@ function ContactCard({
             </p>
           )}
           {/* Warmth bar + label */}
-          <div className="mt-2 flex items-center gap-2">
-            <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-neutral-700/60">
-              <div
-                className="h-full rounded-full transition-all"
-                style={{
-                  width: `${c.warmth_score}%`,
-                  backgroundColor: showLocationGlow
-                    ? isConfirmed ? "#fbbf24" : "#d4a017"
-                    : warmthColor,
-                  boxShadow: showLocationGlow
-                    ? isConfirmed ? "0 0 8px rgba(251, 191, 36, 0.6)" : "0 0 6px rgba(212, 160, 23, 0.4)"
-                    : `0 0 6px ${warmthColor}60`,
-                }}
-              />
-            </div>
-            <span
-              className="shrink-0 text-[10px] font-medium"
-              style={{ color: warmthColor }}
-            >
-              {WARMTH_LABELS[c.warmth_status] || c.warmth_status}
-            </span>
+          <div className="mt-2">
+            <WarmthBar
+              score={c.warmth_score}
+              status={c.warmth_status}
+              size="sm"
+              glowOverride={
+                showLocationGlow
+                  ? {
+                      color: isConfirmed ? "#fbbf24" : "#d4a017",
+                      shadow: isConfirmed
+                        ? "0 0 8px rgba(251, 191, 36, 0.6)"
+                        : "0 0 6px rgba(212, 160, 23, 0.4)",
+                    }
+                  : null
+              }
+            />
           </div>
         </div>
 

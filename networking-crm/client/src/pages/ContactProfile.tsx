@@ -10,6 +10,7 @@ import {
 import { countryCodeToFlag, getCountryName } from "../lib/countries";
 import { FollowUpItem } from "../lib/followups";
 import VoiceRecorder from "../components/VoiceRecorder";
+import WarmthBar from "../components/WarmthBar";
 import FollowUpCard from "../components/FollowUpCard";
 import { useToast } from "../components/Toast";
 import { Skeleton } from "../components/Skeleton";
@@ -537,28 +538,12 @@ export default function ContactProfile() {
               </p>
             )}
           </div>
-          <div className="flex w-full max-w-xs flex-col items-center gap-2">
-            <span
-              className="rounded-full px-3 py-1 text-xs font-medium text-white"
-              style={{ backgroundColor: warmthColor }}
-            >
-              {WARMTH_LABELS[contact.warmth_status] || contact.warmth_status}
-            </span>
-            <div className="flex w-full items-center gap-2">
-              <div className="h-2 flex-1 overflow-hidden rounded-full bg-neutral-700/60">
-                <div
-                  className="h-full rounded-full transition-all duration-500"
-                  style={{
-                    width: `${contact.warmth_score}%`,
-                    backgroundColor: warmthColor,
-                    boxShadow: `0 0 8px ${warmthColor}60`,
-                  }}
-                />
-              </div>
-              <span className="text-xs tabular-nums text-neutral-400">
-                {Math.round(contact.warmth_score)}
-              </span>
-            </div>
+          <div className="w-full max-w-xs">
+            <WarmthBar
+              score={contact.warmth_score}
+              status={contact.warmth_status}
+              size="md"
+            />
           </div>
         </div>
 
