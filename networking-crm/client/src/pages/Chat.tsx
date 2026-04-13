@@ -24,6 +24,23 @@ interface ContactOption {
   full_name: string;
 }
 
+interface TodayChallenge {
+  id: string;
+  title: string;
+  category: string;
+  status: string;
+  difficulty: number;
+}
+
+const CAT_ICONS: Record<string, string> = {
+  conversation: "\u{1F5E3}\uFE0F",
+  follow_up: "\u{1F91D}",
+  digital: "\u{1F4F1}",
+  skill: "\u{1F3AF}",
+  mindset: "\u{1F9E0}",
+  stretch: "\u{1F525}",
+};
+
 const QUICK_PROMPTS = [
   "Что мне делать сегодня?",
   "С кем давно не общался?",
@@ -60,6 +77,10 @@ export default function Chat() {
   const [contactNames, setContactNames] = useState<Map<string, string>>(
     new Map()
   );
+
+  // Challenge quick actions
+  const [todayChallenge, setTodayChallenge] = useState<TodayChallenge | null>(null);
+  const [challengeBusy, setChallengeBusy] = useState(false);
 
   // Clear confirm
   const [showClearConfirm, setShowClearConfirm] = useState(false);
@@ -105,10 +126,38 @@ export default function Chat() {
     }
   }, []);
 
+  // Load today's challenge for quick actions
+  const loadTodayChallenge = useCallback(async () => {
+    try {
+      const data = await api.get<{
+        challenge: TodayChallenge;
+      }>("/challenges/today");
+      setTodayChallenge(data.challenge);
+    } catch {
+      /* ignore */
+    }
+  }, []);
+
+  const updateChallengeStatus = async (id: string, status: string) => {
+    if (challengeBusy) return;
+    setChallengeBusy(true);
+    try {
+      await api.put(`/challenges/${id}`, { status });
+      setTodayChallenge((prev) => (prev ? { ...prev, status } : null));
+      if (status === "accepted") show("Челлендж принят!");
+      if (status === "completed") show("Отлично, так держать!");
+    } catch {
+      show("Ошибка обновления челленджа");
+    } finally {
+      setChallengeBusy(false);
+    }
+  };
+
   useEffect(() => {
     loadHistory().then(scrollToBottom);
     loadContactNames();
-  }, [loadHistory, loadContactNames, scrollToBottom]);
+    loadTodayChallenge();
+  }, [loadHistory, loadContactNames, scrollToBottom, loadTodayChallenge]);
 
   // Send text message
   const sendMessage = async (text?: string) => {
@@ -401,6 +450,49 @@ export default function Chat() {
             </span>
           )}
         </button>
+
+        {/* Challenge quick actions */}
+        {todayChallenge && (
+          <div className="mb-2 flex items-center gap-2">
+            <button
+              onClick={() => navigate("/challenge")}
+              className="flex min-w-0 flex-1 items-center gap-2 rounded-xl bg-card px-3 py-2 ring-1 ring-neutral-700 active:bg-neutral-800"
+            >
+              <span className="shrink-0 text-base">
+                {CAT_ICONS[todayChallenge.category] || "\u{2728}"}
+              </span>
+              <span className="truncate text-xs text-neutral-300">
+                {todayChallenge.title}
+              </span>
+            </button>
+
+            {todayChallenge.status === "pending" && (
+              <button
+                onClick={() => updateChallengeStatus(todayChallenge.id, "accepted")}
+                disabled={challengeBusy}
+                className="shrink-0 rounded-xl bg-accent px-3 py-2 text-xs font-medium text-white active:bg-accent-hover disabled:opacity-50"
+              >
+                Принять
+              </button>
+            )}
+
+            {todayChallenge.status === "accepted" && (
+              <button
+                onClick={() => updateChallengeStatus(todayChallenge.id, "completed")}
+                disabled={challengeBusy}
+                className="shrink-0 rounded-xl bg-green-600 px-3 py-2 text-xs font-medium text-white active:bg-green-700 disabled:opacity-50"
+              >
+                Выполнено
+              </button>
+            )}
+
+            {todayChallenge.status === "completed" && (
+              <span className="shrink-0 rounded-xl bg-green-600/15 px-3 py-2 text-xs font-medium text-green-400">
+                {"\u2705"}
+              </span>
+            )}
+          </div>
+        )}
 
         {/* Input area */}
         <div className="flex items-end gap-2 pb-2">
