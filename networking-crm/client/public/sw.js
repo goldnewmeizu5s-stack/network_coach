@@ -1,4 +1,4 @@
-const CACHE_NAME = "netcrm-v2";
+const CACHE_NAME = "netcrm-v3";
 const STATIC_ASSETS = ["/manifest.json", "/icon-192.svg", "/icon-512.svg"];
 
 // Install: cache only truly static assets (icons, manifest)
@@ -28,14 +28,14 @@ self.addEventListener("fetch", (event) => {
   // Photo requests: stale-while-revalidate (show cached image immediately, refresh in background)
   if (url.pathname.startsWith("/api/contacts/photos/")) {
     event.respondWith(
-      caches.match(event.request).then((cached) => {
+      caches.match(event.request, { ignoreSearch: true }).then((cached) => {
         const fetchPromise = fetch(event.request).then((response) => {
           if (response.ok) {
             const clone = response.clone();
             caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone));
           }
           return response;
-        });
+        }).catch(() => cached || new Response("", { status: 504 }));
         return cached || fetchPromise;
       })
     );

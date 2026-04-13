@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { api } from "../lib/api";
 import { getWarmthColor, getInitials } from "../lib/warmth";
@@ -79,6 +79,12 @@ export default function FollowUpCard({ item, onRemoved, compact }: Props) {
   };
 
   const [imgFailed, setImgFailed] = useState(false);
+
+  // Reset imgFailed when photo URL changes so updated photos display correctly
+  useEffect(() => {
+    setImgFailed(false);
+  }, [item.contact.photo_url]);
+
   const lastCopied = { current: "" };
 
   const copyText = async (text: string) => {
