@@ -45,3 +45,46 @@ export interface VoiceStatusResult {
   transcript?: string | null;
   error?: string;
 }
+
+// --- Batch voice activity types ---
+
+export interface ActivitySegment {
+  contact_name: string;
+  matched_contact_id: string | null;
+  is_new_contact: boolean;
+  interaction_type: "meeting" | "message" | "voice_note" | "follow_up" | "note";
+  activity_summary: string;
+  topics_discussed: string[];
+  outcomes: string[];
+  suggested_next_steps: FollowUpSuggestion[];
+  urgency_score: number;
+  relationship_category: string;
+  warmth_change: "improved" | "stable" | "declined";
+  warmth_reason: string;
+  memory_hook: string | null;
+  memory_notes: string[];
+  // For new contacts only
+  contact_data: Partial<ExtractedContact> | null;
+}
+
+export interface BatchActivityResult {
+  is_valid: boolean;
+  segments: ActivitySegment[];
+  overall_summary: string;
+}
+
+export interface BatchProcessingResult {
+  segments: Array<{
+    contact_name: string;
+    contact_id: string;
+    is_new_contact: boolean;
+    interaction_type: string;
+    activity_summary: string;
+    follow_ups_created: number;
+    warmth_change: string;
+  }>;
+  overall_summary: string;
+  contacts_updated: number;
+  contacts_created: number;
+  follow_ups_created: number;
+}
