@@ -2,6 +2,7 @@ import { Telegraf, Markup } from "telegraf";
 import type { Context } from "telegraf";
 import prisma from "../../lib/prisma";
 import { logger } from "../../lib/logger";
+import { indexChallengeAsync } from "../../services/memory/memory-indexer";
 import {
   generateDailyChallenge,
   generateAlternativeChallenges,
@@ -634,6 +635,7 @@ async function completeChallenge(
         ...(reflection && { reflection }),
       },
     });
+    indexChallengeAsync(id);
 
     try {
       await updateStreak();
@@ -734,6 +736,7 @@ async function handleSkip(ctx: Context) {
       where: { id },
       data: { status: "skipped" },
     });
+    indexChallengeAsync(id);
 
     await editOrReply(ctx, "Не беда — завтра новый шанс! 💙", [
       [Markup.button.callback("🔄 Другой челлендж", "challenge_another")],

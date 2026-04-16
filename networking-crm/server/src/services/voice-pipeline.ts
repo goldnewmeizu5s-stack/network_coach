@@ -6,6 +6,10 @@ import { extractContactData, extractMultipleContacts, extractBatchActivity, Cont
 import { recalcAndAutoStatus } from "./warmth";
 import { notifyNewContact } from "../bot/notifications";
 import { BatchProcessingResult } from "../types";
+import {
+  indexInteractionAsync,
+  indexContactMemoryAsync,
+} from "./memory/memory-indexer";
 
 export async function processVoiceNote(
   interactionId: string,
@@ -62,6 +66,8 @@ export async function processVoiceNote(
       });
       await createFollowUps(contactId, extracted);
       await recalcAndAutoStatus(contactId);
+      indexInteractionAsync(interactionId);
+      indexContactMemoryAsync(contactId);
       notifyNewContact({
         id: contactId,
         full_name: extracted.full_name || "Unknown",
@@ -156,7 +162,7 @@ export async function processVoiceNote(
       // Create additional interaction records for non-primary contacts
       // so each contact has a linked voice_note interaction
       for (let i = 1; i < contactIds.length; i++) {
-        await prisma.interaction.create({
+        const extra = await prisma.interaction.create({
           data: {
             contact_id: contactIds[i],
             type: "voice_note",
@@ -164,7 +170,11 @@ export async function processVoiceNote(
             ai_summary: result.contacts[i].memory_summary,
           },
         });
+        indexInteractionAsync(extra.id);
       }
+
+      indexInteractionAsync(interactionId);
+      for (const cid of contactIds) indexContactMemoryAsync(cid);
     }
 
     // i. Mark as completed

@@ -16,6 +16,7 @@ import {
   recalcAndAutoStatus,
 } from "../services/warmth";
 import { suggestActions } from "../services/message-drafting";
+import { indexContactMemoryAsync } from "../services/memory/memory-indexer";
 
 const router = Router();
 
@@ -341,6 +342,8 @@ router.put("/:id", async (req, res, next) => {
       where: { id: req.params.id },
       data: { ...updateData, ...(warmth_status && { warmth_status }) },
     });
+
+    indexContactMemoryAsync(contact.id);
 
     res.json(contact);
   } catch (err) {

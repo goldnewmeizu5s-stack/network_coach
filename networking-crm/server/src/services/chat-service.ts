@@ -2,12 +2,17 @@ import prisma from "../lib/prisma";
 import { anthropic } from "../lib/ai";
 import { config } from "../config";
 import { logger } from "../lib/logger";
-import { buildChatContext, buildContactContext } from "./context-builder";
+import {
+  buildChatContext,
+  buildContactContext,
+  buildSemanticMemorySection,
+} from "./context-builder";
 import {
   getRelevantMethodologies,
   formatMethodologiesForPrompt,
 } from "./methodology-retrieval";
 import { HUMANIZATION_RULES_SHORT } from "./humanization-prompt";
+import { indexChatMessageAsync } from "./memory/memory-indexer";
 
 const SYSTEM_PROMPT_TEMPLATE = `You are a sharp, supportive networking advisor — like a smart friend who's also an expert in relationship building and networking science. You have access to the user's complete networking CRM data.
 
@@ -30,6 +35,8 @@ YOUR PERSONALITY:
 {contact_overview}
 
 {contact_detail}
+
+{relevant_memories}
 
 RELEVANT NETWORKING METHODOLOGIES:
 {methodologies}
@@ -122,6 +129,7 @@ function buildSystemPrompt(
   crmContext: string,
   contactDetail: string,
   methodologiesText: string,
+  semanticMemory: string,
 ): string {
   const sections = crmContext.split("\n\n");
   const findSection = (prefix: string) =>
@@ -138,6 +146,7 @@ function buildSystemPrompt(
       "{contact_detail}",
       contactDetail ? `DETAILED CONTACT INFO:\n${contactDetail}` : "",
     )
+    .replace("{relevant_memories}", semanticMemory)
     .replace("{methodologies}", methodologiesText)
     .replace("{progress}", findSection("## PROGRESS"));
 }
@@ -170,10 +179,16 @@ export async function processChat(
   const methodologies = await getRelevantMethodologies(message, 3);
   const methodologiesText = formatMethodologiesForPrompt(methodologies);
 
+  const semanticMemory = await buildSemanticMemorySection(message, {
+    contactId,
+    limit: 8,
+  });
+
   const systemPrompt = buildSystemPrompt(
     crmContext,
     contactDetail,
     methodologiesText,
+    semanticMemory,
   );
 
   // Prepare messages
@@ -192,7 +207,7 @@ export async function processChat(
   }
 
   // Save messages
-  await prisma.chatMessage.create({
+  const savedUser = await prisma.chatMessage.create({
     data: {
       role: "user",
       content: message,
@@ -200,7 +215,7 @@ export async function processChat(
     },
   });
 
-  await prisma.chatMessage.create({
+  const savedAssistant = await prisma.chatMessage.create({
     data: {
       role: "assistant",
       content: response,
@@ -215,6 +230,9 @@ export async function processChat(
             : undefined,
     },
   });
+
+  indexChatMessageAsync(savedUser.id);
+  indexChatMessageAsync(savedAssistant.id);
 
   return response;
 }

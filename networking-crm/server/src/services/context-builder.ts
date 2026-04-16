@@ -1,4 +1,5 @@
 import prisma from "../lib/prisma";
+import { searchMemory } from "./memory/memory-service";
 
 const MAX_CONTEXT_CHARS = 12000;
 
@@ -283,4 +284,29 @@ export async function buildContactContext(
   }
 
   return lines + interactionsText + fuText;
+}
+
+export async function buildSemanticMemorySection(
+  query: string,
+  opts: { contactId?: string; limit?: number; minScore?: number } = {},
+): Promise<string> {
+  const q = query?.trim();
+  if (!q) return "";
+
+  const hits = await searchMemory(q, {
+    limit: opts.limit ?? 8,
+    contactId: opts.contactId,
+    minScore: opts.minScore ?? 0.22,
+  });
+  if (hits.length === 0) return "";
+
+  const lines = hits.map((h) => {
+    const date = new Date(h.created_at).toISOString().slice(0, 10);
+    const tagStr = h.tags && h.tags.length ? ` [${h.tags.join(",")}]` : "";
+    const snippet = h.text.replace(/\s+/g, " ").slice(0, 400);
+    const score = typeof h.score === "number" ? h.score.toFixed(2) : "";
+    return `- (${h.source_type}, ${date}${tagStr}, sim ${score}) ${snippet}`;
+  });
+
+  return `## RELEVANT MEMORIES\n${lines.join("\n")}`;
 }
