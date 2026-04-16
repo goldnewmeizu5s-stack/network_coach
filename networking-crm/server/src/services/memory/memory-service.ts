@@ -8,7 +8,8 @@ export type MemorySource =
   | "challenge"
   | "chat_user"
   | "chat_assistant"
-  | "contact_memory";
+  | "contact_memory"
+  | "note";
 
 export interface MemoryUpsert {
   sourceType: MemorySource;

@@ -9,6 +9,7 @@ import {
 } from "../lib/warmth";
 import { countryCodeToFlag, getCountryName } from "../lib/countries";
 import { FollowUpItem } from "../lib/followups";
+import { Note, NotesListResponse, formatNoteDate } from "../lib/notes";
 import VoiceRecorder from "../components/VoiceRecorder";
 import WarmthBar from "../components/WarmthBar";
 import FollowUpCard from "../components/FollowUpCard";
@@ -84,6 +85,7 @@ export default function ContactProfile() {
   const { show } = useToast();
   const [contact, setContact] = useState<Contact | null>(null);
   const [followUps, setFollowUps] = useState<FollowUpItem[]>([]);
+  const [relatedNotes, setRelatedNotes] = useState<Note[]>([]);
   const [loading, setLoading] = useState(true);
   const [showRecorder, setShowRecorder] = useState(false);
   const [showStatusSheet, setShowStatusSheet] = useState(false);
@@ -185,10 +187,23 @@ export default function ContactProfile() {
     }
   }, [id]);
 
+  const fetchRelatedNotes = useCallback(async () => {
+    if (!id) return;
+    try {
+      const data = await api.get<NotesListResponse>(
+        `/notes?contact_id=${id}&limit=10`
+      );
+      setRelatedNotes(data.notes);
+    } catch {
+      // ignore
+    }
+  }, [id]);
+
   useEffect(() => {
     fetchContact();
     fetchFollowUps();
-  }, [fetchContact, fetchFollowUps]);
+    fetchRelatedNotes();
+  }, [fetchContact, fetchFollowUps, fetchRelatedNotes]);
 
   const updateStatus = async (status: string) => {
     if (!id) return;
@@ -606,6 +621,55 @@ export default function ContactProfile() {
             className="mt-3 w-full rounded-xl bg-neutral-800 py-2.5 text-sm text-neutral-300 active:bg-neutral-700"
           >
             + Создать follow-up
+          </button>
+        </Section>
+
+        {/* Related Notes */}
+        <Section title="Связанные заметки">
+          {relatedNotes.length > 0 ? (
+            <div className="flex flex-col gap-2">
+              {relatedNotes.map((n) => (
+                <button
+                  key={n.id}
+                  onClick={() => navigate(`/notes?id=${n.id}`)}
+                  className="flex flex-col gap-1 rounded-xl bg-neutral-800 p-3 text-left active:bg-neutral-700"
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-sm font-medium text-white">
+                      {n.title || "(без заголовка)"}
+                    </span>
+                    <span className="shrink-0 text-[10px] text-neutral-500">
+                      {formatNoteDate(n.updated_at)}
+                    </span>
+                  </div>
+                  <span className="line-clamp-2 text-xs text-neutral-400">
+                    {n.body.replace(/\s+/g, " ").slice(0, 160)}
+                  </span>
+                  {n.tags.length > 0 && (
+                    <div className="flex flex-wrap gap-1">
+                      {n.tags.map((t) => (
+                        <span
+                          key={t}
+                          className="rounded-full bg-neutral-900 px-1.5 py-0.5 text-[10px] text-neutral-500"
+                        >
+                          #{t}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </button>
+              ))}
+            </div>
+          ) : (
+            <p className="text-sm text-neutral-500">
+              Нет заметок. В любой заметке напиши <code className="text-accent">[[{contact.full_name}]]</code> — и она появится здесь.
+            </p>
+          )}
+          <button
+            onClick={() => navigate("/notes")}
+            className="mt-3 w-full rounded-xl bg-neutral-800 py-2.5 text-sm text-neutral-300 active:bg-neutral-700"
+          >
+            Все заметки
           </button>
         </Section>
 

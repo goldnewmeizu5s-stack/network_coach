@@ -1,6 +1,7 @@
 import prisma from "../../lib/prisma";
 import { logger } from "../../lib/logger";
 import { upsertMemory, deleteMemoryBySource } from "./memory-service";
+import { primaryContactForNote } from "../notes-service";
 
 export async function indexInteraction(interactionId: string): Promise<void> {
   try {
@@ -208,6 +209,49 @@ export async function indexContactMemory(contactId: string): Promise<void> {
   }
 }
 
+export async function indexNote(noteId: string): Promise<void> {
+  try {
+    const note = await prisma.note.findUnique({
+      where: { id: noteId },
+      select: {
+        id: true,
+        title: true,
+        body: true,
+        tags: true,
+        created_at: true,
+        updated_at: true,
+      },
+    });
+    if (!note) return;
+    const body = note.body?.trim() || "";
+    if (body.length < 8) {
+      await deleteMemoryBySource("note", noteId);
+      return;
+    }
+
+    const contactId = await primaryContactForNote(noteId);
+    const parts: string[] = [];
+    if (note.title) parts.push(`Note: ${note.title}`);
+    parts.push(`Written: ${note.created_at.toISOString().slice(0, 10)}`);
+    if (note.tags.length > 0) parts.push(`Tags: ${note.tags.join(", ")}`);
+    parts.push(body);
+
+    await upsertMemory({
+      sourceType: "note",
+      sourceId: note.id,
+      contactId,
+      text: parts.join("\n"),
+      tags: ["note", ...note.tags],
+      metadata: {
+        title: note.title ?? null,
+        updated_at: note.updated_at,
+      },
+    });
+  } catch (err) {
+    logger.error("indexNote failed", { noteId, error: String(err) });
+  }
+}
+
 export function indexInteractionAsync(interactionId: string): void {
   indexInteraction(interactionId).catch(() => {});
 }
@@ -219,4 +263,7 @@ export function indexChatMessageAsync(messageId: string): void {
 }
 export function indexContactMemoryAsync(contactId: string): void {
   indexContactMemory(contactId).catch(() => {});
+}
+export function indexNoteAsync(noteId: string): void {
+  indexNote(noteId).catch(() => {});
 }

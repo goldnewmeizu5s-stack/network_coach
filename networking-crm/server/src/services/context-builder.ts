@@ -283,7 +283,34 @@ export async function buildContactContext(
     fuText = `\n\nFollow-ups:\n${items.join("\n")}`;
   }
 
-  return lines + interactionsText + fuText;
+  // Linked notes (max 5, newest first, body capped at 250 chars)
+  let notesText = "";
+  const noteLinks = await prisma.noteLink.findMany({
+    where: { target_type: "contact", target_id: contactId },
+    select: { from_note_id: true },
+    take: 20,
+  });
+  if (noteLinks.length > 0) {
+    const noteIds = noteLinks.map((l) => l.from_note_id);
+    const notes = await prisma.note.findMany({
+      where: { id: { in: noteIds } },
+      orderBy: { updated_at: "desc" },
+      take: 5,
+      select: { id: true, title: true, body: true, tags: true, updated_at: true },
+    });
+    if (notes.length > 0) {
+      const items = notes.map((n) => {
+        const date = n.updated_at.toLocaleDateString();
+        const head = n.title ? `"${n.title}"` : "(untitled)";
+        const body = n.body.replace(/\s+/g, " ").slice(0, 250);
+        const tags = n.tags.length ? ` #${n.tags.join(" #")}` : "";
+        return `[${date}] ${head}${tags}: ${body}`;
+      });
+      notesText = `\n\nLinked notes:\n${items.join("\n")}`;
+    }
+  }
+
+  return lines + interactionsText + fuText + notesText;
 }
 
 export async function buildSemanticMemorySection(
