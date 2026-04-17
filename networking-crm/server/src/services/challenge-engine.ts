@@ -6,6 +6,10 @@ import {
   getRelevantMethodologies,
   formatMethodologiesForPrompt,
 } from "./methodology-retrieval";
+import {
+  loadCachedReactionInsights,
+  formatReactionInsightsForPrompt,
+} from "./challenge-reactions";
 
 const CATEGORIES = [
   "conversation",
@@ -246,6 +250,9 @@ export async function generateFlexibleChallenges(): Promise<
     .join(" ");
   const methodologies = await getRelevantMethodologies(query, 3);
 
+  const reactionInsights = await loadCachedReactionInsights();
+  const reactionBlock = formatReactionInsightsForPrompt(reactionInsights);
+
   const last5Text = stats.last5
     .map(
       (c) =>
@@ -295,7 +302,7 @@ Completion rate (7 days): ${stats.completion_rate_7d}%
 Most skipped categories: ${stats.skippedCategories.join(", ") || "none"}
 Categories marked "too hard": ${stats.tooHardCategories.join(", ") || "none"}
 
-CURRENT CRM STATE:
+${reactionBlock ? reactionBlock + "\n\n" : ""}CURRENT CRM STATE:
 New contacts: ${newCount}
 Cooling contacts: ${coolingContacts.map((c) => c.full_name).join(", ") || "none"}
 Pending follow-ups: ${pendingFu}
@@ -507,6 +514,9 @@ export async function generateDailyChallenge(): Promise<ReturnType<typeof prisma
     .join(" ");
   const methodologies = await getRelevantMethodologies(query, 3);
 
+  const reactionInsights = await loadCachedReactionInsights();
+  const reactionBlock = formatReactionInsightsForPrompt(reactionInsights);
+
   const last5Text = stats.last5
     .map(
       (c) =>
@@ -538,7 +548,7 @@ Completion rate (7 days): ${stats.completion_rate_7d}%
 Most skipped categories: ${stats.skippedCategories.join(", ") || "none"}
 Categories marked "too hard": ${stats.tooHardCategories.join(", ") || "none"}
 
-CURRENT CRM STATE:
+${reactionBlock ? reactionBlock + "\n\n" : ""}CURRENT CRM STATE:
 New contacts: ${newCount}
 Cooling contacts: ${coolingContacts.map((c) => c.full_name).join(", ") || "none"}
 Pending follow-ups: ${pendingFu}

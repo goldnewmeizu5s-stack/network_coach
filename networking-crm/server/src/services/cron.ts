@@ -7,6 +7,8 @@ import {
   generateDailyChallenge,
   generateAlternativeChallenges,
 } from "./challenge-engine";
+import { consolidateAllContacts } from "./memory/consolidation";
+import { refreshReactionInsights } from "./challenge-reactions";
 import {
   sendMorningBriefing,
   sendFollowUpReminders,
@@ -326,6 +328,26 @@ async function ensureDailyChallenge(): Promise<void> {
   }
 }
 
+export async function runWeeklyMemoryJob(): Promise<void> {
+  logger.info(`[cron] Running weekly memory job at ${new Date().toISOString()}`);
+  try {
+    const insights = await refreshReactionInsights();
+    logger.info("[cron] Reaction insights refreshed", {
+      categories: insights.by_category.length,
+      loved: insights.loved.length,
+      rejected: insights.rejected.length,
+    });
+  } catch (err) {
+    logger.error("[cron] Reaction insights failed", { error: String(err) });
+  }
+  try {
+    const result = await consolidateAllContacts();
+    logger.info("[cron] Contact memory consolidated", result);
+  } catch (err) {
+    logger.error("[cron] Memory consolidation failed", { error: String(err) });
+  }
+}
+
 const scheduledJobs: ReturnType<typeof cron.schedule>[] = [];
 
 export function startCron(): void {
@@ -346,7 +368,18 @@ export function startCron(): void {
     cron.schedule("0 10 * * 1", withJitter(sendWeeklyDigest, 20))
   );
 
-  logger.info("[cron] Scheduled: daily 08:00, reminders 12:00/18:00, weekly Mon 10:00 UTC");
+  // Weekly memory consolidation on Sundays at 03:00 UTC
+  scheduledJobs.push(
+    cron.schedule("0 3 * * 0", () => {
+      runWeeklyMemoryJob().catch((err) =>
+        logger.error("Weekly memory cron error", { error: String(err) }),
+      );
+    }),
+  );
+
+  logger.info(
+    "[cron] Scheduled: daily 08:00, reminders 12:00/18:00, weekly Mon 10:00, memory Sun 03:00 UTC",
+  );
 }
 
 export function stopCron(): void {

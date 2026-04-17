@@ -23,7 +23,7 @@ import insightsRoutes from "./routes/insights";
 import statsRoutes from "./routes/stats";
 import exportRoutes from "./routes/export";
 import notesRoutes from "./routes/notes";
-import { startCron, stopCron, runDailyJob } from "./services/cron";
+import { startCron, stopCron, runDailyJob, runWeeklyMemoryJob } from "./services/cron";
 import { startBot, stopBot } from "./bot";
 
 const app = express();
@@ -132,6 +132,16 @@ app.use("/api/export", authMiddleware, exportLimiter, exportRoutes);
 app.post("/api/cron/run-now", authMiddleware, async (_req, res, next) => {
   try {
     await runDailyJob();
+    res.json({ status: "completed" });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Manual weekly memory consolidation trigger
+app.post("/api/cron/memory-now", authMiddleware, async (_req, res, next) => {
+  try {
+    await runWeeklyMemoryJob();
     res.json({ status: "completed" });
   } catch (err) {
     next(err);
