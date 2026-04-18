@@ -119,3 +119,24 @@ button, a, input, textarea, [role="button"] {
   -ms-overflow-style: none;
   scrollbar-width: none;
 }
+
+/* Horizontal pager with scroll-snap columns */
+.kanban-pager {
+  scroll-snap-type: x mandatory;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-x: contain;
+}
+.kanban-column {
+  scroll-snap-align: center;
+  scroll-snap-stop: always;
+}
+
+/* Long-press pulse on card while held */
+@keyframes press-pulse {
+  0% { transform: scale(1); }
+  50% { transform: scale(0.98); }
+  100% { transform: scale(1); }
+}
+.animate-press-pulse {
+  animation: press-pulse 0.5s ease-out;
+}

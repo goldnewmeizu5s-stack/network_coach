@@ -10,6 +10,16 @@ import ErrorState from "../components/ErrorState";
 import { useToast } from "../components/Toast";
 import WarmthBar from "../components/WarmthBar";
 
+// Legacy filter chips — kept until Kanban view replaces the chip row in the next block.
+const FILTERS = [
+  { label: "Все", value: "", key: "all" },
+  { label: "\u{1F534} Новые", value: "new", key: "new" },
+  { label: "\u{1F7E1} Тёплые", value: "warming", key: "warming" },
+  { label: "\u{1F7E2} Горячие", value: "warm", key: "warm" },
+  { label: "\u{1F7E0} Остывают", value: "cooling", key: "cooling" },
+  { label: "\u26AA Пауза", value: "paused", key: "paused" },
+];
+
 interface ContactListItem {
   id: string;
   full_name: string;
@@ -36,14 +46,30 @@ interface ContactsResponse {
 
 type SortOption = "last_interaction" | "created_at" | "warmth_score" | "name";
 
-const FILTERS = [
-  { label: "Все", value: "", key: "all" },
-  { label: "\u{1F534} Новые", value: "new", key: "new" },
-  { label: "\u{1F7E1} Тёплые", value: "warming", key: "warming" },
-  { label: "\u{1F7E2} Горячие", value: "warm", key: "warm" },
-  { label: "\u{1F7E0} Остывают", value: "cooling", key: "cooling" },
-  { label: "\u26AA Пауза", value: "paused", key: "paused" },
+// ── Kanban columns (pipeline order) ──────────────────────────────
+// Order matches the relationship pipeline: first-touch → developing → peak → fading.
+export type ColumnKey = "new" | "warming" | "warm" | "cooling";
+
+export const COLUMNS: {
+  key: ColumnKey;
+  label: string;
+  dot: string;
+  hint: string;
+}[] = [
+  { key: "new",     label: "Новые",    dot: "#ef4444", hint: "Первое касание" },
+  { key: "warming", label: "Тёплые",   dot: "#eab308", hint: "Развиваем" },
+  { key: "warm",    label: "Горячие",  dot: "#22c55e", hint: "Сильная связь" },
+  { key: "cooling", label: "Остывают", dot: "#f97316", hint: "Нужно касание" },
 ];
+
+// Valid column-to-column transitions (mirrors server/src/services/warmth.ts).
+// Only statuses reachable from the current one appear in the move sheet.
+export const VALID_MOVE: Record<ColumnKey, ColumnKey[]> = {
+  new:     ["warming"],
+  warming: ["warm", "new"],
+  warm:    ["cooling"],
+  cooling: ["warming"],
+};
 
 const SORT_OPTIONS: { label: string; value: SortOption }[] = [
   { label: "По активности", value: "last_interaction" },
@@ -71,6 +97,33 @@ const CAT_LABELS: Record<string, string> = {
   creative: "креатив",
   other: "другое",
 };
+
+// Days since last interaction → tailwind color class (overdue highlight).
+export function daysSince(date: string | null | undefined): number | null {
+  if (!date) return null;
+  const d = (Date.now() - new Date(date).getTime()) / 86400000;
+  return isNaN(d) ? null : Math.floor(d);
+}
+
+export function getTimeColorClass(days: number | null, status: string): string {
+  if (status === "paused" || status === "archived") return "text-neutral-500";
+  if (days === null) return "text-neutral-500";
+  if (days >= 30) return "text-red-400";
+  if (days >= 14) return "text-orange-400";
+  if (days >= 7)  return "text-yellow-500";
+  return "text-neutral-500";
+}
+
+// Telegram haptic feedback (safe no-op if outside TMA).
+export function haptic(kind: "light" | "medium" | "success" = "light") {
+  try {
+    const hf = (window as unknown as { Telegram?: { WebApp?: { HapticFeedback?: { impactOccurred: (s: string) => void; notificationOccurred: (s: string) => void } } } })
+      .Telegram?.WebApp?.HapticFeedback;
+    if (!hf) return;
+    if (kind === "success") hf.notificationOccurred("success");
+    else hf.impactOccurred(kind);
+  } catch { /* ignore */ }
+}
 
 export default function People() {
   const navigate = useNavigate();
