@@ -1,7 +1,7 @@
 import { randomUUID } from "crypto";
 import prisma from "../../lib/prisma";
 import { logger } from "../../lib/logger";
-import { embedText } from "./embeddings";
+import { embedText, embedBatch } from "./embeddings";
 
 export type MemorySource =
   | "interaction"
@@ -84,6 +84,67 @@ export async function upsertMemory(params: MemoryUpsert): Promise<void> {
       source_id: params.sourceId,
       error: String(err),
     });
+  }
+}
+
+/**
+ * Upsert several chunks in one OpenAI embedding call. Use when you have
+ * two or more related items to index together (e.g. a chat turn).
+ */
+export async function upsertMemoryBatch(
+  items: MemoryUpsert[],
+): Promise<void> {
+  const prepared = items
+    .map((item) => ({ ...item, text: item.text?.trim() || "" }))
+    .filter((item) => item.text.length >= 8);
+  if (prepared.length === 0) return;
+
+  let embeddings: number[][];
+  try {
+    embeddings = await embedBatch(prepared.map((i) => i.text));
+  } catch (err) {
+    logger.error("memory batch embed failed", {
+      count: prepared.length,
+      error: String(err),
+    });
+    return;
+  }
+
+  for (let i = 0; i < prepared.length; i++) {
+    const item = prepared[i];
+    const embedding = embeddings[i];
+    const id = randomUUID();
+    const tags = item.tags ?? [];
+    const metadata = item.metadata ? JSON.stringify(item.metadata) : null;
+    const vec = toVectorLiteral(embedding);
+    try {
+      await prisma.$executeRawUnsafe(
+        `INSERT INTO "MemoryChunk"
+           (id, source_type, source_id, contact_id, text, embedding, tags, metadata, created_at, updated_at)
+         VALUES ($1, $2, $3, $4, $5, $6::vector, $7, $8::jsonb, NOW(), NOW())
+         ON CONFLICT (source_type, source_id) DO UPDATE SET
+           contact_id = EXCLUDED.contact_id,
+           text = EXCLUDED.text,
+           embedding = EXCLUDED.embedding,
+           tags = EXCLUDED.tags,
+           metadata = EXCLUDED.metadata,
+           updated_at = NOW()`,
+        id,
+        item.sourceType,
+        item.sourceId,
+        item.contactId ?? null,
+        item.text,
+        vec,
+        tags,
+        metadata,
+      );
+    } catch (err) {
+      logger.error("memory batch upsert row failed", {
+        source_type: item.sourceType,
+        source_id: item.sourceId,
+        error: String(err),
+      });
+    }
   }
 }
 
@@ -170,8 +231,14 @@ export async function searchMemory(
     LIMIT $${limitIdx}
   `;
 
+  // Wrap in a transaction so SET LOCAL ivfflat.probes applies to the
+  // SELECT and does not leak to other sessions. probes=10 is a sensible
+  // recall/perf balance for lists=100.
   try {
-    const rows = await prisma.$queryRawUnsafe<MemoryHit[]>(sql, ...params);
+    const rows = await prisma.$transaction(async (tx) => {
+      await tx.$executeRawUnsafe(`SET LOCAL ivfflat.probes = 10`);
+      return tx.$queryRawUnsafe<MemoryHit[]>(sql, ...params);
+    });
     return rows.filter((r) => Number(r.score) >= minScore);
   } catch (err) {
     logger.error("memory search failed", { error: String(err) });

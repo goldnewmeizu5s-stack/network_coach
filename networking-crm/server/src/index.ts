@@ -138,15 +138,30 @@ app.post("/api/cron/run-now", authMiddleware, async (_req, res, next) => {
   }
 });
 
-// Manual weekly memory consolidation trigger
-app.post("/api/cron/memory-now", authMiddleware, async (_req, res, next) => {
-  try {
-    await runWeeklyMemoryJob();
-    res.json({ status: "completed" });
-  } catch (err) {
-    next(err);
-  }
-});
+// Manual weekly memory consolidation trigger.
+// aiLimiter + an in-process guard keep the heavy Claude+embedding run
+// from being triggered concurrently (would multiply API cost).
+let memoryJobRunning = false;
+app.post(
+  "/api/cron/memory-now",
+  authMiddleware,
+  aiLimiter,
+  async (_req, res, next) => {
+    if (memoryJobRunning) {
+      res.status(429).json({ error: "Memory job already running" });
+      return;
+    }
+    memoryJobRunning = true;
+    try {
+      await runWeeklyMemoryJob();
+      res.json({ status: "completed" });
+    } catch (err) {
+      next(err);
+    } finally {
+      memoryJobRunning = false;
+    }
+  },
+);
 
 // Serve static files + SPA fallback
 if (config.isProd) {

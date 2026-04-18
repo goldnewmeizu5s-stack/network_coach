@@ -12,7 +12,7 @@ import {
   formatMethodologiesForPrompt,
 } from "./methodology-retrieval";
 import { HUMANIZATION_RULES_SHORT } from "./humanization-prompt";
-import { indexChatMessageAsync } from "./memory/memory-indexer";
+import { indexChatTurnAsync } from "./memory/memory-indexer";
 
 const SYSTEM_PROMPT_TEMPLATE = `You are a sharp, supportive networking advisor — like a smart friend who's also an expert in relationship building and networking science. You have access to the user's complete networking CRM data.
 
@@ -231,8 +231,7 @@ export async function processChat(
     },
   });
 
-  indexChatMessageAsync(savedUser.id);
-  indexChatMessageAsync(savedAssistant.id);
+  indexChatTurnAsync(savedUser.id, savedAssistant.id);
 
   return response;
 }

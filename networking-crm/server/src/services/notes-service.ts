@@ -68,22 +68,49 @@ export async function resolveLinks(
     }),
   ]);
 
-  const contactByName = new Map<string, string>();
+  // Bucket by lowercase name and count hits so we can detect ambiguity:
+  // two contacts share "Anna" → leave as unresolved so the user can
+  // disambiguate instead of silently picking the wrong row.
+  const contactIdsByName = new Map<string, Set<string>>();
+  const pushContact = (k: string | null, id: string) => {
+    if (!k) return;
+    const key = k.toLowerCase();
+    const s = contactIdsByName.get(key) || new Set<string>();
+    s.add(id);
+    contactIdsByName.set(key, s);
+  };
   for (const c of contacts) {
-    if (c.full_name) contactByName.set(c.full_name.toLowerCase(), c.id);
-    if (c.nickname) contactByName.set(c.nickname.toLowerCase(), c.id);
+    pushContact(c.full_name, c.id);
+    pushContact(c.nickname, c.id);
   }
-  const noteByTitle = new Map<string, string>();
+
+  const noteIdsByTitle = new Map<string, Set<string>>();
   for (const n of notes) {
-    if (n.title) noteByTitle.set(n.title.toLowerCase(), n.id);
+    if (!n.title) continue;
+    const key = n.title.toLowerCase();
+    const s = noteIdsByTitle.get(key) || new Set<string>();
+    s.add(n.id);
+    noteIdsByTitle.set(key, s);
   }
 
   return tokens.map((t) => {
     const key = t.target.toLowerCase();
-    const contactId = contactByName.get(key);
-    if (contactId) return { raw: t, targetType: "contact", targetId: contactId };
-    const noteId = noteByTitle.get(key);
-    if (noteId) return { raw: t, targetType: "note", targetId: noteId };
+    const contactIds = contactIdsByName.get(key);
+    if (contactIds && contactIds.size === 1) {
+      return {
+        raw: t,
+        targetType: "contact",
+        targetId: contactIds.values().next().value as string,
+      };
+    }
+    const noteIds = noteIdsByTitle.get(key);
+    if (noteIds && noteIds.size === 1) {
+      return {
+        raw: t,
+        targetType: "note",
+        targetId: noteIds.values().next().value as string,
+      };
+    }
     return { raw: t, targetType: "unresolved", targetId: null };
   });
 }
@@ -91,8 +118,6 @@ export async function resolveLinks(
 export async function syncNoteLinks(noteId: string, body: string): Promise<ResolvedLink[]> {
   const tokens = parseBacklinks(body);
   const resolved = await resolveLinks(tokens, { excludeNoteId: noteId });
-
-  await prisma.noteLink.deleteMany({ where: { from_note_id: noteId } });
 
   const toInsert = resolved
     .filter((r) => r.targetId && r.targetType !== "unresolved")
@@ -103,18 +128,20 @@ export async function syncNoteLinks(noteId: string, body: string): Promise<Resol
       label: r.raw.label ?? null,
     }));
 
-  if (toInsert.length > 0) {
-    try {
-      await prisma.noteLink.createMany({
-        data: toInsert,
-        skipDuplicates: true,
-      });
-    } catch (err) {
-      logger.error("syncNoteLinks createMany failed", {
-        noteId,
-        error: String(err),
-      });
-    }
+  // Atomic swap: the note never sits with a torn link set even if the
+  // createMany fails mid-way.
+  try {
+    await prisma.$transaction([
+      prisma.noteLink.deleteMany({ where: { from_note_id: noteId } }),
+      ...(toInsert.length > 0
+        ? [prisma.noteLink.createMany({ data: toInsert, skipDuplicates: true })]
+        : []),
+    ]);
+  } catch (err) {
+    logger.error("syncNoteLinks transaction failed", {
+      noteId,
+      error: String(err),
+    });
   }
 
   return resolved;

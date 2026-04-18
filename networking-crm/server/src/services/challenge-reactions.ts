@@ -1,4 +1,3 @@
-import { Prisma } from "@prisma/client";
 import prisma from "../lib/prisma";
 import { logger } from "../lib/logger";
 
@@ -133,20 +132,28 @@ export async function analyzeReactions(): Promise<ReactionInsights> {
 /**
  * Save insights into user.preferences.reaction_insights so the challenge
  * engine can read them without recomputing on every call.
+ *
+ * Uses jsonb_set so this is a single atomic DB write and does NOT race
+ * with PUT /user/profile (which also writes preferences): only the
+ * reaction_insights key is touched.
  */
 export async function persistReactionInsights(
   insights: ReactionInsights,
 ): Promise<void> {
-  const user = await prisma.user.findFirst();
+  const user = await prisma.user.findFirst({ select: { id: true } });
   if (!user) return;
 
-  const prefs = (user.preferences as Record<string, unknown>) || {};
-  prefs.reaction_insights = insights as unknown as Record<string, unknown>;
-
-  await prisma.user.update({
-    where: { id: user.id },
-    data: { preferences: prefs as Prisma.InputJsonValue },
-  });
+  const json = JSON.stringify(insights);
+  await prisma.$executeRaw`
+    UPDATE "User"
+    SET preferences = jsonb_set(
+      COALESCE(preferences, '{}'::jsonb),
+      '{reaction_insights}',
+      ${json}::jsonb,
+      true
+    )
+    WHERE id = ${user.id}
+  `;
 }
 
 export async function loadCachedReactionInsights(): Promise<ReactionInsights | null> {

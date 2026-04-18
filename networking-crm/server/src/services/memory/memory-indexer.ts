@@ -1,7 +1,15 @@
 import prisma from "../../lib/prisma";
 import { logger } from "../../lib/logger";
-import { upsertMemory, deleteMemoryBySource } from "./memory-service";
+import {
+  upsertMemory,
+  upsertMemoryBatch,
+  deleteMemoryBySource,
+  MemoryUpsert,
+} from "./memory-service";
 import { primaryContactForNote } from "../notes-service";
+
+const MIN_CHAT_USER_LEN = 40;
+const MIN_CHAT_ASSISTANT_LEN = 40;
 
 export async function indexInteraction(interactionId: string): Promise<void> {
   try {
@@ -105,6 +113,34 @@ export async function indexChallenge(challengeId: string): Promise<void> {
   }
 }
 
+function buildChatMemoryItem(msg: {
+  id: string;
+  role: string;
+  content: string;
+  metadata: unknown;
+  created_at: Date;
+}): MemoryUpsert | null {
+  const min = msg.role === "assistant" ? MIN_CHAT_ASSISTANT_LEN : MIN_CHAT_USER_LEN;
+  if (!msg.content || msg.content.trim().length < min) return null;
+
+  const meta = (msg.metadata as Record<string, unknown> | null) || null;
+  const contactId =
+    meta && typeof meta.contact_id === "string" ? meta.contact_id : null;
+
+  const sourceType = msg.role === "assistant" ? "chat_assistant" : "chat_user";
+  const prefix = msg.role === "assistant" ? "Assistant replied" : "User said";
+  const text = `${prefix} on ${msg.created_at.toISOString().slice(0, 10)}:\n${msg.content}`;
+
+  return {
+    sourceType,
+    sourceId: msg.id,
+    contactId,
+    text,
+    tags: [msg.role],
+    metadata: { role: msg.role },
+  };
+}
+
 export async function indexChatMessage(messageId: string): Promise<void> {
   try {
     const msg = await prisma.chatMessage.findUnique({
@@ -118,27 +154,46 @@ export async function indexChatMessage(messageId: string): Promise<void> {
       },
     });
     if (!msg) return;
-    if (!msg.content || msg.content.trim().length < 20) return;
-
-    const meta = (msg.metadata as Record<string, unknown> | null) || null;
-    const contactId =
-      meta && typeof meta.contact_id === "string" ? meta.contact_id : null;
-
-    const sourceType = msg.role === "assistant" ? "chat_assistant" : "chat_user";
-    const prefix = msg.role === "assistant" ? "Assistant replied" : "User said";
-    const text = `${prefix} on ${msg.created_at.toISOString().slice(0, 10)}:\n${msg.content}`;
-
-    await upsertMemory({
-      sourceType,
-      sourceId: msg.id,
-      contactId,
-      text,
-      tags: [msg.role],
-      metadata: { role: msg.role },
-    });
+    const item = buildChatMemoryItem(msg);
+    if (!item) return;
+    await upsertMemory(item);
   } catch (err) {
     logger.error("indexChatMessage failed", {
       messageId,
+      error: String(err),
+    });
+  }
+}
+
+/**
+ * Index a user message + assistant reply in one OpenAI embedding call.
+ * Callers should prefer this over two separate indexChatMessage calls
+ * when both IDs are known (e.g. right after saving a chat turn).
+ */
+export async function indexChatTurn(
+  userMessageId: string,
+  assistantMessageId: string,
+): Promise<void> {
+  try {
+    const msgs = await prisma.chatMessage.findMany({
+      where: { id: { in: [userMessageId, assistantMessageId] } },
+      select: {
+        id: true,
+        role: true,
+        content: true,
+        metadata: true,
+        created_at: true,
+      },
+    });
+    const items = msgs
+      .map((m) => buildChatMemoryItem(m))
+      .filter((i): i is MemoryUpsert => i !== null);
+    if (items.length === 0) return;
+    await upsertMemoryBatch(items);
+  } catch (err) {
+    logger.error("indexChatTurn failed", {
+      userMessageId,
+      assistantMessageId,
       error: String(err),
     });
   }
@@ -260,6 +315,12 @@ export function indexChallengeAsync(challengeId: string): void {
 }
 export function indexChatMessageAsync(messageId: string): void {
   indexChatMessage(messageId).catch(() => {});
+}
+export function indexChatTurnAsync(
+  userMessageId: string,
+  assistantMessageId: string,
+): void {
+  indexChatTurn(userMessageId, assistantMessageId).catch(() => {});
 }
 export function indexContactMemoryAsync(contactId: string): void {
   indexContactMemory(contactId).catch(() => {});
