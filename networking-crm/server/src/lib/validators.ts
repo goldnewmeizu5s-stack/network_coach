@@ -104,3 +104,15 @@ export const pinSchema = z.object({
   current_pin: z.string().min(4),
   new_pin: z.string().min(4).max(20),
 });
+
+export const createNoteSchema = z.object({
+  title: z.string().max(200).optional().nullable(),
+  body: z.string().min(1).max(20000),
+  tags: z.array(z.string().max(40)).max(30).optional(),
+});
+
+export const updateNoteSchema = z.object({
+  title: z.string().max(200).nullable().optional(),
+  body: z.string().min(1).max(20000).optional(),
+  tags: z.array(z.string().max(40)).max(30).optional(),
+});

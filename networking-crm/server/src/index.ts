@@ -22,7 +22,8 @@ import methodologiesRoutes from "./routes/methodologies";
 import insightsRoutes from "./routes/insights";
 import statsRoutes from "./routes/stats";
 import exportRoutes from "./routes/export";
-import { startCron, stopCron, runDailyJob } from "./services/cron";
+import notesRoutes from "./routes/notes";
+import { startCron, stopCron, runDailyJob, runWeeklyMemoryJob } from "./services/cron";
 import { startBot, stopBot } from "./bot";
 
 const app = express();
@@ -116,6 +117,7 @@ app.use("/api/user", authMiddleware, apiLimiter, userRoutes);
 app.use("/api/methodologies", authMiddleware, apiLimiter, methodologiesRoutes);
 app.use("/api/insights", authMiddleware, aiLimiter, insightsRoutes);
 app.use("/api/stats", authMiddleware, apiLimiter, statsRoutes);
+app.use("/api/notes", authMiddleware, apiLimiter, notesRoutes);
 // Export routes use stricter rate limit (3 per minute) to prevent data scraping
 const exportLimiter = rateLimit({
   windowMs: 60 * 1000,
@@ -135,6 +137,31 @@ app.post("/api/cron/run-now", authMiddleware, async (_req, res, next) => {
     next(err);
   }
 });
+
+// Manual weekly memory consolidation trigger.
+// aiLimiter + an in-process guard keep the heavy Claude+embedding run
+// from being triggered concurrently (would multiply API cost).
+let memoryJobRunning = false;
+app.post(
+  "/api/cron/memory-now",
+  authMiddleware,
+  aiLimiter,
+  async (_req, res, next) => {
+    if (memoryJobRunning) {
+      res.status(429).json({ error: "Memory job already running" });
+      return;
+    }
+    memoryJobRunning = true;
+    try {
+      await runWeeklyMemoryJob();
+      res.json({ status: "completed" });
+    } catch (err) {
+      next(err);
+    } finally {
+      memoryJobRunning = false;
+    }
+  },
+);
 
 // Serve static files + SPA fallback
 if (config.isProd) {

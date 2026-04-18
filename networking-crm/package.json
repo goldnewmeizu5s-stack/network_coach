@@ -17,7 +17,9 @@
     "start": "node server/dist/index.js",
     "docker:build": "docker build -t networking-crm .",
     "docker:run": "docker run -p 3001:3001 --env-file .env networking-crm",
-    "import:methods": "npx ts-node scripts/import-methodologies.ts"
+    "import:methods": "npx ts-node scripts/import-methodologies.ts",
+    "memory:backfill": "node server/dist/scripts/backfill-memory.js",
+    "memory:consolidate": "node server/dist/scripts/consolidate-memory.js"
   },
   "dependencies": {
     "@prisma/client": "^5.22.0"

@@ -6,6 +6,7 @@ import {
   generateDailyChallenge,
   generateAlternativeChallenges,
 } from "../services/challenge-engine";
+import { indexChallengeAsync } from "../services/memory/memory-indexer";
 
 const router = Router();
 
@@ -145,6 +146,8 @@ router.put("/:id", async (req, res, next) => {
       data,
       include: { methodology: { select: { title: true, source: true } } },
     });
+
+    indexChallengeAsync(challenge.id);
 
     // Update streak in user preferences
     if (status === "completed") {

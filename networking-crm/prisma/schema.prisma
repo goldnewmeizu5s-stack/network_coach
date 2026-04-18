@@ -161,3 +161,31 @@ model Session {
   @@index([token])
   @@index([expires_at])
 }
+
+model Note {
+  id         String   @id @default(uuid())
+  title      String?
+  body       String
+  tags       String[]
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  links NoteLink[] @relation("note_from")
+
+  @@index([created_at])
+  @@index([updated_at])
+}
+
+model NoteLink {
+  id           String   @id @default(uuid())
+  from_note_id String
+  from_note    Note     @relation("note_from", fields: [from_note_id], references: [id], onDelete: Cascade)
+  target_type  String   // "contact" | "note"
+  target_id    String
+  label        String?
+  created_at   DateTime @default(now())
+
+  @@unique([from_note_id, target_type, target_id])
+  @@index([target_type, target_id])
+  @@index([from_note_id])
+}

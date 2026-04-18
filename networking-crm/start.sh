@@ -13,6 +13,9 @@ if [ -n "$DATABASE_URL" ]; then
   esac
 fi
 
+echo "Ensuring pgvector memory schema..."
+npx prisma db execute --file prisma/init-memory.sql --schema=prisma/schema.prisma 2>&1 || echo "Memory init warning, continuing..."
+
 echo "Running prisma db push..."
 npx prisma db push --schema=prisma/schema.prisma 2>&1 || echo "DB push warning, continuing..."
 
