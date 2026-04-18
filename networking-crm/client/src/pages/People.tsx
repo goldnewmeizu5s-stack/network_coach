@@ -388,6 +388,10 @@ export default function People() {
     setSelected(new Set());
   };
 
+  // Count active secondary filters (for the header filter-icon badge).
+  const activeFilterCount =
+    (categoryFilter ? 1 : 0) + (countryFilter ? 1 : 0) + (dormantFilter ? 1 : 0);
+
   return (
     <div className="flex flex-1 flex-col px-4 pt-6">
       {/* Header */}
@@ -403,6 +407,7 @@ export default function People() {
             <button
               onClick={() => setShowSort(!showSort)}
               className="flex h-9 w-9 items-center justify-center rounded-full bg-card text-neutral-400 active:bg-neutral-800"
+              aria-label="Сортировка"
             >
               <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
                 <path strokeLinecap="round" d="M3 7h18M6 12h12M9 17h6" />
@@ -425,9 +430,26 @@ export default function People() {
               </div>
             )}
           </div>
+          {/* Filter icon — opens the FiltersSheet.
+              Shows a coloured dot when one or more secondary filters are active. */}
+          <button
+            onClick={() => setShowMoreFilters(true)}
+            className="relative flex h-9 w-9 items-center justify-center rounded-full bg-card text-neutral-400 active:bg-neutral-800"
+            aria-label="Фильтры"
+          >
+            <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M3 4h18M6 12h12M10 20h4" />
+            </svg>
+            {activeFilterCount > 0 && (
+              <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-[16px] items-center justify-center rounded-full bg-accent px-1 text-[10px] font-semibold text-white">
+                {activeFilterCount}
+              </span>
+            )}
+          </button>
           <button
             onClick={() => setShowAddForm(true)}
             className="flex h-9 w-9 items-center justify-center rounded-full bg-accent text-white active:bg-accent-hover"
+            aria-label="Добавить"
           >
             <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
               <path strokeLinecap="round" d="M12 5v14M5 12h14" />
@@ -463,97 +485,6 @@ export default function People() {
           setFilter(key);
         }}
       />
-
-      {/* More filters */}
-      <button
-        onClick={() => setShowMoreFilters(!showMoreFilters)}
-        className="mb-2 self-start text-[11px] text-neutral-500 active:text-accent"
-      >
-        {showMoreFilters ? "Скрыть фильтры" : "Больше фильтров"}
-      </button>
-
-      {showMoreFilters && (
-        <div className="mb-3 animate-fade-in flex flex-col gap-2">
-          {/* Category chips */}
-          <div className="flex flex-wrap gap-1.5">
-            {CATEGORIES.map((c) => (
-              <button
-                key={c}
-                onClick={() =>
-                  setCategoryFilter(categoryFilter === c ? "" : c)
-                }
-                className={`rounded-full px-2.5 py-1 text-[11px] font-medium transition-colors ${
-                  categoryFilter === c
-                    ? "bg-accent text-white"
-                    : "bg-card text-neutral-400"
-                }`}
-              >
-                {CAT_LABELS[c] || c}
-              </button>
-            ))}
-          </div>
-          {/* Dormant toggle */}
-          <button
-            onClick={() => setDormantFilter(!dormantFilter)}
-            className={`self-start rounded-full px-2.5 py-1 text-[11px] font-medium transition-colors ${
-              dormantFilter
-                ? "bg-orange-600/30 text-orange-300"
-                : "bg-card text-neutral-400"
-            }`}
-          >
-            Забытые (30+ дней)
-          </button>
-
-          {/* Country filter */}
-          {(Object.keys(countryCounts.met).length > 0 || Object.keys(countryCounts.origin).length > 0) && (
-            <div className="flex flex-col gap-1.5">
-              <div className="flex gap-1.5">
-                <button
-                  onClick={() => { setCountryFilterType("met"); setCountryFilter(""); }}
-                  className={`rounded-full px-2.5 py-1 text-[11px] font-medium transition-colors ${
-                    countryFilterType === "met"
-                      ? "bg-blue-600/30 text-blue-300"
-                      : "bg-card text-neutral-400"
-                  }`}
-                >
-                  Где встретились
-                </button>
-                <button
-                  onClick={() => { setCountryFilterType("origin"); setCountryFilter(""); }}
-                  className={`rounded-full px-2.5 py-1 text-[11px] font-medium transition-colors ${
-                    countryFilterType === "origin"
-                      ? "bg-purple-600/30 text-purple-300"
-                      : "bg-card text-neutral-400"
-                  }`}
-                >
-                  Откуда родом
-                </button>
-              </div>
-              <div className="flex flex-wrap gap-1.5">
-                {Object.entries(
-                  countryFilterType === "met" ? countryCounts.met : countryCounts.origin
-                )
-                  .sort(([, a], [, b]) => b - a)
-                  .map(([code, count]) => (
-                    <button
-                      key={code}
-                      onClick={() => setCountryFilter(countryFilter === code ? "" : code)}
-                      className={`rounded-full px-2.5 py-1 text-[11px] font-medium transition-colors ${
-                        countryFilter === code
-                          ? countryFilterType === "met"
-                            ? "bg-blue-600/30 text-blue-300"
-                            : "bg-purple-600/30 text-purple-300"
-                          : "bg-card text-neutral-400"
-                      }`}
-                    >
-                      {countryCodeToFlag(code)} {count}
-                    </button>
-                  ))}
-              </div>
-            </div>
-          )}
-        </div>
-      )}
 
       {/* Batch mode bar */}
       {selectMode && (
@@ -761,6 +692,24 @@ export default function People() {
             fetchCounts();
             navigate(`/people/${id}`);
           }}
+        />
+      )}
+
+      {/* Filters sheet — opened from the header filter icon.
+          Houses the secondary filters (category / country / dormant) that
+          used to live in a collapsible inline block. */}
+      {showMoreFilters && (
+        <FiltersSheet
+          categoryFilter={categoryFilter}
+          setCategoryFilter={setCategoryFilter}
+          dormantFilter={dormantFilter}
+          setDormantFilter={setDormantFilter}
+          countryFilterType={countryFilterType}
+          setCountryFilterType={setCountryFilterType}
+          countryFilter={countryFilter}
+          setCountryFilter={setCountryFilter}
+          countryCounts={countryCounts}
+          onClose={() => setShowMoreFilters(false)}
         />
       )}
 
@@ -1201,6 +1150,192 @@ function AddContactModal({
             {saving ? "Создание..." : "Создать"}
           </button>
         </form>
+      </div>
+    </div>
+  );
+}
+
+/* ────────────────────────────────────────────────────────────────
+   FiltersSheet — bottom sheet with secondary filters
+   (dormant toggle, category chips, country picker). Primary
+   status filters live in the Kanban column tabs above.
+   ──────────────────────────────────────────────────────────────── */
+function FiltersSheet({
+  categoryFilter,
+  setCategoryFilter,
+  dormantFilter,
+  setDormantFilter,
+  countryFilterType,
+  setCountryFilterType,
+  countryFilter,
+  setCountryFilter,
+  countryCounts,
+  onClose,
+}: {
+  categoryFilter: string;
+  setCategoryFilter: (v: string) => void;
+  dormantFilter: boolean;
+  setDormantFilter: (v: boolean) => void;
+  countryFilterType: "met" | "origin";
+  setCountryFilterType: (v: "met" | "origin") => void;
+  countryFilter: string;
+  setCountryFilter: (v: string) => void;
+  countryCounts: { met: Record<string, number>; origin: Record<string, number> };
+  onClose: () => void;
+}) {
+  const hasCountries =
+    Object.keys(countryCounts.met).length > 0 ||
+    Object.keys(countryCounts.origin).length > 0;
+  const anyActive =
+    Boolean(categoryFilter) || dormantFilter || Boolean(countryFilter);
+
+  const reset = () => {
+    setCategoryFilter("");
+    setCountryFilter("");
+    setDormantFilter(false);
+  };
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-end justify-center bg-black/60"
+      onClick={onClose}
+    >
+      <div
+        className="animate-slide-up max-h-[80vh] w-full max-w-[430px] overflow-y-auto rounded-t-3xl bg-card px-5 pb-6 pt-4"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="mx-auto mb-4 h-1 w-10 rounded-full bg-neutral-600" />
+
+        <div className="mb-5 flex items-center justify-between">
+          <h2 className="text-[15px] font-semibold text-white">Фильтры</h2>
+          {anyActive && (
+            <button
+              onClick={reset}
+              className="text-xs text-neutral-400 active:text-white"
+            >
+              Сбросить
+            </button>
+          )}
+        </div>
+
+        {/* Dormant — the highest-leverage filter, shown first. */}
+        <button
+          onClick={() => setDormantFilter(!dormantFilter)}
+          className={`mb-4 flex w-full items-center justify-between rounded-xl px-4 py-3 text-left text-sm transition-colors ${
+            dormantFilter
+              ? "bg-orange-600/20 text-orange-200"
+              : "bg-neutral-800 text-neutral-200 active:bg-neutral-700"
+          }`}
+        >
+          <span>
+            <span className="block">Забытые контакты</span>
+            <span className="block text-[11px] text-neutral-500">
+              30+ дней без касания
+            </span>
+          </span>
+          <span
+            className={`flex h-5 w-9 items-center rounded-full p-0.5 transition-colors ${
+              dormantFilter ? "bg-orange-500" : "bg-neutral-700"
+            }`}
+          >
+            <span
+              className={`h-4 w-4 rounded-full bg-white transition-transform ${
+                dormantFilter ? "translate-x-4" : ""
+              }`}
+            />
+          </span>
+        </button>
+
+        {/* Category */}
+        <p className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-neutral-500">
+          Категория
+        </p>
+        <div className="mb-4 flex flex-wrap gap-1.5">
+          {CATEGORIES.map((c) => (
+            <button
+              key={c}
+              onClick={() =>
+                setCategoryFilter(categoryFilter === c ? "" : c)
+              }
+              className={`rounded-full px-3 py-1.5 text-[12px] font-medium transition-colors ${
+                categoryFilter === c
+                  ? "bg-accent text-white"
+                  : "bg-neutral-800 text-neutral-400 active:text-white"
+              }`}
+            >
+              {CAT_LABELS[c] || c}
+            </button>
+          ))}
+        </div>
+
+        {/* Country */}
+        {hasCountries && (
+          <>
+            <p className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-neutral-500">
+              Страна
+            </p>
+            <div className="mb-2 flex gap-1.5">
+              <button
+                onClick={() => {
+                  setCountryFilterType("met");
+                  setCountryFilter("");
+                }}
+                className={`rounded-full px-3 py-1.5 text-[12px] font-medium transition-colors ${
+                  countryFilterType === "met"
+                    ? "bg-blue-600/30 text-blue-200"
+                    : "bg-neutral-800 text-neutral-400"
+                }`}
+              >
+                Где встретились
+              </button>
+              <button
+                onClick={() => {
+                  setCountryFilterType("origin");
+                  setCountryFilter("");
+                }}
+                className={`rounded-full px-3 py-1.5 text-[12px] font-medium transition-colors ${
+                  countryFilterType === "origin"
+                    ? "bg-purple-600/30 text-purple-200"
+                    : "bg-neutral-800 text-neutral-400"
+                }`}
+              >
+                Откуда родом
+              </button>
+            </div>
+            <div className="mb-4 flex flex-wrap gap-1.5">
+              {Object.entries(
+                countryFilterType === "met"
+                  ? countryCounts.met
+                  : countryCounts.origin,
+              )
+                .sort(([, a], [, b]) => b - a)
+                .map(([code, count]) => (
+                  <button
+                    key={code}
+                    onClick={() =>
+                      setCountryFilter(countryFilter === code ? "" : code)
+                    }
+                    className={`rounded-full px-3 py-1.5 text-[12px] font-medium transition-colors ${
+                      countryFilter === code
+                        ? countryFilterType === "met"
+                          ? "bg-blue-600/30 text-blue-200"
+                          : "bg-purple-600/30 text-purple-200"
+                        : "bg-neutral-800 text-neutral-400"
+                    }`}
+                  >
+                    {countryCodeToFlag(code)} {count}
+                  </button>
+                ))}
+            </div>
+          </>
+        )}
+
+        <button
+          onClick={onClose}
+          className="mt-2 w-full rounded-xl bg-accent py-3 text-sm font-medium text-white active:bg-accent-hover"
+        >
+          Готово
+        </button>
       </div>
     </div>
   );
