@@ -25,6 +25,7 @@ import exportRoutes from "./routes/export";
 import notesRoutes from "./routes/notes";
 import { startCron, stopCron, runDailyJob, runWeeklyMemoryJob } from "./services/cron";
 import { startBot, stopBot } from "./bot";
+import { alignAllWarmthScores } from "./services/warmth";
 
 const app = express();
 const startTime = Date.now();
@@ -201,6 +202,13 @@ const server = app.listen(config.port, () => {
 
     await ensureUser();
     logger.info("Default user ensured");
+
+    try {
+      const fixed = await alignAllWarmthScores();
+      logger.info(`Warmth scores aligned (${fixed} updated)`);
+    } catch (alignErr) {
+      logger.error("Warmth alignment failed", { error: String(alignErr) });
+    }
 
     startCron();
     logger.info("Cron started");
