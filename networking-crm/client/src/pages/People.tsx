@@ -8,7 +8,6 @@ import { useDebounce } from "../lib/useDebounce";
 import { SkeletonList } from "../components/Skeleton";
 import ErrorState from "../components/ErrorState";
 import { useToast } from "../components/Toast";
-import WarmthBar from "../components/WarmthBar";
 
 interface ContactListItem {
   id: string;
@@ -854,25 +853,36 @@ function ContactCard({
           </div>
         )}
 
-        {/* Avatar with warmth ring + glow (or golden glow for location match) */}
+        {/* Avatar — ring only for edge states (new/cooling) or location glow.
+            Neutral statuses (warming/warm/paused) get a subtle hairline border. */}
         <div className="relative">
           <div
             className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-full text-sm font-bold text-white overflow-hidden ${
               showLocationGlow && isConfirmed ? "animate-golden-pulse" : ""
             }`}
-            style={{
-              backgroundColor: showLocationGlow
-                ? isConfirmed ? "rgba(251, 191, 36, 0.25)" : "rgba(251, 191, 36, 0.15)"
-                : warmthColor + "33",
-              color: showLocationGlow
-                ? isConfirmed ? "#fbbf24" : "#d4a017"
-                : warmthColor,
-              ...(!showLocationGlow || !isConfirmed ? {
-                boxShadow: showLocationGlow
-                  ? "0 0 0 2.5px rgba(251, 191, 36, 0.6), 0 0 12px rgba(251, 191, 36, 0.25)"
-                  : `0 0 0 2.5px ${warmthColor}, 0 0 12px ${warmthColor}25`,
-              } : {}),
-            }}
+            style={(() => {
+              const isEdge = c.warmth_status === "new" || c.warmth_status === "cooling";
+              const glowColor = showLocationGlow
+                ? (isConfirmed ? "#fbbf24" : "#d4a017")
+                : (isEdge ? warmthColor : null);
+              return {
+                backgroundColor: showLocationGlow
+                  ? (isConfirmed ? "rgba(251, 191, 36, 0.25)" : "rgba(251, 191, 36, 0.15)")
+                  : warmthColor + "22",
+                color: showLocationGlow
+                  ? (isConfirmed ? "#fbbf24" : "#d4a017")
+                  : warmthColor,
+                // Only apply a hot ring for edge states / location glow;
+                // skip for animate-golden-pulse (confirmed) since the keyframes own the shadow.
+                ...(glowColor && !(showLocationGlow && isConfirmed)
+                  ? { boxShadow: `0 0 0 2px ${glowColor}, 0 0 10px ${glowColor}33` }
+                  : {}),
+                // Hairline border for non-edge states so the avatar reads as a chip.
+                ...(!glowColor
+                  ? { boxShadow: "inset 0 0 0 1px rgba(255,255,255,0.06)" }
+                  : {}),
+              };
+            })()}
           >
             {c.photo_url && !imgFailed ? (
               <img
@@ -928,9 +938,19 @@ function ContactCard({
             )}
           </div>
           <div className="mt-0.5 flex items-center gap-1.5">
-            <p className="truncate text-xs text-neutral-500">
-              {[c.occupation, c.company].filter(Boolean).join(" @ ") || "\u2014"}
-            </p>
+            {(c.occupation || c.company) ? (
+              <p className="truncate text-xs text-neutral-500">
+                {[c.occupation, c.company].filter(Boolean).join(" @ ")}
+              </p>
+            ) : (
+              // Nudge the user to enrich the contact — tapping the card still navigates.
+              <p className="truncate text-xs text-neutral-600">
+                <span className="text-accent/70">+</span>{" "}
+                <span className="underline decoration-dotted underline-offset-2">
+                  добавь описание
+                </span>
+              </p>
+            )}
             {c.relationship_category && (
               <span
                 className="shrink-0 rounded-md px-1.5 py-0.5 text-[9px] font-medium"
@@ -1004,31 +1024,21 @@ function ContactCard({
               {c.memory_summary}
             </p>
           )}
-          {/* Warmth bar + label */}
-          <div className="mt-2">
-            <WarmthBar
-              score={c.warmth_score}
-              status={c.warmth_status}
-              size="sm"
-              glowOverride={
-                showLocationGlow
-                  ? {
-                      color: isConfirmed ? "#fbbf24" : "#d4a017",
-                      shadow: isConfirmed
-                        ? "0 0 8px rgba(251, 191, 36, 0.6)"
-                        : "0 0 6px rgba(212, 160, 23, 0.4)",
-                    }
-                  : null
-              }
-            />
-          </div>
         </div>
 
-        {/* Right - time + location indicator */}
+        {/* Right — time ago, colored by days-since-last-touch
+            (yellow ≥7d, orange ≥14d, red ≥30d) so overdue contacts jump out. */}
         <div className="flex shrink-0 flex-col items-end gap-1.5 self-start pt-0.5">
-          <span className="text-[10px] text-neutral-500">
-            {timeAgo(c.last_interaction_at || c.created_at)}
-          </span>
+          {(() => {
+            const days = daysSince(c.last_interaction_at || c.created_at);
+            return (
+              <span
+                className={`text-[10px] ${getTimeColorClass(days, c.warmth_status)}`}
+              >
+                {timeAgo(c.last_interaction_at || c.created_at)}
+              </span>
+            );
+          })()}
           {showLocationGlow && isConfirmed && (
             <span className="text-[9px] font-bold" style={{ color: "#fbbf24" }}>
               РЯДОМ
@@ -1036,6 +1046,19 @@ function ContactCard({
           )}
         </div>
       </div>
+
+      {/* Top warmth strip — 3px indicator that replaces the inline WarmthBar.
+          Using a top bar keeps density high while status stays scannable. */}
+      <div
+        aria-hidden
+        className="pointer-events-none absolute inset-x-0 top-0 h-[3px]"
+        style={{
+          backgroundColor: showLocationGlow
+            ? (isConfirmed ? "#fbbf24" : "#d4a017")
+            : warmthColor,
+          opacity: c.warmth_status === "paused" ? 0.35 : 0.85,
+        }}
+      />
     </div>
   );
 }
