@@ -14,6 +14,7 @@ import {
   isValidTransition,
   getAllowedTransitions,
   recalcAndAutoStatus,
+  applyManualStatusChange,
 } from "../services/warmth";
 import { suggestActions } from "../services/message-drafting";
 import { indexContactMemoryAsync } from "../services/memory/memory-indexer";
@@ -311,6 +312,7 @@ router.put("/:id", async (req, res, next) => {
       updateData.social_links = social_links === null ? Prisma.JsonNull : social_links;
     }
 
+    let statusChanged = false;
     if (warmth_status) {
       const current = await prisma.contact.findUnique({
         where: { id: req.params.id },
@@ -335,13 +337,28 @@ router.put("/:id", async (req, res, next) => {
             content: `Status changed from ${current.warmth_status} to ${warmth_status}`,
           },
         });
+        statusChanged = true;
       }
     }
 
-    const contact = await prisma.contact.update({
+    if (Object.keys(updateData).length > 0) {
+      await prisma.contact.update({
+        where: { id: req.params.id },
+        data: updateData,
+      });
+    }
+
+    if (statusChanged && warmth_status) {
+      await applyManualStatusChange(req.params.id, warmth_status);
+    }
+
+    const contact = await prisma.contact.findUnique({
       where: { id: req.params.id },
-      data: { ...updateData, ...(warmth_status && { warmth_status }) },
     });
+    if (!contact) {
+      res.status(404).json({ error: "Contact not found" });
+      return;
+    }
 
     indexContactMemoryAsync(contact.id);
 
@@ -385,9 +402,10 @@ router.put("/:id/status", async (req, res, next) => {
       },
     });
 
-    const contact = await prisma.contact.update({
+    await applyManualStatusChange(req.params.id, newStatus);
+
+    const contact = await prisma.contact.findUnique({
       where: { id: req.params.id },
-      data: { warmth_status: newStatus },
     });
 
     res.json(contact);

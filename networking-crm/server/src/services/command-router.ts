@@ -3,7 +3,11 @@ import { anthropic } from "../lib/ai";
 import { config } from "../config";
 import { logger } from "../lib/logger";
 import { buildChatContext, buildContactContext } from "./context-builder";
-import { recalcAndAutoStatus, isValidTransition } from "./warmth";
+import {
+  recalcAndAutoStatus,
+  isValidTransition,
+  applyManualStatusChange,
+} from "./warmth";
 import { suggestActions } from "./message-drafting";
 import { draftFollowUpMessage } from "./message-drafting";
 import {
@@ -732,11 +736,6 @@ async function executeTool(
           return `Cannot change status from ${current.warmth_status} to ${newStatus}. Invalid transition.`;
         }
 
-        await prisma.contact.update({
-          where: { id: contact.id },
-          data: { warmth_status: newStatus },
-        });
-
         await prisma.interaction.create({
           data: {
             contact_id: contact.id,
@@ -745,7 +744,7 @@ async function executeTool(
           },
         });
 
-        await recalcAndAutoStatus(contact.id);
+        await applyManualStatusChange(contact.id, newStatus);
 
         return `Changed ${contact.full_name} status: ${current.warmth_status} → ${newStatus}`;
       }
