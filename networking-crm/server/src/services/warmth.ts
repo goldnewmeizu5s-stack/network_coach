@@ -37,6 +37,24 @@ export function isValidTransition(from: string, to: string): boolean {
   return getAllowedTransitions(from).includes(to);
 }
 
+// Score ranges that the progress bar should fall into for each status.
+// Keeps the visual bar consistent with the status badge after a manual change.
+const STATUS_SCORE_RANGE: Record<string, [number, number]> = {
+  new: [0, THRESHOLD_WARMING - 1],
+  warming: [THRESHOLD_WARMING, THRESHOLD_WARM - 1],
+  warm: [THRESHOLD_WARM, 100],
+  cooling: [THRESHOLD_RECOVER, THRESHOLD_WARM - 1],
+  paused: [0, 100],
+  archived: [0, 100],
+};
+
+export function alignScoreToStatus(score: number, status: string): number {
+  const range = STATUS_SCORE_RANGE[status];
+  if (!range) return score;
+  const [min, max] = range;
+  return Math.min(Math.max(score, min), max);
+}
+
 export async function calculateWarmthScore(contactId: string): Promise<number> {
   const interactions = await prisma.interaction.findMany({
     where: { contact_id: contactId, type: { in: SCORING_TYPES } },
@@ -151,5 +169,20 @@ export async function recalcAndAutoStatus(contactId: string): Promise<void> {
     }
 
     await tx.contact.update({ where: { id: contactId }, data });
+  });
+}
+
+/** Apply a user/bot-initiated status change.
+ *  Recomputes the interaction-based score, then clamps it into the range
+ *  that matches the new status so the progress bar reflects the badge. */
+export async function applyManualStatusChange(
+  contactId: string,
+  newStatus: string,
+): Promise<void> {
+  const calculated = await calculateWarmthScore(contactId);
+  const aligned = alignScoreToStatus(calculated, newStatus);
+  await prisma.contact.update({
+    where: { id: contactId },
+    data: { warmth_status: newStatus, warmth_score: aligned },
   });
 }
