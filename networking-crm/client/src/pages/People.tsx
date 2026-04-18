@@ -152,6 +152,29 @@ export default function People() {
 
   const debouncedSearch = useDebounce(search, 300);
 
+  // ── Kanban pipeline: index + directional slide ──────────────────
+  // colIdx tracks which column is active; slideDir tells the list
+  // animation whether to come in from the right (1) or left (-1).
+  const colIdx = Math.max(
+    0,
+    COLUMNS.findIndex((c) => c.key === filter),
+  );
+  const prevColIdxRef = useRef(colIdx);
+  const slideDir = colIdx >= prevColIdxRef.current ? 1 : -1;
+  useEffect(() => {
+    prevColIdxRef.current = colIdx;
+  }, [colIdx]);
+
+  const goToColumn = useCallback(
+    (delta: 1 | -1) => {
+      const next = colIdx + delta;
+      if (next < 0 || next >= COLUMNS.length) return;
+      haptic("light");
+      setFilter(COLUMNS[next].key);
+    },
+    [colIdx],
+  );
+
   const buildParams = useCallback(
     (offset = 0) => {
       const p = new URLSearchParams();
@@ -533,7 +556,24 @@ export default function People() {
         </div>
       )}
 
-      {/* List */}
+      {/* List — wrapped in a motion.div so the column can slide in and
+          horizontal pans switch between Kanban columns. */}
+      <motion.div
+        key={filter}
+        initial={{ x: slideDir * 40, opacity: 0 }}
+        animate={{ x: 0, opacity: 1 }}
+        transition={{ duration: 0.18, ease: "easeOut" }}
+        onPanEnd={(_e, info) => {
+          const { offset, velocity } = info;
+          // ignore vertical scrolls and tiny jitters
+          if (Math.abs(offset.x) < 60) return;
+          if (Math.abs(offset.x) < Math.abs(offset.y) * 2) return;
+          // require either enough travel or enough flick velocity
+          if (Math.abs(offset.x) < 100 && Math.abs(velocity.x) < 300) return;
+          goToColumn(offset.x < 0 ? 1 : -1);
+        }}
+        className="flex flex-1 flex-col"
+      >
       {loading && contacts.length === 0 ? (
         <SkeletonList count={5} />
       ) : loadError ? (
@@ -608,6 +648,7 @@ export default function People() {
           )}
         </div>
       )}
+      </motion.div>
 
       {/* Archived contacts section */}
       {!loading && !loadError && (counts.archived ?? 0) > 0 && (
@@ -704,8 +745,8 @@ function ContactCard({
   userCountry,
   onTap,
   onLongPress,
-  onArchive,
-  onPause,
+  onArchive: _onArchive,
+  onPause: _onPause,
   onLocationStatus,
 }: {
   contact: ContactListItem;
@@ -718,7 +759,6 @@ function ContactCard({
   onPause: () => void;
   onLocationStatus: (status: string | null) => void;
 }) {
-  const [offset, setOffset] = useState(0);
   const [imgFailed, setImgFailed] = useState(false);
 
   // Reset imgFailed when photo URL changes so updated photos display correctly
@@ -726,43 +766,26 @@ function ContactCard({
     setImgFailed(false);
   }, [c.photo_url]);
 
-  const startX = useRef(0);
-  const startY = useRef(0);
-  const direction = useRef<"none" | "horizontal" | "vertical">("none");
-  const swiping = useRef(false);
+  // Card touch handling is now minimal: only a long-press timer.
+  // Horizontal pans belong to the column pager above; pause/archive
+  // live in the long-press action sheet (block 5).
   const longTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const moved = useRef(false);
 
-  const handleTouchStart = (e: React.TouchEvent) => {
-    startX.current = e.touches[0].clientX;
-    startY.current = e.touches[0].clientY;
-    direction.current = "none";
-    swiping.current = false;
+  const handleTouchStart = () => {
+    moved.current = false;
     longTimer.current = setTimeout(() => {
       onLongPress();
       longTimer.current = null;
     }, 500);
   };
 
-  const handleTouchMove = (e: React.TouchEvent) => {
+  const handleTouchMove = () => {
+    if (!longTimer.current && moved.current) return;
+    moved.current = true;
     if (longTimer.current) {
       clearTimeout(longTimer.current);
       longTimer.current = null;
-    }
-    const dx = e.touches[0].clientX - startX.current;
-    const dy = e.touches[0].clientY - startY.current;
-
-    // Lock direction on first significant movement
-    if (direction.current === "none" && (Math.abs(dx) > 15 || Math.abs(dy) > 15)) {
-      direction.current = Math.abs(dx) > Math.abs(dy) ? "horizontal" : "vertical";
-    }
-
-    if (direction.current !== "horizontal") return;
-
-    if (dx < -10) {
-      swiping.current = true;
-      setOffset(Math.max(dx, -140));
-    } else if (dx > 5 && offset < 0) {
-      setOffset(Math.min(0, offset + dx));
     }
   };
 
@@ -771,14 +794,6 @@ function ContactCard({
       clearTimeout(longTimer.current);
       longTimer.current = null;
     }
-    if (direction.current === "vertical") {
-      setOffset(0);
-    } else if (offset < -70) {
-      setOffset(-140);
-    } else {
-      setOffset(0);
-    }
-    direction.current = "none";
   };
 
   const warmthColor = getWarmthColor(c.warmth_status);
@@ -794,35 +809,11 @@ function ContactCard({
 
   return (
     <div className="relative overflow-hidden rounded-2xl">
-      {/* Swipe actions */}
-      <div className="absolute right-0 top-0 flex h-full items-stretch">
-        <button
-          onClick={onPause}
-          className="flex w-[70px] flex-col items-center justify-center gap-1 bg-neutral-600 text-white"
-        >
-          <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M10 9v6m4-6v6m7-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-          </svg>
-          <span className="text-[10px] font-medium">Пауза</span>
-        </button>
-        <button
-          onClick={onArchive}
-          className="flex w-[70px] flex-col items-center justify-center gap-1 bg-red-600 text-white"
-        >
-          <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
-          </svg>
-          <span className="text-[10px] font-medium">Архив</span>
-        </button>
-      </div>
       <div
-        className={`relative flex items-center gap-3 p-3.5 transition-transform ${
+        className={`relative flex items-center gap-3 rounded-2xl p-3.5 ${
           selected ? "ring-2 ring-accent border-accent/30" : ""
         }`}
         style={{
-          transform: `translateX(${offset}px)`,
-          touchAction: "pan-y",
-          willChange: offset !== 0 ? "transform" : "auto",
           background: showLocationGlow
             ? isConfirmed
               ? "linear-gradient(135deg, rgba(251, 191, 36, 0.15) 0%, rgba(30, 30, 30, 1) 50%)"
@@ -843,7 +834,7 @@ function ContactCard({
         onTouchMove={handleTouchMove}
         onTouchEnd={handleTouchEnd}
         onClick={() => {
-          if (!swiping.current && offset === 0) onTap();
+          if (!moved.current) onTap();
         }}
       >
         {/* Select checkbox */}
