@@ -60,6 +60,16 @@ export const VALID_MOVE: Record<ColumnKey, ColumnKey[]> = {
   cooling: ["warming"],
 };
 
+// Human labels for all statuses, including non-Kanban ones (paused/archived).
+const STATUS_LABEL: Record<string, string> = {
+  new: "Новые",
+  warming: "Тёплые",
+  warm: "Горячие",
+  cooling: "Остывают",
+  paused: "Пауза",
+  archived: "Архив",
+};
+
 const SORT_OPTIONS: { label: string; value: SortOption }[] = [
   { label: "По активности", value: "last_interaction" },
   { label: "По дате встречи", value: "created_at" },
@@ -148,6 +158,9 @@ export default function People() {
   // Batch selection
   const [selectMode, setSelectMode] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
+
+  // Long-press quick-actions sheet target (the contact whose sheet is open).
+  const [actionTarget, setActionTarget] = useState<ContactListItem | null>(null);
 
   const debouncedSearch = useDebounce(search, 300);
 
@@ -311,6 +324,20 @@ export default function People() {
       fetchCounts();
     } catch {
       /* ignore */
+    }
+  };
+
+  // Move a contact between Kanban columns via the quick-actions sheet.
+  // The server validates the transition; on error we surface the reason as a toast.
+  const handleMoveStatus = async (id: string, newStatus: string) => {
+    try {
+      await api.put(`/contacts/${id}/status`, { status: newStatus });
+      haptic("success");
+      show(`Перемещён в «${STATUS_LABEL[newStatus] ?? newStatus}»`);
+      fetchContacts();
+      fetchCounts();
+    } catch (err) {
+      show(err instanceof Error ? err.message : "Не удалось переместить");
     }
   };
 
@@ -626,9 +653,12 @@ export default function People() {
                   }
                 }}
                 onLongPress={() => {
+                  // Long-press now opens the quick-actions sheet instead of
+                  // entering select mode directly — select mode is one tap away
+                  // inside the sheet.
                   if (!selectMode) {
-                    setSelectMode(true);
-                    setSelected(new Set([c.id]));
+                    haptic("medium");
+                    setActionTarget(c);
                   }
                 }}
                 onArchive={() => handleArchive(c.id)}
@@ -733,6 +763,31 @@ export default function People() {
           }}
         />
       )}
+
+      {/* Quick actions sheet — triggered by long-press on a card. */}
+      <QuickActionsSheet
+        target={actionTarget}
+        onClose={() => setActionTarget(null)}
+        onMove={(newStatus) => {
+          if (actionTarget) handleMoveStatus(actionTarget.id, newStatus);
+          setActionTarget(null);
+        }}
+        onPause={() => {
+          if (actionTarget) handlePause(actionTarget.id);
+          setActionTarget(null);
+        }}
+        onArchive={() => {
+          if (actionTarget) handleArchive(actionTarget.id);
+          setActionTarget(null);
+        }}
+        onSelectMultiple={() => {
+          if (actionTarget) {
+            setSelectMode(true);
+            setSelected(new Set([actionTarget.id]));
+          }
+          setActionTarget(null);
+        }}
+      />
     </div>
   );
 }
@@ -1146,6 +1201,118 @@ function AddContactModal({
             {saving ? "Создание..." : "Создать"}
           </button>
         </form>
+      </div>
+    </div>
+  );
+}
+
+/* ────────────────────────────────────────────────────────────────
+   QuickActionsSheet — bottom sheet opened by long-pressing a card.
+   Offers only the status transitions that the server will accept
+   (see VALID_MOVE), plus pause, archive and "select multiple".
+   ──────────────────────────────────────────────────────────────── */
+function QuickActionsSheet({
+  target,
+  onClose,
+  onMove,
+  onPause,
+  onArchive,
+  onSelectMultiple,
+}: {
+  target: ContactListItem | null;
+  onClose: () => void;
+  onMove: (newStatus: string) => void;
+  onPause: () => void;
+  onArchive: () => void;
+  onSelectMultiple: () => void;
+}) {
+  if (!target) return null;
+
+  const status = target.warmth_status as ColumnKey;
+  const moves: ColumnKey[] = VALID_MOVE[status] ?? [];
+  const canPause = target.warmth_status !== "paused";
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-end justify-center bg-black/60"
+      onClick={onClose}
+    >
+      <div
+        className="animate-slide-up w-full max-w-[430px] rounded-t-3xl bg-card px-5 pb-6 pt-4"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="mx-auto mb-4 h-1 w-10 rounded-full bg-neutral-600" />
+
+        <div className="mb-5">
+          <p className="truncate text-[15px] font-semibold text-white">
+            {target.full_name}
+          </p>
+          <p className="text-xs text-neutral-500">
+            Сейчас: {STATUS_LABEL[target.warmth_status] ?? target.warmth_status}
+          </p>
+        </div>
+
+        {moves.length > 0 && (
+          <>
+            <p className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-neutral-500">
+              Переместить в
+            </p>
+            <div className="mb-4 flex flex-col gap-1.5">
+              {moves.map((k) => {
+                const col = COLUMNS.find((c) => c.key === k);
+                if (!col) return null;
+                return (
+                  <button
+                    key={k}
+                    onClick={() => onMove(k)}
+                    className="flex items-center gap-3 rounded-xl bg-neutral-800 px-4 py-3 text-left text-sm text-white active:bg-neutral-700"
+                  >
+                    <span
+                      className="h-2 w-2 rounded-full"
+                      style={{
+                        backgroundColor: col.dot,
+                        boxShadow: `0 0 6px ${col.dot}`,
+                      }}
+                    />
+                    {col.label}
+                    <span className="ml-auto text-xs text-neutral-500">
+                      {col.hint}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          </>
+        )}
+
+        <div className="flex flex-col gap-1.5">
+          {canPause && (
+            <button
+              onClick={onPause}
+              className="rounded-xl bg-neutral-800 px-4 py-3 text-left text-sm text-neutral-200 active:bg-neutral-700"
+            >
+              Пауза
+            </button>
+          )}
+          <button
+            onClick={onArchive}
+            className="rounded-xl bg-red-600/15 px-4 py-3 text-left text-sm text-red-300 active:bg-red-600/25"
+          >
+            В архив
+          </button>
+          <button
+            onClick={onSelectMultiple}
+            className="rounded-xl px-4 py-3 text-left text-sm text-neutral-400 active:text-white"
+          >
+            Выбрать несколько
+          </button>
+          <button
+            onClick={onClose}
+            className="rounded-xl px-4 py-3 text-center text-sm text-neutral-500 active:text-white"
+          >
+            Отмена
+          </button>
+        </div>
       </div>
     </div>
   );
