@@ -156,7 +156,9 @@ export async function recalcAndAutoStatus(contactId: string): Promise<void> {
       newStatus = "warming";
     }
 
-    const data: Record<string, unknown> = { warmth_score: score };
+    const data: Record<string, unknown> = {
+      warmth_score: Math.max(score, STATUS_SCORE_RANGE[newStatus]?.[0] ?? 0),
+    };
     if (newStatus !== contact.warmth_status) {
       data.warmth_status = newStatus;
       await tx.interaction.create({
@@ -185,4 +187,24 @@ export async function applyManualStatusChange(
     where: { id: contactId },
     data: { warmth_status: newStatus, warmth_score: aligned },
   });
+}
+
+/** One-shot pass that fixes existing rows whose stored score doesn't
+ *  fall into the range implied by their status. Safe to run repeatedly. */
+export async function alignAllWarmthScores(): Promise<number> {
+  const contacts = await prisma.contact.findMany({
+    select: { id: true, warmth_status: true, warmth_score: true },
+  });
+  let fixed = 0;
+  for (const c of contacts) {
+    const aligned = alignScoreToStatus(c.warmth_score, c.warmth_status);
+    if (aligned !== c.warmth_score) {
+      await prisma.contact.update({
+        where: { id: c.id },
+        data: { warmth_score: aligned },
+      });
+      fixed++;
+    }
+  }
+  return fixed;
 }
