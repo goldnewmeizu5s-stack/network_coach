@@ -1,5 +1,9 @@
 import { Router } from "express";
 import prisma from "../lib/prisma";
+import {
+  loadCachedReactionInsights,
+  refreshReactionInsights,
+} from "../services/challenge-reactions";
 
 const router = Router();
 
@@ -47,6 +51,26 @@ router.put("/profile", async (req, res, next) => {
     }
 
     res.json(updated);
+  } catch (err) {
+    next(err);
+  }
+});
+
+// GET /api/user/reaction-insights — cached (fast)
+router.get("/reaction-insights", async (_req, res, next) => {
+  try {
+    const cached = await loadCachedReactionInsights();
+    res.json({ insights: cached });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// POST /api/user/reaction-insights/refresh — recompute + persist
+router.post("/reaction-insights/refresh", async (_req, res, next) => {
+  try {
+    const insights = await refreshReactionInsights();
+    res.json({ insights });
   } catch (err) {
     next(err);
   }

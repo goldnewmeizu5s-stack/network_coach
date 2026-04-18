@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { Plus, Search, X, Trash2, Save } from "lucide-react";
 import { api } from "../lib/api";
@@ -24,19 +24,31 @@ export default function Notes() {
   const [allTags, setAllTags] = useState<string[]>([]);
   const [editing, setEditing] = useState<Note | "new" | null>(null);
 
-  // Open note by ?id=X deep link
+  // Open note by ?id=X deep link (clear param once consumed).
   useEffect(() => {
     const id = searchParams.get("id");
     if (!id) return;
+    let cancelled = false;
     api
       .get<Note>(`/notes/${id}`)
-      .then((n) => setEditing(n))
+      .then((n) => {
+        if (!cancelled) setEditing(n);
+      })
       .catch(() => {})
       .finally(() => {
-        // Clear the param once consumed
-        searchParams.delete("id");
-        setSearchParams(searchParams, { replace: true });
+        if (cancelled) return;
+        setSearchParams(
+          (prev) => {
+            const next = new URLSearchParams(prev);
+            next.delete("id");
+            return next;
+          },
+          { replace: true },
+        );
       });
+    return () => {
+      cancelled = true;
+    };
   }, [searchParams, setSearchParams]);
 
   const load = useCallback(async () => {
@@ -259,6 +271,195 @@ function NoteCard({
   );
 }
 
+interface AutocompleteContact {
+  id: string;
+  full_name: string;
+  nickname: string | null;
+  occupation: string | null;
+}
+
+function detectBacklinkQuery(
+  body: string,
+  caret: number,
+): { token: string; openPos: number } | null {
+  if (caret <= 1) return null;
+  const before = body.slice(0, caret);
+  const open = before.lastIndexOf("[[");
+  if (open === -1) return null;
+  const between = before.slice(open + 2);
+  if (/[\n\r\]]/.test(between)) return null;
+  if (between.length > 40) return null;
+  return { token: between, openPos: open };
+}
+
+function BacklinkTextarea({
+  value,
+  onChange,
+  placeholder,
+  rows,
+  maxLength,
+  className,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  placeholder?: string;
+  rows?: number;
+  maxLength?: number;
+  className?: string;
+}) {
+  const ref = useRef<HTMLTextAreaElement | null>(null);
+  const [caret, setCaret] = useState<number | null>(null);
+  const [hits, setHits] = useState<AutocompleteContact[]>([]);
+  const [highlight, setHighlight] = useState(0);
+  const [active, setActive] = useState<{ token: string; openPos: number } | null>(null);
+  const [loading, setLoading] = useState(false);
+
+  // Detect open [[...
+  useEffect(() => {
+    if (caret == null) {
+      setActive(null);
+      return;
+    }
+    const found = detectBacklinkQuery(value, caret);
+    setActive(found);
+    if (!found) setHits([]);
+  }, [value, caret]);
+
+  // Fetch candidates when the token changes (debounced).
+  useEffect(() => {
+    if (!active) return;
+    const token = active.token.trim();
+    let cancelled = false;
+    setHighlight(0);
+    setLoading(true);
+    const t = setTimeout(async () => {
+      try {
+        const params = new URLSearchParams({ limit: "8" });
+        if (token) params.set("search", token);
+        const data = await api.get<{ contacts: AutocompleteContact[] }>(
+          `/contacts?${params.toString()}`,
+        );
+        if (!cancelled) setHits(data.contacts || []);
+      } catch {
+        if (!cancelled) setHits([]);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    }, 120);
+    return () => {
+      cancelled = true;
+      clearTimeout(t);
+    };
+  }, [active]);
+
+  const updateCaret = () => {
+    const el = ref.current;
+    if (!el) return;
+    setCaret(el.selectionStart);
+  };
+
+  const insertSelection = (contact: AutocompleteContact) => {
+    if (!active) return;
+    const el = ref.current;
+    if (!el) return;
+    const cursor = caret ?? el.selectionStart;
+    const before = value.slice(0, active.openPos);
+    const afterToken = value.slice(cursor);
+    // If the user already has "]]" just after, don't double-close.
+    const closesImmediately = afterToken.startsWith("]]");
+    const insertion = `[[${contact.full_name}]]${closesImmediately ? "" : " "}`;
+    const newBody = before + insertion + (closesImmediately ? afterToken.slice(2) : afterToken);
+    const newCursor = before.length + insertion.length;
+    onChange(newBody);
+    setActive(null);
+    setHits([]);
+    requestAnimationFrame(() => {
+      el.focus();
+      el.setSelectionRange(newCursor, newCursor);
+      setCaret(newCursor);
+    });
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (!active || hits.length === 0) return;
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      setHighlight((h) => (h + 1) % hits.length);
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault();
+      setHighlight((h) => (h - 1 + hits.length) % hits.length);
+    } else if (e.key === "Enter" || e.key === "Tab") {
+      e.preventDefault();
+      insertSelection(hits[highlight]);
+    } else if (e.key === "Escape") {
+      e.preventDefault();
+      setActive(null);
+      setHits([]);
+    }
+  };
+
+  const showPanel = active != null;
+  const showEmpty = showPanel && !loading && hits.length === 0 && active.token.trim().length > 0;
+
+  return (
+    <div className={`relative ${className || ""}`}>
+      <Textarea
+        ref={ref}
+        value={value}
+        onChange={(e) => {
+          onChange(e.target.value);
+          requestAnimationFrame(updateCaret);
+        }}
+        onKeyDown={handleKeyDown}
+        onKeyUp={updateCaret}
+        onClick={updateCaret}
+        onSelect={updateCaret}
+        placeholder={placeholder}
+        rows={rows}
+        maxLength={maxLength}
+        className="min-h-[260px]"
+      />
+      {showPanel && (hits.length > 0 || loading || showEmpty) && (
+        <div className="absolute left-0 right-0 top-full z-20 mt-1 rounded-xl border border-white/10 bg-card shadow-lg">
+          <div className="px-3 py-1.5 text-[10px] uppercase tracking-wider text-neutral-500">
+            {loading ? "поиск..." : `совпадения для "${active.token}"`}
+          </div>
+          {hits.map((c, i) => (
+            <button
+              key={c.id}
+              type="button"
+              onMouseDown={(e) => {
+                e.preventDefault();
+                insertSelection(c);
+              }}
+              onMouseEnter={() => setHighlight(i)}
+              className={`flex w-full flex-col items-start gap-0.5 px-3 py-2 text-left text-sm ${
+                i === highlight
+                  ? "bg-accent/15 text-white"
+                  : "text-neutral-300 active:bg-neutral-800"
+              }`}
+            >
+              <span className="font-medium">{c.full_name}</span>
+              {(c.nickname || c.occupation) && (
+                <span className="text-[11px] text-neutral-500">
+                  {[c.nickname && `«${c.nickname}»`, c.occupation]
+                    .filter(Boolean)
+                    .join(" · ")}
+                </span>
+              )}
+            </button>
+          ))}
+          {showEmpty && (
+            <div className="px-3 py-2 text-xs text-neutral-500">
+              Нет контакта с таким именем. После сохранения ссылка останется «не связанной».
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function NoteEditor({
   note,
   onCancel,
@@ -358,12 +559,12 @@ function NoteEditor({
         maxLength={200}
       />
 
-      <Textarea
+      <BacklinkTextarea
         value={body}
-        onChange={(e) => setBody(e.target.value)}
+        onChange={setBody}
         placeholder="Мысль, деталь, идея...&#10;&#10;Используй [[Имя]] чтобы связать с контактом."
         rows={12}
-        className="mb-3 min-h-[260px]"
+        className="mb-3"
         maxLength={20000}
       />
 

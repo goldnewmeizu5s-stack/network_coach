@@ -28,6 +28,34 @@ interface AppStats {
   methodologies: number;
 }
 
+interface CategoryReaction {
+  category: string;
+  completed: number;
+  skipped: number;
+  too_hard: number;
+  total: number;
+  avg_rating: number | null;
+  completion_rate: number;
+}
+
+interface ReactionInsights {
+  by_category: CategoryReaction[];
+  loved: {
+    title: string;
+    category: string;
+    rating: number;
+    reflection: string | null;
+    completed_at: string;
+  }[];
+  rejected: {
+    title: string;
+    category: string;
+    status: string;
+    date: string;
+  }[];
+  generated_at: string;
+}
+
 export default function Settings() {
   const { show } = useToast();
 
@@ -48,6 +76,11 @@ export default function Settings() {
 
   // Stats
   const [appStats, setAppStats] = useState<AppStats | null>(null);
+
+  // Reaction insights
+  const [reactions, setReactions] = useState<ReactionInsights | null>(null);
+  const [reactionsLoading, setReactionsLoading] = useState(false);
+  const [reactionsRefreshing, setReactionsRefreshing] = useState(false);
 
   // PIN
   const [showPinChange, setShowPinChange] = useState(false);
@@ -95,11 +128,52 @@ export default function Settings() {
     }
   }, []);
 
+  const fetchReactions = useCallback(async () => {
+    setReactionsLoading(true);
+    try {
+      const data = await api.get<{ insights: ReactionInsights | null }>(
+        "/user/reaction-insights",
+      );
+      setReactions(data.insights);
+    } catch {
+      /* ignore */
+    } finally {
+      setReactionsLoading(false);
+    }
+  }, []);
+
+  const refreshReactions = async () => {
+    setReactionsRefreshing(true);
+    try {
+      const data = await api.post<{ insights: ReactionInsights | null }>(
+        "/user/reaction-insights/refresh",
+      );
+      setReactions(data.insights);
+      show("Инсайты обновлены");
+    } catch {
+      show("Не удалось обновить");
+    } finally {
+      setReactionsRefreshing(false);
+    }
+  };
+
+  const runWeeklyMemory = async () => {
+    show("Запускаю консолидацию памяти...");
+    try {
+      await api.post("/cron/memory-now");
+      show("Готово. Проверь контакты");
+      fetchReactions();
+    } catch {
+      show("Не удалось запустить");
+    }
+  };
+
   useEffect(() => {
     fetchProfile();
     fetchMethodologies();
     fetchStats();
-  }, [fetchProfile, fetchMethodologies, fetchStats]);
+    fetchReactions();
+  }, [fetchProfile, fetchMethodologies, fetchStats, fetchReactions]);
 
   const saveProfile = async () => {
     setProfileSaving(true);
@@ -310,6 +384,111 @@ export default function Settings() {
             {profileSaving ? "Сохранение..." : "Сохранить"}
           </button>
         </div>
+      </Section>
+
+      {/* Reaction insights */}
+      <Section title="Что зашло / что нет (30 дней)">
+        {reactionsLoading && !reactions ? (
+          <p className="text-sm text-neutral-500">Загружаем...</p>
+        ) : !reactions || reactions.by_category.length === 0 ? (
+          <div className="flex flex-col gap-3">
+            <p className="text-sm text-neutral-500">
+              Пока нет данных. Когда накопятся реакции на челленджи, бот начнёт подстраивать новые под твой вкус.
+            </p>
+            <button
+              onClick={refreshReactions}
+              disabled={reactionsRefreshing}
+              className="rounded-xl bg-neutral-800 py-2.5 text-sm text-neutral-300 active:bg-neutral-700 disabled:opacity-50"
+            >
+              {reactionsRefreshing ? "Считаем..." : "Посчитать сейчас"}
+            </button>
+          </div>
+        ) : (
+          <div className="flex flex-col gap-4">
+            <div className="flex flex-col gap-1.5">
+              {reactions.by_category.map((c) => (
+                <div key={c.category} className="flex items-center gap-3 text-sm">
+                  <span className="w-28 shrink-0 text-neutral-300">{c.category}</span>
+                  <div className="relative h-2 flex-1 overflow-hidden rounded-full bg-neutral-800">
+                    <div
+                      className="absolute inset-y-0 left-0 rounded-full bg-accent"
+                      style={{ width: `${c.completion_rate}%` }}
+                    />
+                  </div>
+                  <span className="w-20 shrink-0 text-right text-xs text-neutral-400">
+                    {c.completion_rate}%
+                    {c.avg_rating != null && ` · ${c.avg_rating.toFixed(1)}★`}
+                  </span>
+                </div>
+              ))}
+            </div>
+
+            {reactions.loved.length > 0 && (
+              <div>
+                <p className="mb-2 text-[10px] uppercase tracking-wider text-emerald-400">
+                  Зашло
+                </p>
+                <div className="flex flex-col gap-1.5">
+                  {reactions.loved.map((c, i) => (
+                    <div
+                      key={i}
+                      className="rounded-xl bg-emerald-500/5 px-3 py-2 text-xs ring-1 ring-emerald-500/20"
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="font-medium text-neutral-200">{c.title}</span>
+                        <span className="text-emerald-400">{c.rating}★</span>
+                      </div>
+                      {c.reflection && (
+                        <p className="mt-1 line-clamp-2 text-[11px] italic text-neutral-400">
+                          “{c.reflection}”
+                        </p>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {reactions.rejected.length > 0 && (
+              <div>
+                <p className="mb-2 text-[10px] uppercase tracking-wider text-red-400">
+                  Не пошло
+                </p>
+                <div className="flex flex-col gap-1.5">
+                  {reactions.rejected.map((c, i) => (
+                    <div
+                      key={i}
+                      className="flex items-center justify-between gap-2 rounded-xl bg-red-500/5 px-3 py-2 text-xs ring-1 ring-red-500/20"
+                    >
+                      <span className="text-neutral-200">{c.title}</span>
+                      <span className="text-[10px] text-red-400">{c.status}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            <div className="flex items-center justify-between text-[11px] text-neutral-500">
+              <span>
+                Обновлено: {new Date(reactions.generated_at).toLocaleString("ru-RU")}
+              </span>
+              <button
+                onClick={refreshReactions}
+                disabled={reactionsRefreshing}
+                className="rounded-lg bg-neutral-800 px-3 py-1.5 text-[11px] text-neutral-300 active:bg-neutral-700 disabled:opacity-50"
+              >
+                {reactionsRefreshing ? "..." : "Пересчитать"}
+              </button>
+            </div>
+
+            <button
+              onClick={runWeeklyMemory}
+              className="rounded-xl bg-accent/15 py-2.5 text-sm text-accent active:bg-accent/25"
+            >
+              Запустить консолидацию памяти сейчас
+            </button>
+          </div>
+        )}
       </Section>
 
       {/* Methodologies */}
