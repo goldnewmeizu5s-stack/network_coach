@@ -10,16 +10,6 @@ import ErrorState from "../components/ErrorState";
 import { useToast } from "../components/Toast";
 import WarmthBar from "../components/WarmthBar";
 
-// Legacy filter chips — kept until Kanban view replaces the chip row in the next block.
-const FILTERS = [
-  { label: "Все", value: "", key: "all" },
-  { label: "\u{1F534} Новые", value: "new", key: "new" },
-  { label: "\u{1F7E1} Тёплые", value: "warming", key: "warming" },
-  { label: "\u{1F7E2} Горячие", value: "warm", key: "warm" },
-  { label: "\u{1F7E0} Остывают", value: "cooling", key: "cooling" },
-  { label: "\u26AA Пауза", value: "paused", key: "paused" },
-];
-
 interface ContactListItem {
   id: string;
   full_name: string;
@@ -48,9 +38,9 @@ type SortOption = "last_interaction" | "created_at" | "warmth_score" | "name";
 
 // ── Kanban columns (pipeline order) ──────────────────────────────
 // Order matches the relationship pipeline: first-touch → developing → peak → fading.
-export type ColumnKey = "new" | "warming" | "warm" | "cooling";
+type ColumnKey = "new" | "warming" | "warm" | "cooling";
 
-export const COLUMNS: {
+const COLUMNS: {
   key: ColumnKey;
   label: string;
   dot: string;
@@ -115,7 +105,7 @@ export function getTimeColorClass(days: number | null, status: string): string {
 }
 
 // Telegram haptic feedback (safe no-op if outside TMA).
-export function haptic(kind: "light" | "medium" | "success" = "light") {
+function haptic(kind: "light" | "medium" | "success" = "light") {
   try {
     const hf = (window as unknown as { Telegram?: { WebApp?: { HapticFeedback?: { impactOccurred: (s: string) => void; notificationOccurred: (s: string) => void } } } })
       .Telegram?.WebApp?.HapticFeedback;
@@ -133,7 +123,8 @@ export default function People() {
   const [total, setTotal] = useState(0);
   const [hasMore, setHasMore] = useState(false);
   const [search, setSearch] = useState("");
-  const [filter, setFilter] = useState("");
+  // Kanban pipeline: default to first column ("new"). Empty string = legacy "all".
+  const [filter, setFilter] = useState<string>("new");
   const [sort, setSort] = useState<SortOption>("last_interaction");
   const [showSort, setShowSort] = useState(false);
   const [showMoreFilters, setShowMoreFilters] = useState(false);
@@ -414,26 +405,15 @@ export default function People() {
         />
       </div>
 
-      {/* Warmth filter chips */}
-      <div className="mb-2 flex gap-1.5 overflow-x-auto pb-1 scrollbar-none">
-        {FILTERS.map((f) => {
-          const count = counts[f.key] ?? 0;
-          return (
-            <button
-              key={f.value}
-              onClick={() => setFilter(filter === f.value ? "" : f.value)}
-              className={`shrink-0 rounded-full px-2.5 py-1 text-[11px] font-medium transition-colors ${
-                filter === f.value
-                  ? "bg-accent text-white"
-                  : "bg-card text-neutral-400"
-              }`}
-            >
-              {f.label}
-              {count > 0 ? ` ${count}` : ""}
-            </button>
-          );
-        })}
-      </div>
+      {/* Kanban column tabs (pipeline: new → warming → warm → cooling) */}
+      <ColumnTabs
+        active={filter}
+        counts={counts}
+        onChange={(key) => {
+          if (filter !== key) haptic("light");
+          setFilter(key);
+        }}
+      />
 
       {/* More filters */}
       <button
@@ -560,16 +540,25 @@ export default function People() {
         <ErrorState message="Не удалось загрузить контакты" onRetry={fetchContacts} />
       ) : contacts.length === 0 ? (
         <div className="flex flex-1 flex-col items-center justify-center gap-3 text-center">
-          {debouncedSearch || filter || categoryFilter || countryFilter || dormantFilter ? (
-            <>
-              <div className="text-3xl">{"\u{1F50D}"}</div>
-              <p className="text-neutral-400">Никого не найдено</p>
-            </>
-          ) : (
+          {(counts.all ?? 0) === 0 &&
+          !debouncedSearch &&
+          !categoryFilter &&
+          !countryFilter &&
+          !dormantFilter ? (
             <>
               <div className="text-4xl">{"\u{1F3A4}"}</div>
               <p className="text-neutral-400">
                 Запишите голосовое о первом знакомстве
+              </p>
+            </>
+          ) : (
+            <>
+              <div className="text-3xl">{"\u{1F50D}"}</div>
+              <p className="text-neutral-400">
+                В колонке «{COLUMNS.find((c) => c.key === filter)?.label ?? "—"}» пусто
+              </p>
+              <p className="text-xs text-neutral-600">
+                Переключи колонку выше или сбрось фильтры
               </p>
             </>
           )}
@@ -621,7 +610,7 @@ export default function People() {
       )}
 
       {/* Archived contacts section */}
-      {!loading && !loadError && !filter && (counts.archived ?? 0) > 0 && (
+      {!loading && !loadError && (counts.archived ?? 0) > 0 && (
         <div className="mt-4 mb-2">
           <button
             onClick={toggleArchived}
@@ -1144,6 +1133,61 @@ function AddContactModal({
           </button>
         </form>
       </div>
+    </div>
+  );
+}
+
+/* ────────────────────────────────────────────────────────────────
+   ColumnTabs — sticky pipeline tab bar
+   Replaces the old chip-row filter. Each tab = one Kanban column
+   with a colored dot (status color), label and count. Active tab
+   gets a filled pill; inactive tabs stay muted.
+   ──────────────────────────────────────────────────────────────── */
+function ColumnTabs({
+  active,
+  counts,
+  onChange,
+}: {
+  active: string;
+  counts: Record<string, number>;
+  onChange: (key: ColumnKey) => void;
+}) {
+  return (
+    <div className="sticky top-0 z-10 -mx-4 mb-2 flex gap-1.5 overflow-x-auto bg-bg/95 px-4 py-2 backdrop-blur scrollbar-none">
+      {COLUMNS.map((col) => {
+        const isActive = active === col.key;
+        const count = counts[col.key] ?? 0;
+        return (
+          <button
+            key={col.key}
+            onClick={() => onChange(col.key)}
+            className={`flex shrink-0 items-center gap-1.5 rounded-full px-3 py-1.5 text-[12px] font-medium transition-colors ${
+              isActive
+                ? "bg-neutral-800 text-white ring-1 ring-neutral-700"
+                : "text-neutral-500 active:bg-neutral-900"
+            }`}
+            aria-pressed={isActive}
+          >
+            <span
+              className="h-1.5 w-1.5 rounded-full"
+              style={{
+                backgroundColor: col.dot,
+                boxShadow: isActive ? `0 0 6px ${col.dot}` : "none",
+              }}
+            />
+            {col.label}
+            {count > 0 && (
+              <span
+                className={`tabular-nums text-[10px] ${
+                  isActive ? "text-neutral-400" : "text-neutral-600"
+                }`}
+              >
+                {count}
+              </span>
+            )}
+          </button>
+        );
+      })}
     </div>
   );
 }
