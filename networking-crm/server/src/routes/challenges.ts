@@ -6,6 +6,10 @@ import {
   generateDailyChallenge,
   generateAlternativeChallenges,
 } from "../services/challenge-engine";
+import {
+  generateLocationChallenges,
+  applyDatingFlavorRoll,
+} from "../services/location-challenge-engine";
 import { indexChallengeAsync } from "../services/memory/memory-indexer";
 
 const router = Router();
@@ -34,6 +38,8 @@ router.get("/today", async (_req, res, next) => {
       const main = await generateDailyChallenge();
       const alts = await generateAlternativeChallenges();
       const ids = [main.id, ...alts.map((a) => a.id)];
+      // Give each new non-location challenge a small chance of dating flavor
+      await applyDatingFlavorRoll(ids);
       // Re-fetch with methodology included
       challenges = await prisma.challenge.findMany({
         where: { id: { in: ids } },
@@ -42,10 +48,63 @@ router.get("/today", async (_req, res, next) => {
       });
     }
 
-    const [main, ...alternatives] = challenges;
+    // Split: daily (non-location) first, location-based at the end as alternatives
+    const daily = challenges.filter((c) => !c.is_location_based);
+    const location = challenges.filter((c) => c.is_location_based);
+    const ordered = [...daily, ...location];
+    const [main, ...alternatives] = ordered;
 
     res.json({ challenge: main, alternatives });
   } catch (err) {
+    next(err);
+  }
+});
+
+// POST /api/challenges/by-location
+// Body: { context: string }  OR  { voice_interaction_id: string }
+router.post("/by-location", async (req, res, next) => {
+  try {
+    const { context, voice_interaction_id } = req.body || {};
+
+    let resolvedContext = "";
+    let source: "text" | "voice" = "text";
+
+    if (typeof context === "string" && context.trim().length > 0) {
+      resolvedContext = context.trim().slice(0, 2000);
+    } else if (typeof voice_interaction_id === "string") {
+      const interaction = await prisma.interaction.findUnique({
+        where: { id: voice_interaction_id },
+        select: { transcript: true },
+      });
+      if (!interaction?.transcript) {
+        res
+          .status(400)
+          .json({ error: "Voice interaction has no transcript yet" });
+        return;
+      }
+      resolvedContext = interaction.transcript.trim().slice(0, 2000);
+      source = "voice";
+    } else {
+      res
+        .status(400)
+        .json({ error: "Provide either 'context' or 'voice_interaction_id'" });
+      return;
+    }
+
+    const created = await generateLocationChallenges({
+      context: resolvedContext,
+      transcriptSource: source,
+    });
+    const ids = created.map((c) => c.id);
+    const challenges = await prisma.challenge.findMany({
+      where: { id: { in: ids } },
+      include: { methodology: { select: { title: true, source: true } } },
+      orderBy: { created_at: "asc" },
+    });
+
+    res.status(201).json({ challenges, context: resolvedContext, source });
+  } catch (err) {
+    logger.error("by-location generation failed", { error: String(err) });
     next(err);
   }
 });

@@ -121,11 +121,16 @@ model Challenge {
   xp_earned              Int          @default(0)
   estimated_time_minutes Int?
   is_bonus               Boolean      @default(false)
+  is_location_based      Boolean      @default(false)
+  location_context       String?
+  context_tags           String[]
+  dating_flavor          Boolean      @default(false)
   created_at             DateTime     @default(now())
   completed_at           DateTime?
 
   @@index([date])
   @@index([status, date])
+  @@index([is_location_based, date])
 }
 
 model Methodology {

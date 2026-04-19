@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { api } from "../lib/api";
 import { useToast } from "../components/Toast";
 import ErrorState from "../components/ErrorState";
+import LocationContextModal from "../components/LocationContextModal";
 
 interface ChallengeItem {
   id: string;
@@ -15,6 +16,10 @@ interface ChallengeItem {
   date: string;
   completed_at: string | null;
   methodology: { title: string; source: string } | null;
+  is_location_based?: boolean;
+  location_context?: string | null;
+  context_tags?: string[];
+  dating_flavor?: boolean;
 }
 
 interface HistoryStats {
@@ -64,6 +69,7 @@ export default function Challenge() {
   const [showStats, setShowStats] = useState(false);
   const [celebration, setCelebration] = useState<string | null>(null);
   const [actionBusy, setActionBusy] = useState(false);
+  const [locationModalOpen, setLocationModalOpen] = useState(false);
 
   // Swipe
   const touchStartX = useRef(0);
@@ -187,7 +193,7 @@ export default function Challenge() {
   return (
     <div className="flex flex-1 flex-col px-4 pt-6">
       {/* Header */}
-      <div className="mb-5 flex items-center justify-between">
+      <div className="mb-3 flex items-center justify-between">
         <h1 className="text-xl font-bold text-white">Сегодняшний челлендж</h1>
         {stats && stats.streak > 0 && (
           <span className="rounded-full bg-orange-600/20 px-3 py-1 text-sm font-medium text-orange-400">
@@ -195,6 +201,18 @@ export default function Challenge() {
           </span>
         )}
       </div>
+
+      {/* Location-based CTA */}
+      <button
+        onClick={() => setLocationModalOpen(true)}
+        className="mb-4 flex items-center justify-between rounded-xl bg-neutral-800/80 px-4 py-2.5 text-left transition-colors active:bg-neutral-700/80"
+      >
+        <span className="flex items-center gap-2 text-xs font-medium text-neutral-300">
+          <span>{"\u{1F4CD}"}</span>
+          Я сейчас в другом месте — подбери под локацию
+        </span>
+        <span className="text-[10px] text-neutral-500">{"\u2192"}</span>
+      </button>
 
       {/* Celebration overlay */}
       {celebration && (
@@ -233,6 +251,22 @@ export default function Challenge() {
                 </span>
                 <DifficultyDots value={current.difficulty} />
               </div>
+
+              {/* Location + dating badges */}
+              {(current.is_location_based || current.dating_flavor) && (
+                <div className="mb-2 flex flex-wrap gap-1.5">
+                  {current.is_location_based && (
+                    <span className="rounded-full bg-blue-500/15 px-2 py-0.5 text-[10px] font-medium text-blue-300">
+                      {"\u{1F4CD}"} под локацию
+                    </span>
+                  )}
+                  {current.dating_flavor && (
+                    <span className="rounded-full bg-pink-500/15 px-2 py-0.5 text-[10px] font-medium text-pink-300">
+                      {"\u{1F495}"} нативное знакомство
+                    </span>
+                  )}
+                </div>
+              )}
 
               {/* Title */}
               <h2 className="mb-2 text-lg font-bold text-white">
@@ -450,6 +484,17 @@ export default function Challenge() {
             </p>
           </div>
         </section>
+      )}
+
+      {/* Location context modal */}
+      {locationModalOpen && (
+        <LocationContextModal
+          onClose={() => setLocationModalOpen(false)}
+          onDone={() => {
+            fetchToday();
+            fetchHistory();
+          }}
+        />
       )}
 
       {/* Reflection bottom sheet */}
