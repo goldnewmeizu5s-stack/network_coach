@@ -3,7 +3,11 @@ import { Router } from "express";
 import multer from "multer";
 import prisma from "../lib/prisma";
 import { logger } from "../lib/logger";
-import { processVoiceNote, processBatchVoiceActivity } from "../services/voice-pipeline";
+import {
+  processVoiceNote,
+  processBatchVoiceActivity,
+  processLocationContextVoice,
+} from "../services/voice-pipeline";
 
 const UPLOADS_DIR = path.join(__dirname, "../../uploads");
 const ALLOWED_EXTENSIONS = [".webm", ".mp4", ".mp3", ".wav", ".ogg"];
@@ -46,14 +50,19 @@ router.post("/upload", upload.single("audio"), async (req, res, next) => {
       : null;
 
     const contactId = req.body.contact_id || null;
-    const mode = req.body.mode || "default"; // "default" | "batch_activity"
+    const mode = req.body.mode || "default"; // "default" | "batch_activity" | "location_context"
 
     // Create interaction + audio file records
     const interaction = await prisma.interaction.create({
       data: {
         type: "voice_note",
-        content: mode === "batch_activity" ? JSON.stringify({ mode: "batch_activity" }) : null,
-        ...(contactId && { contact_id: contactId }),
+        content:
+          mode === "batch_activity"
+            ? JSON.stringify({ mode: "batch_activity" })
+            : mode === "location_context"
+              ? JSON.stringify({ mode: "location_context" })
+              : null,
+        ...(contactId && mode !== "location_context" && { contact_id: contactId }),
       },
     });
 
@@ -73,6 +82,12 @@ router.post("/upload", upload.single("audio"), async (req, res, next) => {
     if (mode === "batch_activity") {
       processBatchVoiceActivity(interaction.id, file.path).catch((err) => {
         logger.error("Batch voice pipeline error", { error: String(err) });
+      });
+    } else if (mode === "location_context") {
+      processLocationContextVoice(interaction.id, file.path).catch((err) => {
+        logger.error("Location context voice pipeline error", {
+          error: String(err),
+        });
       });
     } else {
       processVoiceNote(interaction.id, file.path).catch((err) => {
@@ -102,6 +117,7 @@ router.get("/:id/status", async (req, res, next) => {
     // Extract multiple contact IDs and batch results if stored in content field
     let contactIds: string[] = [];
     let batchResult = null;
+    let challengeIds: string[] = [];
     let mode = "default";
     if (interaction.contact_id) {
       contactIds.push(interaction.contact_id);
@@ -116,6 +132,11 @@ router.get("/:id/status", async (req, res, next) => {
           }
           if (parsed?.result) {
             batchResult = parsed.result;
+          }
+        } else if (parsed?.mode === "location_context") {
+          mode = "location_context";
+          if (Array.isArray(parsed?.challenge_ids)) {
+            challengeIds = parsed.challenge_ids;
           }
         } else if (Array.isArray(parsed?.contact_ids)) {
           contactIds = parsed.contact_ids;
@@ -132,6 +153,7 @@ router.get("/:id/status", async (req, res, next) => {
       contact_ids: contactIds.length > 0 ? contactIds : undefined,
       transcript: interaction.transcript,
       ...(batchResult && { batch_result: batchResult }),
+      ...(challengeIds.length > 0 && { challenge_ids: challengeIds }),
     });
   } catch (err) {
     next(err);

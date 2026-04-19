@@ -10,6 +10,7 @@ import {
   indexInteractionAsync,
   indexContactMemoryAsync,
 } from "./memory/memory-indexer";
+import { generateLocationChallenges } from "./location-challenge-engine";
 
 export async function processVoiceNote(
   interactionId: string,
@@ -524,6 +525,86 @@ export async function processBatchVoiceActivity(
       });
     } catch {
       // ignore if update itself fails
+    }
+  }
+}
+
+// --- Location Context Voice Processing ---
+// User records "I'm at X doing Y" → transcribe → generate location-aware challenges.
+// Does NOT create contacts or follow-ups. The resulting challenges are written
+// to the Challenge table; the interaction is kept as a log entry.
+
+export async function processLocationContextVoice(
+  interactionId: string,
+  filePath: string
+): Promise<void> {
+  try {
+    await prisma.audioFile.update({
+      where: { interaction_id: interactionId },
+      data: { transcription_status: "processing" },
+    });
+
+    const transcript = await transcribeAudio(filePath);
+
+    await prisma.interaction.update({
+      where: { id: interactionId },
+      data: { transcript, ai_summary: "Location context for challenges" },
+    });
+    await fs.unlink(filePath).catch(() => {});
+    await prisma.audioFile.update({
+      where: { interaction_id: interactionId },
+      data: { file_path: "deleted" },
+    });
+
+    const trimmed = transcript.trim();
+    if (!trimmed) {
+      await prisma.interaction.update({
+        where: { id: interactionId },
+        data: {
+          content: JSON.stringify({
+            mode: "location_context",
+            error: "empty_transcript",
+          }),
+        },
+      });
+      await prisma.audioFile.update({
+        where: { interaction_id: interactionId },
+        data: { transcription_status: "completed" },
+      });
+      return;
+    }
+
+    const created = await generateLocationChallenges({
+      context: trimmed,
+      transcriptSource: "voice",
+    });
+
+    await prisma.interaction.update({
+      where: { id: interactionId },
+      data: {
+        content: JSON.stringify({
+          mode: "location_context",
+          challenge_ids: created.map((c) => c.id),
+        }),
+      },
+    });
+
+    await prisma.audioFile.update({
+      where: { interaction_id: interactionId },
+      data: { transcription_status: "completed" },
+    });
+  } catch (err) {
+    logger.error("Location context voice pipeline failed", {
+      interactionId,
+      error: String(err),
+    });
+    try {
+      await prisma.audioFile.update({
+        where: { interaction_id: interactionId },
+        data: { transcription_status: "failed" },
+      });
+    } catch {
+      // ignore
     }
   }
 }
