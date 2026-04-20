@@ -18,7 +18,7 @@ Rules:
 export async function polishTranscript(rawTranscript: string): Promise<string> {
   try {
     const message = await anthropic.messages.create({
-      model: config.claudeModel,
+      model: config.claudeFastModel,
       max_tokens: 4096,
       system: SYSTEM_PROMPT,
       messages: [

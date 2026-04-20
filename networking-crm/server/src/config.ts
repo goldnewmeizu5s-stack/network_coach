@@ -83,6 +83,7 @@ export const config = {
   anthropicApiKey: required("ANTHROPIC_API_KEY"),
   authPin: required("AUTH_PIN"),
   claudeModel: optional("CLAUDE_MODEL", "claude-opus-4-7"),
+  claudeFastModel: optional("CLAUDE_FAST_MODEL", "claude-haiku-4-5-20251001"),
 
   telegramBotToken: process.env.TELEGRAM_BOT_TOKEN || "",
   telegramAdminChatId: process.env.TELEGRAM_ADMIN_CHAT_ID || "",

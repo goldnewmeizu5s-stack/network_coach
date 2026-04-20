@@ -1,5 +1,5 @@
 import prisma from "../lib/prisma";
-import { anthropic } from "../lib/ai";
+import { anthropic, cachedSystem } from "../lib/ai";
 import { config } from "../config";
 import { logger } from "../lib/logger";
 import {
@@ -14,7 +14,8 @@ import {
 import { HUMANIZATION_RULES_SHORT } from "./humanization-prompt";
 import { indexChatTurnAsync } from "./memory/memory-indexer";
 
-const SYSTEM_PROMPT_TEMPLATE = `You are a sharp, supportive networking advisor — like a smart friend who's also an expert in relationship building and networking science. You have access to the user's complete networking CRM data.
+// Stable portion — personality + rules. Cached across requests.
+const SYSTEM_PROMPT_STATIC = `You are a sharp, supportive networking advisor — like a smart friend who's also an expert in relationship building and networking science. You have access to the user's complete networking CRM data.
 
 YOUR PERSONALITY:
 - Speak casually but give substantive advice
@@ -26,23 +27,6 @@ YOUR PERSONALITY:
 - Be occasionally witty
 - If the user writes in Russian, respond in Russian. Match their language.
 
-{user_context}
-
-{activity_summary}
-
-{urgent_followups}
-
-{contact_overview}
-
-{contact_detail}
-
-{relevant_memories}
-
-RELEVANT NETWORKING METHODOLOGIES:
-{methodologies}
-
-{progress}
-
 RULES:
 - When suggesting actions, be SPECIFIC: reference actual contacts, actual details
 - When giving advice, cite the methodology or framework you're using
@@ -52,14 +36,16 @@ RULES:
 - Keep responses concise but substantive — no fluff
 
 WHEN DRAFTING MESSAGES FOR THE USER TO SEND:
-${HUMANIZATION_RULES_SHORT}`;
+${HUMANIZATION_RULES_SHORT}
+
+The user's CRM context, relevant memories, methodologies and progress are provided below after this prompt.`;
 
 function sleep(ms: number) {
   return new Promise((r) => setTimeout(r, ms));
 }
 
 async function callClaude(
-  systemPrompt: string,
+  systemDynamicTail: string,
   messages: { role: "user" | "assistant"; content: string }[],
 ): Promise<string> {
   const backoff = [2000, 5000];
@@ -68,7 +54,7 @@ async function callClaude(
       const response = await anthropic.messages.create({
         model: config.claudeModel,
         max_tokens: 1500,
-        system: systemPrompt,
+        system: cachedSystem(SYSTEM_PROMPT_STATIC, systemDynamicTail),
         messages,
       });
       return response.content[0].type === "text"
@@ -125,7 +111,7 @@ function trimMessages(
   return result;
 }
 
-function buildSystemPrompt(
+function buildSystemTail(
   crmContext: string,
   contactDetail: string,
   methodologiesText: string,
@@ -135,20 +121,18 @@ function buildSystemPrompt(
   const findSection = (prefix: string) =>
     sections.find((s) => s.startsWith(prefix)) || "";
 
-  return SYSTEM_PROMPT_TEMPLATE.replace(
-    "{user_context}",
+  return [
     findSection("## USER PROFILE"),
-  )
-    .replace("{activity_summary}", findSection("## ACTIVITY"))
-    .replace("{urgent_followups}", findSection("## URGENT FOLLOW-UPS"))
-    .replace("{contact_overview}", findSection("## CONTACTS"))
-    .replace(
-      "{contact_detail}",
-      contactDetail ? `DETAILED CONTACT INFO:\n${contactDetail}` : "",
-    )
-    .replace("{relevant_memories}", semanticMemory)
-    .replace("{methodologies}", methodologiesText)
-    .replace("{progress}", findSection("## PROGRESS"));
+    findSection("## ACTIVITY"),
+    findSection("## URGENT FOLLOW-UPS"),
+    findSection("## CONTACTS"),
+    contactDetail ? `DETAILED CONTACT INFO:\n${contactDetail}` : "",
+    semanticMemory,
+    methodologiesText ? `RELEVANT NETWORKING METHODOLOGIES:\n${methodologiesText}` : "",
+    findSection("## PROGRESS"),
+  ]
+    .filter((s) => s && s.trim())
+    .join("\n\n");
 }
 
 /**
@@ -184,7 +168,7 @@ export async function processChat(
     limit: 8,
   });
 
-  const systemPrompt = buildSystemPrompt(
+  const systemTail = buildSystemTail(
     crmContext,
     contactDetail,
     methodologiesText,
@@ -195,13 +179,13 @@ export async function processChat(
   const claudeMessages = sanitizeChatHistory(history);
   claudeMessages.push({ role: "user", content: message });
 
-  const trimmedSystem =
-    systemPrompt.length > 15000 ? systemPrompt.slice(0, 15000) : systemPrompt;
+  const trimmedTail =
+    systemTail.length > 15000 ? systemTail.slice(0, 15000) : systemTail;
   const trimmedMessages = trimMessages(claudeMessages, 30000);
 
   let response: string;
   try {
-    response = await callClaude(trimmedSystem, trimmedMessages);
+    response = await callClaude(trimmedTail, trimmedMessages);
   } catch {
     response = "Извини, AI временно недоступен. Попробуй через минуту.";
   }
