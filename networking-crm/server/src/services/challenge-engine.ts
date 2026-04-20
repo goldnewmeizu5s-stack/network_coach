@@ -672,7 +672,7 @@ Return a JSON array of exactly 2 objects, each with:
 Each challenge must have a DIFFERENT category. Write in Russian.`;
 
     const response = await anthropic.messages.create({
-      model: config.claudeModel,
+      model: config.claudeFastModel,
       max_tokens: 600,
       messages: [{ role: "user", content: prompt }],
     });
@@ -756,7 +756,7 @@ Return JSON:
 Write in Russian. Make it FUN and unusual!`;
 
     const response = await anthropic.messages.create({
-      model: config.claudeModel,
+      model: config.claudeFastModel,
       max_tokens: 400,
       messages: [{ role: "user", content: prompt }],
     });

@@ -1,8 +1,24 @@
-import { anthropic } from "../lib/ai";
+import { anthropic, cachedSystem } from "../lib/ai";
 import { config } from "../config";
 import prisma from "../lib/prisma";
 import { ExtractedContact, MultiExtractionResult, FollowUpSuggestion, BatchActivityResult, ActivitySegment } from "../types";
 import { logger } from "../lib/logger";
+
+async function loadNavigatorPrompt(): Promise<string> {
+  try {
+    const user = await prisma.user.findFirst();
+    const prefs = (user?.preferences as Record<string, unknown>) || {};
+    const navigatorPrompt = prefs.navigator_prompt as string | undefined;
+    return navigatorPrompt ? `--- USER CONTEXT ---\n${navigatorPrompt}` : "";
+  } catch {
+    return "";
+  }
+}
+
+function buildExtractionTail(navigatorPrompt: string): string {
+  const todayStr = new Date().toISOString().slice(0, 10);
+  return [`Today is ${todayStr}.`, navigatorPrompt].filter(Boolean).join("\n\n");
+}
 
 const SYSTEM_PROMPT = `You are analyzing a voice note or text message where the user describes someone they just met or wants to update information about an existing contact.
 
@@ -11,7 +27,7 @@ Extract the following into structured JSON (use null for unknown fields):
   "full_name": "string or null",
   "nickname": "string or null",
   "where_met": "event, location, context or null (do NOT include time references like '2 месяца назад' here — put timing into met_date)",
-  "met_date": "ISO 8601 date string (YYYY-MM-DD) when the meeting took place, or null. If the user mentions a relative time like '2 месяца назад', 'неделю назад', 'вчера', 'на прошлой неделе', 'в январе', calculate the actual date relative to today's date. Today is {{TODAY}}.",
+  "met_date": "ISO 8601 date string (YYYY-MM-DD) when the meeting took place, or null. If the user mentions a relative time like '2 месяца назад', 'неделю назад', 'вчера', 'на прошлой неделе', 'в январе', calculate the actual date relative to today's date. Today's date is provided at the end of this system prompt.",
   "occupation": "short role description or null",
   "company": "string or null",
   "city": "string or null",
@@ -87,24 +103,15 @@ export async function extractContactData(
   const maxRetries = 2;
   const backoff = [2000, 6000];
 
-  // Load user context for smarter extraction
-  const todayStr = new Date().toISOString().slice(0, 10);
-  let systemPrompt = SYSTEM_PROMPT.replace("{{TODAY}}", todayStr);
-  try {
-    const user = await prisma.user.findFirst();
-    const prefs = (user?.preferences as Record<string, unknown>) || {};
-    const navigatorPrompt = prefs.navigator_prompt as string | undefined;
-    if (navigatorPrompt) {
-      systemPrompt = `${systemPrompt}\n\n--- USER CONTEXT ---\n${navigatorPrompt}`;
-    }
-  } catch { /* use default prompt if DB fails */ }
+  const navigatorPrompt = await loadNavigatorPrompt();
+  const system = cachedSystem(SYSTEM_PROMPT, buildExtractionTail(navigatorPrompt));
 
   for (let attempt = 0; attempt < maxRetries; attempt++) {
     try {
       const message = await anthropic.messages.create({
         model: config.claudeModel,
         max_tokens: 1024,
-        system: systemPrompt,
+        system,
         messages: [{ role: "user", content: transcript }],
       });
 
@@ -175,7 +182,7 @@ Return a JSON object with the following structure:
       "full_name": "string or null",
       "nickname": "string or null",
       "where_met": "event, location, context or null (do NOT include time references like '2 месяца назад' here — put timing into met_date)",
-      "met_date": "ISO 8601 date string (YYYY-MM-DD) when the meeting took place, or null. If the user mentions a relative time like '2 месяца назад', 'неделю назад', 'вчера', 'на прошлой неделе', 'в январе', calculate the actual date relative to today's date. Today is {{TODAY}}.",
+      "met_date": "ISO 8601 date string (YYYY-MM-DD) when the meeting took place, or null. If the user mentions a relative time like '2 месяца назад', 'неделю назад', 'вчера', 'на прошлой неделе', 'в январе', calculate the actual date relative to today's date. Today's date is provided at the end of this system prompt.",
       "occupation": "short role description or null",
       "company": "string or null",
       "city": "string or null",
@@ -254,23 +261,15 @@ export async function extractMultipleContacts(
   const maxRetries = 2;
   const backoff = [2000, 6000];
 
-  const todayStr = new Date().toISOString().slice(0, 10);
-  let systemPrompt = MULTI_PERSON_PROMPT.replace("{{TODAY}}", todayStr);
-  try {
-    const user = await prisma.user.findFirst();
-    const prefs = (user?.preferences as Record<string, unknown>) || {};
-    const navigatorPrompt = prefs.navigator_prompt as string | undefined;
-    if (navigatorPrompt) {
-      systemPrompt = `${systemPrompt}\n\n--- USER CONTEXT ---\n${navigatorPrompt}`;
-    }
-  } catch { /* use default prompt if DB fails */ }
+  const navigatorPrompt = await loadNavigatorPrompt();
+  const system = cachedSystem(MULTI_PERSON_PROMPT, buildExtractionTail(navigatorPrompt));
 
   for (let attempt = 0; attempt < maxRetries; attempt++) {
     try {
       const message = await anthropic.messages.create({
         model: config.claudeModel,
         max_tokens: 4096,
-        system: systemPrompt,
+        system,
         messages: [{ role: "user", content: transcript }],
       });
 
@@ -338,14 +337,11 @@ const BATCH_ACTIVITY_PROMPT = `You are analyzing a long voice note (5-10 minutes
 
 The user will talk about MULTIPLE people in a single recording: who they met, what they discussed, what follow-ups they need to do, new people they met, etc.
 
-You are given the user's EXISTING CONTACTS list below. Your job is to:
+You are given the user's EXISTING CONTACTS list at the end of this system prompt. Your job is to:
 1. Identify every person mentioned in the transcript
 2. Match them to existing contacts (by name, nickname, company, context — be smart about matching "Ваня" to "Иван Петров", "Маша из Яндекса" to "Мария Иванова" at Яндекс, etc.)
 3. If someone is clearly NEW (not in the existing contacts list), mark them as new
 4. For EACH person, extract what happened, what was discussed, what outcomes there were, and what follow-ups are needed
-
-EXISTING CONTACTS:
-{{CONTACTS_LIST}}
 
 Return a JSON object:
 {
@@ -388,7 +384,7 @@ RULES for matching contacts:
 RULES for contact_data (only for NEW contacts):
 - Fill in: full_name, nickname, where_met, occupation, company, city, country, met_country, origin_country, key_interests, what_impressed_me, potential_synergies, personality_notes, memory_summary, memory_hook, relationship_category, urgency_score, met_date
 - Use null for unknown fields
-- For met_date, calculate from relative dates. Today is {{TODAY}}
+- For met_date, calculate from relative dates. Today's date is provided at the end of this system prompt.
 
 RULES for interaction_type:
 - "meeting" — if they met in person (кофе, обед, мероприятие, встреча)
@@ -453,27 +449,22 @@ export async function extractBatchActivity(
     )
     .join("\n");
 
-  let systemPrompt = BATCH_ACTIVITY_PROMPT
-    .replace("{{TODAY}}", todayStr)
-    .replace("{{CONTACTS_LIST}}", contactsList || "(no existing contacts)");
-
-  try {
-    const user = await prisma.user.findFirst();
-    const prefs = (user?.preferences as Record<string, unknown>) || {};
-    const navigatorPrompt = prefs.navigator_prompt as string | undefined;
-    if (navigatorPrompt) {
-      systemPrompt = `${systemPrompt}\n\n--- USER CONTEXT ---\n${navigatorPrompt}`;
-    }
-  } catch {
-    /* use default prompt if DB fails */
-  }
+  const navigatorPrompt = await loadNavigatorPrompt();
+  const tail = [
+    `Today is ${todayStr}.`,
+    `EXISTING CONTACTS:\n${contactsList || "(no existing contacts)"}`,
+    navigatorPrompt,
+  ]
+    .filter(Boolean)
+    .join("\n\n");
+  const system = cachedSystem(BATCH_ACTIVITY_PROMPT, tail);
 
   for (let attempt = 0; attempt < maxRetries; attempt++) {
     try {
       const message = await anthropic.messages.create({
         model: config.claudeModel,
         max_tokens: 8192,
-        system: systemPrompt,
+        system,
         messages: [{ role: "user", content: transcript }],
       });
 

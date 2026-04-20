@@ -441,7 +441,7 @@ RULES:
 ${HUMANIZATION_RULES_SHORT}`;
 
     const message = await anthropic.messages.create({
-      model: config.claudeModel,
+      model: config.claudeFastModel,
       max_tokens: 300,
       messages: [{ role: "user", content: prompt }],
     });
@@ -505,7 +505,7 @@ ${HUMANIZATION_RULES_SHORT}
 Write ONE short sentence in Russian. Reference specific details. Keep it actionable.`;
 
     const message = await anthropic.messages.create({
-      model: config.claudeModel,
+      model: config.claudeFastModel,
       max_tokens: 100,
       messages: [{ role: "user", content: prompt }],
     });
@@ -561,7 +561,7 @@ Example format: ["personalized text 1", "personalized text 2", ...]`;
 
   try {
     const message = await anthropic.messages.create({
-      model: config.claudeModel,
+      model: config.claudeFastModel,
       max_tokens: items.length * 150,
       messages: [{ role: "user", content: prompt }],
     });
