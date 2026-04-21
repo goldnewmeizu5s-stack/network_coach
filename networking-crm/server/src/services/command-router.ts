@@ -442,6 +442,22 @@ const TOOLS: Anthropic.Tool[] = [
       required: [],
     },
   },
+  {
+    name: "generate_location_challenges",
+    description:
+      "Generate 3 networking challenges (quick / normal / stretch) tailored to the user's CURRENT physical location and context. Use this whenever the user describes where they are right now (hotel, hiking trail, bar, park, beach, gym, airport, concert, coworking, store, etc.) AND asks for challenges, OR says they can't do today's challenges because they're in a different place. Pass the user's full description verbatim — the more detail (place, surroundings, time of day, who's around), the better.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        location_context: {
+          type: "string",
+          description:
+            "The user's full description of where they are and what's around them, in their own words.",
+        },
+      },
+      required: ["location_context"],
+    },
+  },
 ];
 
 // ── System prompt ──────────────────────────────────────────
@@ -1049,6 +1065,36 @@ async function executeTool(
             return `- ${c.full_name} | ${c.warmth_status} (${Math.round(c.warmth_score)}/100) | ${job || "—"} | ${days !== null ? days + "d ago" : "never"}`;
           })
           .join("\n");
+      }
+
+      case "generate_location_challenges": {
+        const ctx = (input.location_context as string)?.trim();
+        if (!ctx) return "No location context provided.";
+
+        const { generateLocationChallenges } = await import(
+          "./location-challenge-engine"
+        );
+        const created = await generateLocationChallenges({
+          context: ctx,
+          transcriptSource: "text",
+        });
+
+        const lines = [
+          `Generated 3 location-based challenges for context: "${ctx.slice(0, 120)}${ctx.length > 120 ? "..." : ""}"`,
+          "",
+        ];
+        for (const c of created) {
+          const dating = c.dating_flavor ? " 💕" : "";
+          lines.push(
+            `[${c.tier.toUpperCase()}] ${c.title} (${c.category}, ${c.difficulty}/10${c.estimated_time_minutes ? `, ~${c.estimated_time_minutes} min` : ""})${dating}`,
+          );
+          lines.push(c.description);
+          lines.push("");
+        }
+        lines.push(
+          "Tell the user the challenges are saved for today and visible in the Challenge tab. Present them with their tier, title, and a one-sentence summary.",
+        );
+        return lines.join("\n");
       }
 
       default:
