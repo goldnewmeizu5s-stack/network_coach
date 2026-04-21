@@ -24,6 +24,7 @@ const Challenge = lazy(() => import("./pages/Challenge"));
 const Chat = lazy(() => import("./pages/Chat"));
 const Notes = lazy(() => import("./pages/Notes"));
 const Settings = lazy(() => import("./pages/Settings"));
+const Rank = lazy(() => import("./pages/Rank"));
 
 const isTelegramWebApp = !!window.Telegram?.WebApp?.initData;
 
@@ -262,6 +263,7 @@ function AnimatedRoutes() {
               <Route path="/chat" element={<Chat />} />
               <Route path="/notes" element={<Notes />} />
               <Route path="/settings" element={<Settings />} />
+              <Route path="/rank" element={<Rank />} />
               <Route path="*" element={<Navigate to="/" replace />} />
             </Routes>
           </Suspense>
@@ -280,7 +282,10 @@ function TelegramBackButton() {
     if (!tg) return;
 
     // Show back button on sub-pages, hide on main tabs
-    const isSubPage = location.pathname.match(/^\/people\/[^/]+$/);
+    const isSubPage =
+      !!location.pathname.match(/^\/people\/[^/]+$/) ||
+      location.pathname === "/rank" ||
+      location.pathname === "/settings";
     if (isSubPage) {
       tg.BackButton.show();
       const handler = () => navigate(-1);

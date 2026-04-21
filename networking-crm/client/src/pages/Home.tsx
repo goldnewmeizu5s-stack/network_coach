@@ -5,8 +5,10 @@ import VoiceRecorder from "../components/VoiceRecorder";
 import FollowUpCard from "../components/FollowUpCard";
 import ErrorState from "../components/ErrorState";
 import FAB from "../components/FAB";
+import RankBadge from "../components/RankBadge";
 import { api } from "../lib/api";
 import { FollowUpItem } from "../lib/followups";
+import { RankPayload } from "../lib/rank";
 
 function getGreeting(): string {
   const h = new Date().getHours();
@@ -25,15 +27,6 @@ function getFormattedDate(): string {
   const weekday = now.toLocaleDateString("ru-RU", { weekday: "long" });
   return `${day}, ${weekday}`;
 }
-
-const CATEGORY_EMOJI: Record<string, string> = {
-  conversation: "\u{1F5E3}\uFE0F",
-  follow_up: "\u{1F91D}",
-  digital: "\u{1F4F1}",
-  skill: "\u{1F3AF}",
-  mindset: "\u{1F9E0}",
-  stretch: "\u{1F525}",
-};
 
 interface Stats {
   total_contacts: number;
@@ -63,12 +56,7 @@ export default function Home() {
   const [loadingFu, setLoadingFu] = useState(true);
   const [fuError, setFuError] = useState(false);
   const [stats, setStats] = useState<Stats | null>(null);
-  const [todayChallenge, setTodayChallenge] = useState<{
-    id: string;
-    title: string;
-    category: string;
-    status: string;
-  } | null>(null);
+  const [rank, setRank] = useState<RankPayload | null>(null);
 
   const fetchFollowUps = useCallback(async (signal?: AbortSignal) => {
     setLoadingFu(true);
@@ -94,17 +82,9 @@ export default function Home() {
     }
   }, []);
 
-  const fetchChallenge = useCallback(async (signal?: AbortSignal) => {
+  const fetchRank = useCallback(async (signal?: AbortSignal) => {
     try {
-      const data = await api.get<{
-        challenge: {
-          id: string;
-          title: string;
-          category: string;
-          status: string;
-        };
-      }>("/challenges/today", { signal });
-      setTodayChallenge(data.challenge);
+      setRank(await api.get<RankPayload>("/rank", { signal }));
     } catch {
       /* ignore */
     }
@@ -114,9 +94,9 @@ export default function Home() {
     const ac = new AbortController();
     fetchFollowUps(ac.signal);
     fetchStats(ac.signal);
-    fetchChallenge(ac.signal);
+    fetchRank(ac.signal);
     return () => ac.abort();
-  }, [fetchFollowUps, fetchStats, fetchChallenge]);
+  }, [fetchFollowUps, fetchStats, fetchRank]);
 
   const handleRecorderClose = useCallback(
     (contactId?: string) => {
@@ -195,117 +175,76 @@ export default function Home() {
         </motion.section>
       )}
 
-      {/* ── Stats ── */}
-      {stats && stats.total_contacts > 0 && (
-        <motion.div className="grid grid-cols-3 gap-3" variants={item}>
-          <div className="rounded-2xl border border-white/5 bg-card py-4 text-center">
-            <p className="text-2xl font-bold text-white">
-              {stats.total_contacts}
-            </p>
-            <p className="mt-1 text-[11px] text-neutral-500">Контакты</p>
-          </div>
-          <div
-            className={`rounded-2xl border py-4 text-center ${
-              stats.followups_pending > 0
-                ? "border-yellow-500/10 bg-yellow-500/5"
-                : "border-green-500/10 bg-green-500/5"
-            }`}
-          >
-            <p
-              className={`text-2xl font-bold ${
-                stats.followups_pending > 0
-                  ? "text-yellow-400"
-                  : "text-green-400"
-              }`}
-            >
-              {stats.followups_pending}
-            </p>
-            <p className="mt-1 text-[11px] text-neutral-500">Задачи</p>
-          </div>
-          <div className="rounded-2xl border border-white/5 bg-card py-4 text-center">
-            <p className="text-2xl font-bold text-white">
-              {stats.streak}
-              {stats.streak >= 3 ? ` \u{1F525}` : ""}
-            </p>
-            <p className="mt-1 text-[11px] text-neutral-500">Серия дн.</p>
-          </div>
-        </motion.div>
-      )}
+      {/* ── Rank hero ── */}
+      {rank && (
+        <motion.button
+          onClick={() => navigate("/rank")}
+          variants={item}
+          whileTap={{ scale: 0.98 }}
+          className="relative flex w-full items-stretch gap-4 overflow-hidden rounded-2xl border border-white/5 bg-gradient-to-br from-card via-card to-[#141414] p-4 text-left transition-colors active:bg-card-hover"
+          aria-label="Открыть профиль ранга"
+        >
+          {/* Background accent */}
+          <div className="pointer-events-none absolute -right-20 -top-20 h-56 w-56 rounded-full bg-accent/10 blur-3xl" />
+          <div className="pointer-events-none absolute -left-12 bottom-0 h-32 w-32 rounded-full bg-yellow-500/10 blur-3xl" />
 
-      {/* ── Challenge ── */}
-      <motion.section
-        className="cursor-pointer overflow-hidden rounded-2xl border border-white/5 bg-card transition-colors active:bg-card-hover"
-        onClick={() => navigate("/challenges")}
-        variants={item}
-        whileTap={{ scale: 0.98 }}
-      >
-        <div className="h-[3px] bg-gradient-to-r from-accent/80 via-purple-500/60 to-transparent" />
-        <div className="p-4">
-          <p className="mb-3 text-[10px] font-semibold uppercase tracking-widest text-accent/70">
-            Челлендж дня
-          </p>
-          {todayChallenge ? (
-            <div className="flex items-center gap-3">
-              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-accent/10 text-lg">
-                {CATEGORY_EMOJI[todayChallenge.category] || "\u2728"}
+          {/* Shoulder board */}
+          <div className="relative flex shrink-0 items-center justify-center">
+            <RankBadge rank={rank.rank} size={130} shine />
+          </div>
+
+          {/* Text + progress */}
+          <div className="relative flex min-w-0 flex-1 flex-col justify-center">
+            <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-accent/70">
+              Погон нетворкера
+            </p>
+            <h2 className="mt-1 truncate text-lg font-bold text-white">
+              {rank.rank.title}
+            </h2>
+            <p className="mt-0.5 text-xs text-neutral-500">
+              {rank.total_xp.toLocaleString("ru-RU")} XP
+            </p>
+
+            {/* Progress to next rank */}
+            <div className="mt-3">
+              <div className="h-1.5 w-full overflow-hidden rounded-full bg-white/5">
+                <div
+                  className="h-full rounded-full bg-gradient-to-r from-accent to-yellow-400"
+                  style={{ width: `${rank.rank.progress_pct}%` }}
+                />
               </div>
-              <div className="min-w-0 flex-1">
-                <p className="truncate text-sm font-medium text-white">
-                  {todayChallenge.title}
-                </p>
-                <p className="mt-0.5 text-xs text-neutral-500">
-                  {todayChallenge.status === "completed"
-                    ? "Выполнено"
-                    : todayChallenge.status === "accepted"
-                      ? "В процессе"
-                      : "Нажми для подробностей"}
-                </p>
-              </div>
-              {todayChallenge.status === "completed" ? (
-                <div className="flex h-7 w-7 items-center justify-center rounded-full bg-green-500/10">
-                  <svg
-                    className="h-4 w-4 text-green-400"
-                    fill="none"
-                    stroke="currentColor"
-                    viewBox="0 0 24 24"
-                    strokeWidth={2.5}
-                  >
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      d="M4.5 12.75l6 6 9-13.5"
-                    />
-                  </svg>
-                </div>
-              ) : (
-                <div className="flex h-7 w-7 items-center justify-center rounded-full bg-white/5">
-                  <svg
-                    className="h-3.5 w-3.5 text-neutral-500"
-                    fill="none"
-                    stroke="currentColor"
-                    viewBox="0 0 24 24"
-                    strokeWidth={2}
-                  >
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      d="M8.25 4.5l7.5 7.5-7.5 7.5"
-                    />
-                  </svg>
-                </div>
-              )}
-            </div>
-          ) : (
-            <div className="flex animate-pulse items-center gap-3">
-              <div className="h-10 w-10 rounded-xl bg-white/5" />
-              <div className="flex-1 space-y-2">
-                <div className="h-3.5 w-32 rounded bg-white/5" />
-                <div className="h-2.5 w-20 rounded bg-white/5" />
+              <div className="mt-1.5 flex items-center justify-between text-[10px] text-neutral-500">
+                <span>
+                  {rank.next_rank
+                    ? `След: ${rank.next_rank.short}`
+                    : "Максимальный ранг"}
+                </span>
+                <span>
+                  {rank.rank.xp_to_next !== null
+                    ? `ещё ${rank.rank.xp_to_next.toLocaleString("ru-RU")} XP`
+                    : ""}
+                </span>
               </div>
             </div>
-          )}
-        </div>
-      </motion.section>
+
+            {/* Mini stats row */}
+            <div className="mt-3 flex items-center gap-3 text-[11px] text-neutral-400">
+              <span className="inline-flex items-center gap-1">
+                <span className="text-sm">🌍</span>
+                {rank.handshake_world.countries} стр.
+              </span>
+              <span className="inline-flex items-center gap-1">
+                <span className="text-sm">👥</span>
+                {rank.totals.contacts}
+              </span>
+              <span className="inline-flex items-center gap-1">
+                <span className="text-sm">🔥</span>
+                {rank.totals.streak_days} дн.
+              </span>
+            </div>
+          </div>
+        </motion.button>
+      )}
 
       {/* ── Follow-ups ── */}
       <motion.section variants={item}>
@@ -334,7 +273,7 @@ export default function Home() {
           />
         ) : followUps.length === 0 ? (
           <div className="rounded-2xl border border-white/5 bg-card p-5 text-center">
-            <div className="mb-2 text-2xl">{"\u2728"}</div>
+            <div className="mb-2 text-2xl">{"✨"}</div>
             <p className="text-sm text-neutral-400">Нет активных задач</p>
           </div>
         ) : (
@@ -420,7 +359,7 @@ export default function Home() {
             onClick: () => setShowRecorder(true),
           },
           {
-            icon: "\u2795",
+            icon: "➕",
             label: "Добавить контакт",
             onClick: () => navigate("/people"),
           },
