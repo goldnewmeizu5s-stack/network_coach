@@ -21,6 +21,7 @@ import userRoutes from "./routes/user";
 import methodologiesRoutes from "./routes/methodologies";
 import insightsRoutes from "./routes/insights";
 import statsRoutes from "./routes/stats";
+import rankRoutes from "./routes/rank";
 import exportRoutes from "./routes/export";
 import notesRoutes from "./routes/notes";
 import { startCron, stopCron, runDailyJob, runWeeklyMemoryJob } from "./services/cron";
@@ -118,6 +119,7 @@ app.use("/api/user", authMiddleware, apiLimiter, userRoutes);
 app.use("/api/methodologies", authMiddleware, apiLimiter, methodologiesRoutes);
 app.use("/api/insights", authMiddleware, aiLimiter, insightsRoutes);
 app.use("/api/stats", authMiddleware, apiLimiter, statsRoutes);
+app.use("/api/rank", authMiddleware, apiLimiter, rankRoutes);
 app.use("/api/notes", authMiddleware, apiLimiter, notesRoutes);
 // Export routes use stricter rate limit (3 per minute) to prevent data scraping
 const exportLimiter = rateLimit({
