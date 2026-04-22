@@ -18,6 +18,10 @@ import {
 } from "../services/warmth";
 import { suggestActions } from "../services/message-drafting";
 import { indexContactMemoryAsync } from "../services/memory/memory-indexer";
+import {
+  normalizeCountry,
+  normalizeCountryKeepRaw,
+} from "../lib/country-normalize";
 
 const router = Router();
 
@@ -259,6 +263,18 @@ router.post("/", async (req, res, next) => {
     }
 
     const { met_date, ...createData } = parsed.data;
+    // Normalize country inputs to ISO codes so rank/diversity math has
+    // clean data regardless of what the client typed ("Russia", "ru",
+    // "Россия" all become "RU").
+    if (createData.country !== undefined) {
+      createData.country = normalizeCountryKeepRaw(createData.country) ?? undefined;
+    }
+    if (createData.met_country !== undefined) {
+      createData.met_country = normalizeCountry(createData.met_country) ?? undefined;
+    }
+    if (createData.origin_country !== undefined) {
+      createData.origin_country = normalizeCountry(createData.origin_country) ?? undefined;
+    }
     const contact = await prisma.contact.create({
       data: {
         ...createData,
@@ -310,6 +326,15 @@ router.put("/:id", async (req, res, next) => {
     const updateData: Record<string, unknown> = { ...rest };
     if (social_links !== undefined) {
       updateData.social_links = social_links === null ? Prisma.JsonNull : social_links;
+    }
+    if (updateData.country !== undefined) {
+      updateData.country = normalizeCountryKeepRaw(updateData.country);
+    }
+    if (updateData.met_country !== undefined) {
+      updateData.met_country = normalizeCountry(updateData.met_country);
+    }
+    if (updateData.origin_country !== undefined) {
+      updateData.origin_country = normalizeCountry(updateData.origin_country);
     }
 
     let statusChanged = false;

@@ -27,6 +27,7 @@ import notesRoutes from "./routes/notes";
 import { startCron, stopCron, runDailyJob, runWeeklyMemoryJob } from "./services/cron";
 import { startBot, stopBot } from "./bot";
 import { alignAllWarmthScores } from "./services/warmth";
+import { backfillContactCountries } from "./services/rank";
 
 const app = express();
 const startTime = Date.now();
@@ -232,6 +233,13 @@ const server = app.listen(config.port, () => {
       logger.info(`Warmth scores aligned (${fixed} updated)`);
     } catch (alignErr) {
       logger.error("Warmth alignment failed", { error: String(alignErr) });
+    }
+
+    try {
+      const touched = await backfillContactCountries();
+      logger.info(`Contact countries normalized (${touched} updated)`);
+    } catch (normErr) {
+      logger.error("Country backfill failed", { error: String(normErr) });
     }
 
     startCron();
