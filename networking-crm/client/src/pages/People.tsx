@@ -36,13 +36,18 @@ interface ContactsResponse {
 
 type SortOption = "last_interaction" | "created_at" | "warmth_score" | "name";
 
-const FILTERS = [
-  { label: "Все", value: "", key: "all" },
-  { label: "\u{1F534} Новые", value: "new", key: "new" },
-  { label: "\u{1F7E1} Тёплые", value: "warming", key: "warming" },
-  { label: "\u{1F7E2} Горячие", value: "warm", key: "warm" },
-  { label: "\u{1F7E0} Остывают", value: "cooling", key: "cooling" },
-  { label: "\u26AA Пауза", value: "paused", key: "paused" },
+const FILTERS: {
+  label: string;
+  value: string;
+  key: string;
+  dot: string;
+}[] = [
+  { label: "Все", value: "", key: "all", dot: "#6366f1" },
+  { label: "Новые", value: "new", key: "new", dot: "#ef4444" },
+  { label: "Тёплые", value: "warming", key: "warming", dot: "#eab308" },
+  { label: "Горячие", value: "warm", key: "warm", dot: "#22c55e" },
+  { label: "Остывают", value: "cooling", key: "cooling", dot: "#f97316" },
+  { label: "Пауза", value: "paused", key: "paused", dot: "#6b7280" },
 ];
 
 const SORT_OPTIONS: { label: string; value: SortOption }[] = [
@@ -296,27 +301,34 @@ export default function People() {
   };
 
   return (
-    <div className="flex flex-1 flex-col px-4 pt-6">
-      {/* Header */}
-      <div className="mb-4 flex items-center justify-between">
+    <div className="flex flex-1 flex-col gap-4 px-4 pt-6 pb-4">
+      {/* ── Header ── */}
+      <div className="flex items-end justify-between">
         <div>
-          <h1 className="text-xl font-bold text-white">Контакты</h1>
+          <h1 className="text-[22px] font-bold tracking-tight text-white">
+            Контакты
+          </h1>
           {total > 0 && (
-            <p className="text-xs text-neutral-500">{total} всего</p>
+            <p className="mt-0.5 text-[13px] text-neutral-500">
+              {total} всего
+            </p>
           )}
         </div>
         <div className="flex items-center gap-2">
           <div className="relative">
             <button
               onClick={() => setShowSort(!showSort)}
-              className="flex h-9 w-9 items-center justify-center rounded-full bg-card text-neutral-400 active:bg-neutral-800"
+              aria-label="Сортировка"
+              className={`flex h-10 w-10 items-center justify-center rounded-xl border border-white/5 bg-card text-neutral-400 transition-colors active:bg-card-hover ${
+                sort !== "last_interaction" ? "text-accent" : ""
+              }`}
             >
-              <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
-                <path strokeLinecap="round" d="M3 7h18M6 12h12M9 17h6" />
+              <svg className="h-[18px] w-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.8}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M3 7h18M6 12h12M9 17h6" />
               </svg>
             </button>
             {showSort && (
-              <div className="absolute right-0 top-full z-20 mt-1 w-48 rounded-xl bg-card py-1 shadow-lg ring-1 ring-neutral-700">
+              <div className="absolute right-0 top-full z-20 mt-1.5 w-52 overflow-hidden rounded-xl border border-white/5 bg-card py-1 shadow-xl">
                 {SORT_OPTIONS.map((o) => (
                   <button
                     key={o.value}
@@ -324,9 +336,14 @@ export default function People() {
                       setSort(o.value);
                       setShowSort(false);
                     }}
-                    className={`w-full px-3 py-2 text-left text-sm ${sort === o.value ? "text-accent" : "text-neutral-300"} active:bg-neutral-800`}
+                    className={`flex w-full items-center justify-between px-3 py-2.5 text-left text-sm transition-colors ${sort === o.value ? "text-accent" : "text-neutral-300"} active:bg-card-hover`}
                   >
-                    {o.label}
+                    <span>{o.label}</span>
+                    {sort === o.value && (
+                      <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.5}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                      </svg>
+                    )}
                   </button>
                 ))}
               </div>
@@ -334,19 +351,20 @@ export default function People() {
           </div>
           <button
             onClick={() => setShowAddForm(true)}
-            className="flex h-9 w-9 items-center justify-center rounded-full bg-accent text-white active:bg-accent-hover"
+            aria-label="Добавить контакт"
+            className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-accent to-[#4f46e5] text-white shadow-lg shadow-accent/20 transition-transform active:scale-95"
           >
-            <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
-              <path strokeLinecap="round" d="M12 5v14M5 12h14" />
+            <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M12 5v14M5 12h14" />
             </svg>
           </button>
         </div>
       </div>
 
-      {/* Search */}
-      <div className="relative mb-3">
+      {/* ── Search ── */}
+      <div className="relative">
         <svg
-          className="absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2 text-neutral-500"
+          className="pointer-events-none absolute left-3.5 top-1/2 h-[18px] w-[18px] -translate-y-1/2 text-neutral-500"
           fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}
         >
           <circle cx="11" cy="11" r="8" />
@@ -354,94 +372,136 @@ export default function People() {
         </svg>
         <input
           type="text"
-          placeholder="Поиск..."
+          placeholder="Поиск по имени, должности..."
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          className="w-full rounded-xl bg-card py-2.5 pl-10 pr-4 text-sm text-white placeholder-neutral-500 outline-none ring-1 ring-neutral-700 focus:ring-accent"
+          className="w-full rounded-2xl border border-white/5 bg-card py-3 pl-10 pr-10 text-sm text-white placeholder-neutral-500 outline-none transition-colors focus:border-accent/40"
         />
+        {search && (
+          <button
+            onClick={() => setSearch("")}
+            aria-label="Очистить поиск"
+            className="absolute right-2.5 top-1/2 flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-full text-neutral-500 active:bg-white/5 active:text-white"
+          >
+            <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        )}
       </div>
 
-      {/* Warmth filter chips */}
-      <div className="mb-2 flex gap-1.5 overflow-x-auto pb-1 scrollbar-none">
+      {/* ── Warmth filter chips ── */}
+      <div className="-mx-4 flex gap-2 overflow-x-auto px-4 pb-0.5 scrollbar-none">
         {FILTERS.map((f) => {
           const count = counts[f.key] ?? 0;
+          const active = filter === f.value;
           return (
             <button
               key={f.value}
-              onClick={() => setFilter(filter === f.value ? "" : f.value)}
-              className={`shrink-0 rounded-full px-2.5 py-1 text-[11px] font-medium transition-colors ${
-                filter === f.value
-                  ? "bg-accent text-white"
-                  : "bg-card text-neutral-400"
+              onClick={() => setFilter(active ? "" : f.value)}
+              className={`shrink-0 inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-[12px] font-medium transition-all ${
+                active
+                  ? "border-transparent bg-white text-neutral-900 shadow-md"
+                  : "border-white/5 bg-card text-neutral-300 active:bg-card-hover"
               }`}
             >
-              {f.label}
-              {count > 0 ? ` ${count}` : ""}
+              <span
+                className="inline-block h-2 w-2 rounded-full"
+                style={{ backgroundColor: f.dot }}
+              />
+              <span>{f.label}</span>
+              {count > 0 && (
+                <span
+                  className={`rounded-full px-1.5 text-[10px] font-semibold ${
+                    active ? "bg-neutral-900/10 text-neutral-700" : "text-neutral-500"
+                  }`}
+                >
+                  {count}
+                </span>
+              )}
             </button>
           );
         })}
       </div>
 
-      {/* More filters */}
+      {/* ── More filters toggle ── */}
       <button
         onClick={() => setShowMoreFilters(!showMoreFilters)}
-        className="mb-2 self-start text-[11px] text-neutral-500 active:text-accent"
+        className="-mt-1 inline-flex items-center gap-1 self-start text-[11px] font-medium text-neutral-500 transition-colors active:text-accent"
       >
+        <svg
+          className={`h-3 w-3 transition-transform ${showMoreFilters ? "rotate-90" : ""}`}
+          fill="none"
+          stroke="currentColor"
+          viewBox="0 0 24 24"
+          strokeWidth={2.5}
+        >
+          <path strokeLinecap="round" strokeLinejoin="round" d="m9 5 7 7-7 7" />
+        </svg>
         {showMoreFilters ? "Скрыть фильтры" : "Больше фильтров"}
       </button>
 
       {showMoreFilters && (
-        <div className="mb-3 animate-fade-in flex flex-col gap-2">
+        <div className="animate-fade-in flex flex-col gap-3 rounded-2xl border border-white/5 bg-card/50 p-3">
           {/* Category chips */}
-          <div className="flex flex-wrap gap-1.5">
-            {CATEGORIES.map((c) => (
-              <button
-                key={c}
-                onClick={() =>
-                  setCategoryFilter(categoryFilter === c ? "" : c)
-                }
-                className={`rounded-full px-2.5 py-1 text-[11px] font-medium transition-colors ${
-                  categoryFilter === c
-                    ? "bg-accent text-white"
-                    : "bg-card text-neutral-400"
-                }`}
-              >
-                {CAT_LABELS[c] || c}
-              </button>
-            ))}
+          <div>
+            <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-widest text-neutral-500">
+              Категория
+            </p>
+            <div className="flex flex-wrap gap-1.5">
+              {CATEGORIES.map((c) => {
+                const active = categoryFilter === c;
+                return (
+                  <button
+                    key={c}
+                    onClick={() => setCategoryFilter(active ? "" : c)}
+                    className={`rounded-full border px-2.5 py-1 text-[11px] font-medium transition-all ${
+                      active
+                        ? "border-accent/40 bg-accent/15 text-accent"
+                        : "border-white/5 bg-white/5 text-neutral-400 active:bg-white/10"
+                    }`}
+                  >
+                    {CAT_LABELS[c] || c}
+                  </button>
+                );
+              })}
+            </div>
           </div>
           {/* Dormant toggle */}
           <button
             onClick={() => setDormantFilter(!dormantFilter)}
-            className={`self-start rounded-full px-2.5 py-1 text-[11px] font-medium transition-colors ${
+            className={`inline-flex items-center gap-1.5 self-start rounded-full border px-2.5 py-1 text-[11px] font-medium transition-all ${
               dormantFilter
-                ? "bg-orange-600/30 text-orange-300"
-                : "bg-card text-neutral-400"
+                ? "border-orange-500/40 bg-orange-500/15 text-orange-300"
+                : "border-white/5 bg-white/5 text-neutral-400 active:bg-white/10"
             }`}
           >
-            Забытые (30+ дней)
+            <span>🕰</span> Забытые (30+ дней)
           </button>
 
           {/* Country filter */}
           {(Object.keys(countryCounts.met).length > 0 || Object.keys(countryCounts.origin).length > 0) && (
-            <div className="flex flex-col gap-1.5">
+            <div className="flex flex-col gap-2">
+              <p className="text-[10px] font-semibold uppercase tracking-widest text-neutral-500">
+                Страна
+              </p>
               <div className="flex gap-1.5">
                 <button
                   onClick={() => { setCountryFilterType("met"); setCountryFilter(""); }}
-                  className={`rounded-full px-2.5 py-1 text-[11px] font-medium transition-colors ${
+                  className={`rounded-full border px-2.5 py-1 text-[11px] font-medium transition-all ${
                     countryFilterType === "met"
-                      ? "bg-blue-600/30 text-blue-300"
-                      : "bg-card text-neutral-400"
+                      ? "border-blue-500/40 bg-blue-500/15 text-blue-300"
+                      : "border-white/5 bg-white/5 text-neutral-400 active:bg-white/10"
                   }`}
                 >
                   Где встретились
                 </button>
                 <button
                   onClick={() => { setCountryFilterType("origin"); setCountryFilter(""); }}
-                  className={`rounded-full px-2.5 py-1 text-[11px] font-medium transition-colors ${
+                  className={`rounded-full border px-2.5 py-1 text-[11px] font-medium transition-all ${
                     countryFilterType === "origin"
-                      ? "bg-purple-600/30 text-purple-300"
-                      : "bg-card text-neutral-400"
+                      ? "border-purple-500/40 bg-purple-500/15 text-purple-300"
+                      : "border-white/5 bg-white/5 text-neutral-400 active:bg-white/10"
                   }`}
                 >
                   Откуда родом
@@ -452,21 +512,25 @@ export default function People() {
                   countryFilterType === "met" ? countryCounts.met : countryCounts.origin
                 )
                   .sort(([, a], [, b]) => b - a)
-                  .map(([code, count]) => (
-                    <button
-                      key={code}
-                      onClick={() => setCountryFilter(countryFilter === code ? "" : code)}
-                      className={`rounded-full px-2.5 py-1 text-[11px] font-medium transition-colors ${
-                        countryFilter === code
-                          ? countryFilterType === "met"
-                            ? "bg-blue-600/30 text-blue-300"
-                            : "bg-purple-600/30 text-purple-300"
-                          : "bg-card text-neutral-400"
-                      }`}
-                    >
-                      {countryCodeToFlag(code)} {count}
-                    </button>
-                  ))}
+                  .map(([code, count]) => {
+                    const active = countryFilter === code;
+                    return (
+                      <button
+                        key={code}
+                        onClick={() => setCountryFilter(active ? "" : code)}
+                        className={`inline-flex items-center gap-1 rounded-full border px-2 py-1 text-[11px] font-medium transition-all ${
+                          active
+                            ? countryFilterType === "met"
+                              ? "border-blue-500/40 bg-blue-500/15 text-blue-300"
+                              : "border-purple-500/40 bg-purple-500/15 text-purple-300"
+                            : "border-white/5 bg-white/5 text-neutral-400 active:bg-white/10"
+                        }`}
+                      >
+                        <span className="text-sm leading-none">{countryCodeToFlag(code)}</span>
+                        <span className="text-neutral-500">{count}</span>
+                      </button>
+                    );
+                  })}
               </div>
             </div>
           )}
@@ -475,19 +539,19 @@ export default function People() {
 
       {/* Batch mode bar */}
       {selectMode && (
-        <div className="mb-3 flex items-center gap-2 rounded-xl bg-card p-2 animate-fade-in">
-          <span className="flex-1 text-xs text-neutral-400">
-            Выбрано: {selected.size}
+        <div className="animate-fade-in flex items-center gap-2 rounded-2xl border border-accent/30 bg-accent/10 p-2">
+          <span className="flex-1 pl-2 text-xs text-neutral-300">
+            Выбрано: <span className="font-semibold text-white">{selected.size}</span>
           </span>
           <button
             onClick={() => batchAction("pause")}
-            className="rounded-lg bg-neutral-700 px-3 py-1.5 text-xs text-white active:bg-neutral-600"
+            className="rounded-lg bg-white/10 px-3 py-1.5 text-xs font-medium text-white active:bg-white/20"
           >
             Пауза
           </button>
           <button
             onClick={() => batchAction("archive")}
-            className="rounded-lg bg-red-600/80 px-3 py-1.5 text-xs text-white active:bg-red-700"
+            className="rounded-lg bg-red-500/80 px-3 py-1.5 text-xs font-medium text-white active:bg-red-600"
           >
             Архив
           </button>
@@ -506,18 +570,28 @@ export default function People() {
       ) : loadError ? (
         <ErrorState message="Не удалось загрузить контакты" onRetry={fetchContacts} />
       ) : contacts.length === 0 ? (
-        <div className="flex flex-1 flex-col items-center justify-center gap-3 text-center">
+        <div className="flex flex-1 flex-col items-center justify-center gap-4 py-12 text-center">
           {debouncedSearch || filter || categoryFilter || countryFilter || dormantFilter ? (
             <>
-              <div className="text-3xl">{"\u{1F50D}"}</div>
-              <p className="text-neutral-400">Никого не найдено</p>
+              <div className="flex h-16 w-16 items-center justify-center rounded-2xl border border-white/5 bg-card text-3xl">
+                {"\u{1F50D}"}
+              </div>
+              <div>
+                <p className="text-sm font-medium text-white">Никого не найдено</p>
+                <p className="mt-1 text-xs text-neutral-500">Попробуй изменить фильтры</p>
+              </div>
             </>
           ) : (
             <>
-              <div className="text-4xl">{"\u{1F3A4}"}</div>
-              <p className="text-neutral-400">
-                Запишите голосовое о первом знакомстве
-              </p>
+              <div className="flex h-16 w-16 items-center justify-center rounded-2xl border border-white/5 bg-gradient-to-br from-accent/20 to-transparent text-3xl">
+                {"\u{1F3A4}"}
+              </div>
+              <div>
+                <p className="text-sm font-medium text-white">Пока нет контактов</p>
+                <p className="mt-1 max-w-[260px] text-xs leading-relaxed text-neutral-500">
+                  Запиши голосовое о первом знакомстве — AI создаст контакт за тебя.
+                </p>
+              </div>
             </>
           )}
         </div>
@@ -569,10 +643,10 @@ export default function People() {
 
       {/* Archived contacts section */}
       {!loading && !loadError && !filter && (counts.archived ?? 0) > 0 && (
-        <div className="mt-4 mb-2">
+        <div>
           <button
             onClick={toggleArchived}
-            className="flex w-full items-center gap-2 rounded-xl bg-card px-4 py-3 text-sm text-neutral-500 active:bg-neutral-800"
+            className="flex w-full items-center gap-2 rounded-2xl border border-white/5 bg-card px-4 py-3 text-sm text-neutral-400 transition-colors active:bg-card-hover"
           >
             <svg
               className={`h-4 w-4 transition-transform ${showArchived ? "rotate-90" : ""}`}
@@ -583,8 +657,8 @@ export default function People() {
             >
               <path strokeLinecap="round" strokeLinejoin="round" d="m9 5 7 7-7 7" />
             </svg>
-            <span>Архив</span>
-            <span className="ml-auto text-xs text-neutral-600">
+            <span className="font-medium">Архив</span>
+            <span className="ml-auto rounded-full bg-white/5 px-2 py-0.5 text-xs text-neutral-500">
               {counts.archived}
             </span>
           </button>
@@ -774,8 +848,8 @@ function ContactCard({
         </button>
       </div>
       <div
-        className={`relative flex items-center gap-3 p-3.5 transition-transform ${
-          selected ? "ring-2 ring-accent border-accent/30" : ""
+        className={`relative flex items-center gap-3 rounded-2xl p-3.5 transition-transform ${
+          selected ? "ring-2 ring-accent" : ""
         }`}
         style={{
           transform: `translateX(${offset}px)`,
@@ -783,19 +857,19 @@ function ContactCard({
           willChange: offset !== 0 ? "transform" : "auto",
           background: showLocationGlow
             ? isConfirmed
-              ? "linear-gradient(135deg, rgba(251, 191, 36, 0.15) 0%, rgba(30, 30, 30, 1) 50%)"
-              : "linear-gradient(135deg, rgba(251, 191, 36, 0.08) 0%, rgba(30, 30, 30, 1) 40%)"
-            : "rgb(30, 30, 30)",
+              ? "linear-gradient(135deg, rgba(251, 191, 36, 0.18) 0%, rgba(26, 26, 26, 1) 55%)"
+              : "linear-gradient(135deg, rgba(251, 191, 36, 0.09) 0%, rgba(26, 26, 26, 1) 45%)"
+            : "linear-gradient(135deg, rgb(26,26,26) 0%, rgb(20,20,20) 100%)",
           border: showLocationGlow
             ? isConfirmed
               ? "1px solid rgba(251, 191, 36, 0.35)"
-              : "1px solid rgba(251, 191, 36, 0.15)"
-            : "1px solid rgba(255, 255, 255, 0.04)",
+              : "1px solid rgba(251, 191, 36, 0.18)"
+            : "1px solid rgba(255, 255, 255, 0.05)",
           boxShadow: showLocationGlow
             ? isConfirmed
               ? "0 0 24px rgba(251, 191, 36, 0.2), 0 0 8px rgba(251, 191, 36, 0.1)"
               : "0 0 16px rgba(251, 191, 36, 0.08)"
-            : "none",
+            : "0 1px 2px rgba(0,0,0,0.2)",
         }}
         onTouchStart={handleTouchStart}
         onTouchMove={handleTouchMove}
@@ -1045,18 +1119,26 @@ function AddContactModal({
       onClick={onClose}
     >
       <div
-        className="animate-slide-up w-full max-w-[430px] rounded-t-3xl bg-card px-6 pb-8 pt-6"
+        className="animate-slide-up w-full max-w-[430px] rounded-t-3xl border-t border-white/5 bg-card px-6 pb-8 pt-4"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="mx-auto mb-6 h-1 w-10 rounded-full bg-neutral-600" />
-        <h2 className="mb-4 text-lg font-semibold text-white">Новый контакт</h2>
-        <form onSubmit={handleSubmit} className="flex flex-col gap-3">
+        <div className="mx-auto mb-5 h-1 w-10 rounded-full bg-neutral-700" />
+        <div className="mb-5 flex items-center gap-3">
+          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-accent/20 to-accent/5 text-lg">
+            ✨
+          </div>
+          <div>
+            <h2 className="text-lg font-semibold text-white">Новый контакт</h2>
+            <p className="text-xs text-neutral-500">Заполни минимум — остальное можно добавить позже</p>
+          </div>
+        </div>
+        <form onSubmit={handleSubmit} className="flex flex-col gap-2.5">
           <input
             type="text"
             placeholder="Имя *"
             value={name}
             onChange={(e) => setName(e.target.value)}
-            className="w-full rounded-xl bg-neutral-800 px-4 py-3 text-sm text-white placeholder-neutral-500 outline-none ring-1 ring-neutral-700 focus:ring-accent"
+            className="w-full rounded-xl border border-white/5 bg-white/5 px-4 py-3 text-sm text-white placeholder-neutral-500 outline-none transition-colors focus:border-accent/50"
             autoFocus
           />
           <input
@@ -1064,30 +1146,30 @@ function AddContactModal({
             placeholder="Где познакомились"
             value={whereMet}
             onChange={(e) => setWhereMet(e.target.value)}
-            className="w-full rounded-xl bg-neutral-800 px-4 py-3 text-sm text-white placeholder-neutral-500 outline-none ring-1 ring-neutral-700 focus:ring-accent"
+            className="w-full rounded-xl border border-white/5 bg-white/5 px-4 py-3 text-sm text-white placeholder-neutral-500 outline-none transition-colors focus:border-accent/50"
           />
           <input
             type="text"
             placeholder="Род деятельности"
             value={occupation}
             onChange={(e) => setOccupation(e.target.value)}
-            className="w-full rounded-xl bg-neutral-800 px-4 py-3 text-sm text-white placeholder-neutral-500 outline-none ring-1 ring-neutral-700 focus:ring-accent"
+            className="w-full rounded-xl border border-white/5 bg-white/5 px-4 py-3 text-sm text-white placeholder-neutral-500 outline-none transition-colors focus:border-accent/50"
           />
           <div>
-            <label className="mb-1 block text-xs text-neutral-500">Дата знакомства</label>
+            <label className="mb-1 block text-[11px] font-medium uppercase tracking-widest text-neutral-500">Дата знакомства</label>
             <input
               type="date"
               value={metDate}
               onChange={(e) => setMetDate(e.target.value)}
-              className="w-full rounded-xl bg-neutral-800 px-4 py-3 text-sm text-white outline-none ring-1 ring-neutral-700 focus:ring-accent"
+              className="w-full rounded-xl border border-white/5 bg-white/5 px-4 py-3 text-sm text-white outline-none transition-colors focus:border-accent/50"
             />
           </div>
           <button
             type="submit"
             disabled={saving || !name.trim()}
-            className="mt-2 w-full rounded-xl bg-accent py-3 text-sm font-medium text-white active:bg-accent-hover disabled:opacity-50"
+            className="mt-3 w-full rounded-xl bg-gradient-to-br from-accent to-[#4f46e5] py-3 text-sm font-semibold text-white shadow-lg shadow-accent/20 transition-all active:scale-[0.98] disabled:opacity-50 disabled:shadow-none"
           >
-            {saving ? "Создание..." : "Создать"}
+            {saving ? "Создание..." : "Создать контакт"}
           </button>
         </form>
       </div>
