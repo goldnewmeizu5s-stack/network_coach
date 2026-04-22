@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useParams, useNavigate } from "react-router-dom";
+import { motion } from "framer-motion";
 import { api } from "../lib/api";
 import {
   getWarmthColor,
@@ -15,6 +16,49 @@ import WarmthBar from "../components/WarmthBar";
 import FollowUpCard from "../components/FollowUpCard";
 import { useToast } from "../components/Toast";
 import { Skeleton } from "../components/Skeleton";
+
+const fade = {
+  hidden: { opacity: 0, y: 16 },
+  visible: {
+    opacity: 1,
+    y: 0,
+    transition: { duration: 0.35, ease: "easeOut" as const },
+  },
+};
+
+const CAT_LABELS: Record<string, string> = {
+  business: "бизнес",
+  friendship: "дружба",
+  mentor: "ментор",
+  connector: "коннектор",
+  investor: "инвестор",
+  creative: "креатив",
+  other: "другое",
+};
+
+const SOCIAL_META: Record<
+  string,
+  { label: string; prefix: string; bg: string; text: string }
+> = {
+  telegram: {
+    label: "TG",
+    prefix: "@",
+    bg: "bg-sky-500/10 border-sky-500/20",
+    text: "text-sky-300",
+  },
+  linkedin: {
+    label: "LI",
+    prefix: "",
+    bg: "bg-blue-500/10 border-blue-500/20",
+    text: "text-blue-300",
+  },
+  instagram: {
+    label: "IG",
+    prefix: "@",
+    bg: "bg-pink-500/10 border-pink-500/20",
+    text: "text-pink-300",
+  },
+};
 
 interface AISuggestion {
   action: string;
@@ -435,72 +479,99 @@ export default function ContactProfile() {
 
   return (
     <div className="flex flex-1 flex-col pb-24">
-      {/* Header */}
-      <div className="sticky top-0 z-10 flex items-center gap-3 bg-bg/95 px-4 py-3 backdrop-blur-sm">
+      {/* Sticky header */}
+      <div className="sticky top-0 z-10 flex items-center gap-3 border-b border-white/5 bg-bg/85 px-4 py-3 backdrop-blur-md">
         <button
           onClick={() => navigate("/people")}
-          className="flex h-9 w-9 items-center justify-center rounded-full bg-card text-neutral-400"
+          aria-label="Назад"
+          className="flex h-10 w-10 items-center justify-center rounded-xl border border-white/5 bg-card text-neutral-400 transition-colors active:bg-card-hover"
         >
-          <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+          <svg className="h-[18px] w-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
             <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
           </svg>
         </button>
-        <h1 className="flex-1 truncate text-lg font-semibold text-white">
+        <h1 className="flex-1 truncate text-[16px] font-semibold text-white">
           {contact.full_name}
         </h1>
         <button
           onClick={startEditingName}
-          className="flex h-8 w-8 items-center justify-center rounded-full text-neutral-400 active:bg-neutral-700"
+          aria-label="Редактировать имя"
+          className="flex h-10 w-10 items-center justify-center rounded-xl border border-white/5 bg-card text-neutral-400 transition-colors active:bg-card-hover"
           title="Редактировать имя"
         >
-          ✏️
+          <svg className="h-[16px] w-[16px]" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.8}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931zM19.5 14.25v4.75A2.25 2.25 0 0117.25 21H5.25A2.25 2.25 0 013 18.75V6.75A2.25 2.25 0 015.25 4.5h4.75" />
+          </svg>
         </button>
       </div>
 
-      <div className="flex flex-col gap-4 px-4">
-        {/* Profile header */}
-        <div className="flex flex-col items-center gap-3 pt-2">
+      <motion.div
+        className="flex flex-col gap-4 px-4 pt-4"
+        initial="hidden"
+        animate="visible"
+        variants={{ visible: { transition: { staggerChildren: 0.05 } } }}
+      >
+        {/* ── Profile Hero ── */}
+        <motion.section
+          className="relative overflow-hidden rounded-3xl border border-white/5 bg-gradient-to-br from-card via-card to-[#141414] px-6 pb-6 pt-7"
+          variants={fade}
+        >
+          {/* Ambient glows */}
           <div
-            className="relative flex h-20 w-20 cursor-pointer items-center justify-center rounded-full text-2xl font-bold text-white overflow-hidden"
-            style={{
-              backgroundColor: warmthColor + "33",
-              color: warmthColor,
-              boxShadow: `0 0 0 3px ${warmthColor}, 0 0 20px ${warmthColor}30`,
-            }}
-            onClick={() => photoInputRef.current?.click()}
-          >
-            {contact.photo_url && !imgFailed ? (
-              <img
-                src={contact.photo_url}
-                alt={contact.full_name}
-                className="h-full w-full object-cover"
-                decoding="async"
-                onError={() => setImgFailed(true)}
-              />
-            ) : (
-              getInitials(contact.full_name)
-            )}
-            {photoUploading && (
-              <div className="absolute inset-0 flex items-center justify-center bg-black/50">
-                <span className="h-5 w-5 animate-spin rounded-full border-2 border-white border-t-transparent" />
-              </div>
-            )}
-            <div className="absolute -right-0.5 -top-0.5 flex h-6 w-6 items-center justify-center rounded-full bg-card text-sm shadow-lg ring-2 ring-bg">
-              ✏️
-            </div>
-            <input
-              ref={photoInputRef}
-              type="file"
-              accept="image/jpeg,image/png,image/webp"
-              className="hidden"
-              onChange={(e) => {
-                const file = e.target.files?.[0];
-                if (file) uploadPhoto(file);
-                e.target.value = "";
+            className="pointer-events-none absolute -right-20 -top-20 h-56 w-56 rounded-full blur-3xl"
+            style={{ backgroundColor: warmthColor + "26" }}
+          />
+          <div
+            className="pointer-events-none absolute -left-16 bottom-0 h-40 w-40 rounded-full blur-3xl"
+            style={{ backgroundColor: warmthColor + "12" }}
+          />
+
+          <div className="relative flex flex-col items-center">
+            {/* Avatar */}
+            <button
+              onClick={() => photoInputRef.current?.click()}
+              className="group relative flex h-24 w-24 cursor-pointer items-center justify-center overflow-hidden rounded-full text-[26px] font-bold text-white transition-transform active:scale-95"
+              style={{
+                backgroundColor: warmthColor + "33",
+                color: warmthColor,
+                boxShadow: `0 0 0 3px ${warmthColor}, 0 0 24px ${warmthColor}33`,
               }}
-            />
-          </div>
-          <div className="text-center">
+              aria-label="Изменить фото"
+            >
+              {contact.photo_url && !imgFailed ? (
+                <img
+                  src={contact.photo_url}
+                  alt={contact.full_name}
+                  className="h-full w-full object-cover"
+                  decoding="async"
+                  onError={() => setImgFailed(true)}
+                />
+              ) : (
+                getInitials(contact.full_name)
+              )}
+              {photoUploading && (
+                <div className="absolute inset-0 flex items-center justify-center bg-black/50">
+                  <span className="h-5 w-5 animate-spin rounded-full border-2 border-white border-t-transparent" />
+                </div>
+              )}
+              <span className="absolute inset-x-0 bottom-0 flex h-7 items-center justify-center bg-gradient-to-t from-black/70 to-transparent text-[11px] font-medium text-white opacity-0 transition-opacity group-active:opacity-100">
+                Изменить
+              </span>
+              <input
+                ref={photoInputRef}
+                type="file"
+                accept="image/jpeg,image/png,image/webp"
+                className="hidden"
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (file) uploadPhoto(file);
+                  e.target.value = "";
+                }}
+              />
+            </button>
+
+            {/* Name + occupation */}
+            <div className="mt-4 text-center">
             {editingName ? (
               <div className="flex items-center justify-center gap-2">
                 <input
@@ -511,13 +582,13 @@ export default function ContactProfile() {
                     if (e.key === "Enter") saveName();
                     if (e.key === "Escape") setEditingName(false);
                   }}
-                  className="w-56 rounded-xl bg-neutral-800 px-3 py-2 text-center text-xl font-bold text-white outline-none ring-1 ring-neutral-700 focus:ring-accent"
+                  className="w-56 rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-center text-xl font-bold text-white outline-none focus:border-accent/50"
                   disabled={nameSaving}
                 />
                 <button
                   onClick={saveName}
                   disabled={nameSaving}
-                  className="flex h-8 w-8 items-center justify-center rounded-full bg-accent text-white active:bg-accent-hover disabled:opacity-50"
+                  className="flex h-9 w-9 items-center justify-center rounded-full bg-accent text-white active:bg-accent-hover disabled:opacity-50"
                 >
                   {nameSaving ? (
                     <span className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" />
@@ -527,384 +598,553 @@ export default function ContactProfile() {
                 </button>
                 <button
                   onClick={() => setEditingName(false)}
-                  className="flex h-8 w-8 items-center justify-center rounded-full bg-neutral-700 text-neutral-300 active:bg-neutral-600"
+                  className="flex h-9 w-9 items-center justify-center rounded-full border border-white/5 bg-card text-neutral-300 active:bg-card-hover"
                 >
                   ✕
                 </button>
               </div>
             ) : (
-              <div className="flex items-center justify-center gap-1.5">
-                <h2 className="text-xl font-bold text-white">{contact.full_name}</h2>
-                <button
-                  onClick={startEditingName}
-                  className="flex h-6 w-6 items-center justify-center rounded-full text-neutral-500 hover:text-neutral-300 active:bg-neutral-700"
-                  title="Редактировать имя"
+              <button
+                onClick={startEditingName}
+                className="group inline-flex items-center gap-1.5 text-center"
+                title="Редактировать имя"
+              >
+                <h2 className="text-[22px] font-bold leading-tight text-white">
+                  {contact.full_name}
+                </h2>
+                <svg
+                  className="h-3.5 w-3.5 text-neutral-600 opacity-0 transition-opacity group-hover:opacity-100"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                  strokeWidth={2}
                 >
-                  <span className="text-sm">✏️</span>
-                </button>
-              </div>
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931z"
+                  />
+                </svg>
+              </button>
             )}
-            {contact.occupation && (
-              <p className="text-sm text-neutral-400">
-                {contact.occupation}
-                {contact.company ? ` \u00B7 ${contact.company}` : ""}
+            {(contact.occupation || contact.company) && (
+              <p className="mt-1 text-[13px] text-neutral-400">
+                {[contact.occupation, contact.company].filter(Boolean).join(" · ")}
               </p>
             )}
+            {(contact.met_country || contact.origin_country) && (
+              <div className="mt-2 inline-flex flex-wrap items-center justify-center gap-1.5 text-[11px] text-neutral-500">
+                {contact.met_country && (
+                  <span className="inline-flex items-center gap-1 rounded-full border border-white/5 bg-white/5 px-2 py-0.5">
+                    <span className="text-sm leading-none">
+                      {countryCodeToFlag(contact.met_country)}
+                    </span>
+                    <span>встретились</span>
+                  </span>
+                )}
+                {contact.origin_country &&
+                  contact.origin_country !== contact.met_country && (
+                    <span className="inline-flex items-center gap-1 rounded-full border border-white/5 bg-white/5 px-2 py-0.5">
+                      <span className="text-sm leading-none">
+                        {countryCodeToFlag(contact.origin_country)}
+                      </span>
+                      <span>родом</span>
+                    </span>
+                  )}
+              </div>
+            )}
           </div>
-          <div className="w-full max-w-xs">
+
+          {/* Warmth bar */}
+          <div className="mt-5 w-full">
             <WarmthBar
               score={contact.warmth_score}
               status={contact.warmth_status}
               size="md"
             />
           </div>
+
+          {/* Last interaction */}
+          {contact.last_interaction_at && (
+            <p className="mt-3 text-[11px] text-neutral-500">
+              Последний контакт: {timeAgo(contact.last_interaction_at)}
+            </p>
+          )}
         </div>
+        </motion.section>
 
         {/* Memory summary */}
         {contact.memory_summary && (
-          <div className="rounded-2xl border border-accent/30 bg-accent/10 p-4">
-            <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-accent">
-              AI-резюме
-            </p>
-            <p className="text-sm leading-relaxed text-neutral-200">
-              {contact.memory_summary}
-            </p>
-          </div>
+          <motion.div
+            variants={fade}
+            className="relative overflow-hidden rounded-2xl border border-accent/25 bg-gradient-to-br from-accent/10 via-accent/5 to-transparent p-4"
+          >
+            <div className="pointer-events-none absolute -right-10 -top-10 h-32 w-32 rounded-full bg-accent/10 blur-3xl" />
+            <div className="relative flex items-start gap-2">
+              <div className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-lg bg-accent/20 text-[11px]">
+                ✨
+              </div>
+              <div className="min-w-0 flex-1">
+                <p className="mb-1 text-[10px] font-semibold uppercase tracking-widest text-accent">
+                  AI-резюме
+                </p>
+                <p className="text-sm leading-relaxed text-neutral-200">
+                  {contact.memory_summary}
+                </p>
+              </div>
+            </div>
+          </motion.div>
         )}
 
         {/* Memory notes — personal hooks */}
         {contact.memory_notes && contact.memory_notes.length > 0 && (
-          <div className="rounded-2xl border border-amber-500/30 bg-amber-500/10 p-4">
-            <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-amber-400">
-              Запомни о нём
-            </p>
-            <ul className="flex flex-col gap-1.5">
-              {contact.memory_notes.map((note, i) => (
-                <li
-                  key={i}
-                  className="flex items-start gap-2 text-sm text-neutral-200"
-                >
-                  <span className="mt-0.5 text-amber-400">•</span>
-                  <span>{note}</span>
-                </li>
-              ))}
-            </ul>
-          </div>
+          <motion.div
+            variants={fade}
+            className="relative overflow-hidden rounded-2xl border border-amber-500/25 bg-gradient-to-br from-amber-500/10 via-amber-500/5 to-transparent p-4"
+          >
+            <div className="pointer-events-none absolute -right-10 -top-10 h-32 w-32 rounded-full bg-amber-500/10 blur-3xl" />
+            <div className="relative">
+              <div className="mb-2 flex items-center gap-2">
+                <div className="flex h-6 w-6 items-center justify-center rounded-lg bg-amber-500/20 text-[11px]">
+                  🔖
+                </div>
+                <p className="text-[10px] font-semibold uppercase tracking-widest text-amber-400">
+                  Запомни о нём
+                </p>
+              </div>
+              <ul className="flex flex-col gap-1.5">
+                {contact.memory_notes.map((note, i) => (
+                  <li
+                    key={i}
+                    className="flex items-start gap-2 text-sm leading-relaxed text-neutral-200"
+                  >
+                    <span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-amber-400" />
+                    <span>{note}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          </motion.div>
         )}
 
         {/* Follow-ups */}
-        <Section title="Следующие шаги">
-          {followUps.length > 0 ? (
-            <div className="flex flex-col gap-2">
-              {followUps.map((fu) => (
-                <FollowUpCard
-                  key={fu.id}
-                  item={fu}
-                  onRemoved={handleFollowUpRemoved}
-                />
-              ))}
-            </div>
-          ) : (
-            <p className="text-sm text-neutral-500">
-              Нет активных follow-ups
-            </p>
-          )}
-          <button
-            onClick={() => {
-              setFuDate(
-                new Date(Date.now() + 2 * 86400000)
-                  .toISOString()
-                  .split("T")[0]
-              );
-              setShowCreateFu(true);
-            }}
-            className="mt-3 w-full rounded-xl bg-neutral-800 py-2.5 text-sm text-neutral-300 active:bg-neutral-700"
-          >
-            + Создать follow-up
-          </button>
-        </Section>
-
-        {/* Related Notes */}
-        <Section title="Связанные заметки">
-          {relatedNotes.length > 0 ? (
-            <div className="flex flex-col gap-2">
-              {relatedNotes.map((n) => (
-                <button
-                  key={n.id}
-                  onClick={() => navigate(`/notes?id=${n.id}`)}
-                  className="flex flex-col gap-1 rounded-xl bg-neutral-800 p-3 text-left active:bg-neutral-700"
-                >
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="text-sm font-medium text-white">
-                      {n.title || "(без заголовка)"}
-                    </span>
-                    <span className="shrink-0 text-[10px] text-neutral-500">
-                      {formatNoteDate(n.updated_at)}
-                    </span>
-                  </div>
-                  <span className="line-clamp-2 text-xs text-neutral-400">
-                    {n.body.replace(/\s+/g, " ").slice(0, 160)}
-                  </span>
-                  {n.tags.length > 0 && (
-                    <div className="flex flex-wrap gap-1">
-                      {n.tags.map((t) => (
-                        <span
-                          key={t}
-                          className="rounded-full bg-neutral-900 px-1.5 py-0.5 text-[10px] text-neutral-500"
-                        >
-                          #{t}
-                        </span>
-                      ))}
-                    </div>
-                  )}
-                </button>
-              ))}
-            </div>
-          ) : (
-            <p className="text-sm text-neutral-500">
-              Нет заметок. В любой заметке напиши <code className="text-accent">[[{contact.full_name}]]</code> — и она появится здесь.
-            </p>
-          )}
-          <button
-            onClick={() => navigate("/notes")}
-            className="mt-3 w-full rounded-xl bg-neutral-800 py-2.5 text-sm text-neutral-300 active:bg-neutral-700"
-          >
-            Все заметки
-          </button>
-        </Section>
-
-        {/* AI Suggestions */}
-        <Section title="AI рекомендации">
-          {suggestions.length > 0 ? (
-            <div className="flex flex-col gap-2">
-              {suggestions.map((s, i) => {
-                const urgencyIcon =
-                  s.urgency === "high"
-                    ? "\u{1F534}"
-                    : s.urgency === "medium"
-                      ? "\u{1F7E1}"
-                      : "\u{1F7E2}";
-                return (
-                  <div key={i} className="rounded-xl bg-neutral-800 p-3">
-                    <div
-                      className="flex items-start gap-2 cursor-pointer"
-                      onClick={() =>
-                        setExpandedSuggestion(expandedSuggestion === i ? null : i)
-                      }
-                    >
-                      <span className="mt-0.5 text-sm">{urgencyIcon}</span>
-                      <div className="min-w-0 flex-1">
-                        <p className="text-sm text-neutral-200">{s.action}</p>
-                        <p className="text-xs text-neutral-500">{s.timeframe}</p>
-                      </div>
-                    </div>
-                    {expandedSuggestion === i && (
-                      <div className="mt-2 animate-fade-in">
-                        <p className="mb-2 text-xs italic text-neutral-400">
-                          {s.reasoning}
-                        </p>
-                        <button
-                          onClick={() => createFuFromSuggestion(s.action)}
-                          className="text-xs font-medium text-accent active:text-accent-hover"
-                        >
-                          Создать follow-up из этого
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          ) : (
-            <button
-              onClick={fetchSuggestions}
-              disabled={suggestionsLoading}
-              className="w-full rounded-xl bg-neutral-800 py-3 text-sm text-accent active:bg-neutral-700 disabled:opacity-50"
-            >
-              {suggestionsLoading ? (
-                <span className="flex items-center justify-center gap-2">
-                  <span className="h-4 w-4 animate-spin rounded-full border-2 border-accent border-t-transparent" />
-                  Анализирую...
-                </span>
-              ) : (
-                "Что делать дальше?"
-              )}
-            </button>
-          )}
-        </Section>
-
-        {/* Details */}
-        <Section title="Детали">
-          {contact.where_met && <Detail label="Где познакомились" value={contact.where_met} />}
-          {contact.met_date && (
-            <Detail label="Дата" value={new Date(contact.met_date).toLocaleDateString("ru")} />
-          )}
-          {location && <Detail label="Город" value={location} />}
-          {contact.met_country && (
-            <Detail
-              label="Где встретились"
-              value={`${countryCodeToFlag(contact.met_country)} ${getCountryName(contact.met_country)}`}
-            />
-          )}
-          {contact.origin_country && (
-            <Detail
-              label="Откуда родом"
-              value={`${countryCodeToFlag(contact.origin_country)} ${getCountryName(contact.origin_country)}`}
-            />
-          )}
-          {contact.social_links && Object.keys(contact.social_links).length > 0 && (
-            <div className="mb-2">
-              <p className="text-xs text-neutral-500">Соцсети</p>
-              <div className="flex flex-wrap gap-1.5 mt-1">
-                {contact.social_links.telegram && (
-                  <span className="rounded-full bg-neutral-700 px-2.5 py-1 text-xs text-neutral-300">
-                    TG: {contact.social_links.telegram}
-                  </span>
-                )}
-                {contact.social_links.linkedin && (
-                  <span className="rounded-full bg-neutral-700 px-2.5 py-1 text-xs text-neutral-300">
-                    LI: {contact.social_links.linkedin}
-                  </span>
-                )}
-                {contact.social_links.instagram && (
-                  <span className="rounded-full bg-neutral-700 px-2.5 py-1 text-xs text-neutral-300">
-                    IG: {contact.social_links.instagram}
-                  </span>
-                )}
-              </div>
-            </div>
-          )}
-          <button
-            onClick={openSocialLinks}
-            className="mb-2 text-xs text-accent active:text-accent-hover"
-          >
-            {contact.social_links && Object.keys(contact.social_links).length > 0
-              ? "Изменить соцсети"
-              : "Добавить соцсети"}
-          </button>
-          {contact.relationship_category && (
-            <Detail label="Категория" value={contact.relationship_category} />
-          )}
-          {contact.key_interests.length > 0 && (
-            <div className="pt-1">
-              <p className="mb-1.5 text-xs text-neutral-500">Интересы</p>
-              <div className="flex flex-wrap gap-1.5">
-                {contact.key_interests.map((interest, i) => (
-                  <span
-                    key={i}
-                    className="rounded-full bg-neutral-700 px-2.5 py-1 text-xs text-neutral-300"
-                  >
-                    {interest}
-                  </span>
+        <motion.div variants={fade}>
+          <Section title="Следующие шаги" icon="🎯">
+            {followUps.length > 0 ? (
+              <div className="flex flex-col gap-2">
+                {followUps.map((fu) => (
+                  <FollowUpCard
+                    key={fu.id}
+                    item={fu}
+                    onRemoved={handleFollowUpRemoved}
+                  />
                 ))}
               </div>
+            ) : (
+              <p className="rounded-xl border border-dashed border-white/5 bg-white/[0.02] px-4 py-6 text-center text-sm text-neutral-500">
+                Пока ничего не запланировано
+              </p>
+            )}
+            <button
+              onClick={() => {
+                setFuDate(
+                  new Date(Date.now() + 2 * 86400000)
+                    .toISOString()
+                    .split("T")[0]
+                );
+                setShowCreateFu(true);
+              }}
+              className="mt-3 inline-flex w-full items-center justify-center gap-1.5 rounded-xl border border-white/5 bg-white/5 py-2.5 text-sm font-medium text-accent transition-colors active:bg-white/10"
+            >
+              <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M12 5v14M5 12h14" />
+              </svg>
+              Создать follow-up
+            </button>
+          </Section>
+        </motion.div>
+
+        {/* Related Notes */}
+        <motion.div variants={fade}>
+          <Section title="Связанные заметки" icon="📝">
+            {relatedNotes.length > 0 ? (
+              <div className="flex flex-col gap-2">
+                {relatedNotes.map((n) => (
+                  <button
+                    key={n.id}
+                    onClick={() => navigate(`/notes?id=${n.id}`)}
+                    className="flex flex-col gap-1 rounded-xl border border-white/5 bg-white/[0.03] p-3 text-left transition-colors active:bg-white/[0.06]"
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="truncate text-sm font-medium text-white">
+                        {n.title || "(без заголовка)"}
+                      </span>
+                      <span className="shrink-0 text-[10px] text-neutral-500">
+                        {formatNoteDate(n.updated_at)}
+                      </span>
+                    </div>
+                    <span className="line-clamp-2 text-xs leading-relaxed text-neutral-400">
+                      {n.body.replace(/\s+/g, " ").slice(0, 160)}
+                    </span>
+                    {n.tags.length > 0 && (
+                      <div className="mt-0.5 flex flex-wrap gap-1">
+                        {n.tags.map((t) => (
+                          <span
+                            key={t}
+                            className="rounded-full bg-white/5 px-1.5 py-0.5 text-[10px] text-neutral-500"
+                          >
+                            #{t}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <p className="rounded-xl border border-dashed border-white/5 bg-white/[0.02] px-4 py-5 text-center text-sm leading-relaxed text-neutral-500">
+                Нет заметок. Напиши{" "}
+                <code className="rounded bg-accent/10 px-1 py-0.5 text-accent">
+                  [[{contact.full_name}]]
+                </code>{" "}
+                в любой заметке — и она появится здесь.
+              </p>
+            )}
+            <button
+              onClick={() => navigate("/notes")}
+              className="mt-3 w-full rounded-xl border border-white/5 bg-white/5 py-2.5 text-sm font-medium text-neutral-300 transition-colors active:bg-white/10"
+            >
+              Все заметки
+            </button>
+          </Section>
+        </motion.div>
+
+        {/* AI Suggestions */}
+        <motion.div variants={fade}>
+          <Section title="AI рекомендации" icon="🤖">
+            {suggestions.length > 0 ? (
+              <div className="flex flex-col gap-2">
+                {suggestions.map((s, i) => {
+                  const urgencyIcon =
+                    s.urgency === "high"
+                      ? "\u{1F534}"
+                      : s.urgency === "medium"
+                        ? "\u{1F7E1}"
+                        : "\u{1F7E2}";
+                  const expanded = expandedSuggestion === i;
+                  return (
+                    <div
+                      key={i}
+                      className={`rounded-xl border border-white/5 bg-white/[0.03] p-3 transition-colors ${
+                        expanded ? "bg-white/[0.06]" : ""
+                      }`}
+                    >
+                      <div
+                        className="flex cursor-pointer items-start gap-2"
+                        onClick={() =>
+                          setExpandedSuggestion(expanded ? null : i)
+                        }
+                      >
+                        <span className="mt-0.5 text-sm">{urgencyIcon}</span>
+                        <div className="min-w-0 flex-1">
+                          <p className="text-sm leading-snug text-neutral-200">
+                            {s.action}
+                          </p>
+                          <p className="mt-0.5 text-[11px] text-neutral-500">
+                            {s.timeframe}
+                          </p>
+                        </div>
+                        <svg
+                          className={`h-4 w-4 shrink-0 text-neutral-500 transition-transform ${expanded ? "rotate-180" : ""}`}
+                          fill="none"
+                          stroke="currentColor"
+                          viewBox="0 0 24 24"
+                          strokeWidth={2}
+                        >
+                          <path strokeLinecap="round" strokeLinejoin="round" d="m19.5 8.25-7.5 7.5-7.5-7.5" />
+                        </svg>
+                      </div>
+                      {expanded && (
+                        <div className="animate-fade-in mt-3 border-t border-white/5 pt-3">
+                          <p className="mb-2 text-xs italic leading-relaxed text-neutral-400">
+                            {s.reasoning}
+                          </p>
+                          <button
+                            onClick={() => createFuFromSuggestion(s.action)}
+                            className="inline-flex items-center gap-1.5 rounded-lg bg-accent/15 px-2.5 py-1.5 text-xs font-semibold text-accent active:bg-accent/25"
+                          >
+                            <svg className="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.2}>
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M12 5v14M5 12h14" />
+                            </svg>
+                            Создать follow-up
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            ) : (
+              <button
+                onClick={fetchSuggestions}
+                disabled={suggestionsLoading}
+                className="relative w-full overflow-hidden rounded-xl border border-accent/25 bg-gradient-to-br from-accent/10 via-accent/5 to-transparent py-3.5 text-sm font-semibold text-accent transition-all active:scale-[0.98] disabled:opacity-50"
+              >
+                <span className="pointer-events-none absolute inset-0 bg-gradient-to-r from-transparent via-accent/10 to-transparent opacity-60" />
+                {suggestionsLoading ? (
+                  <span className="relative flex items-center justify-center gap-2">
+                    <span className="h-4 w-4 animate-spin rounded-full border-2 border-accent border-t-transparent" />
+                    Анализирую...
+                  </span>
+                ) : (
+                  <span className="relative inline-flex items-center gap-1.5">
+                    <span>✨</span>
+                    <span>Что делать дальше?</span>
+                  </span>
+                )}
+              </button>
+            )}
+          </Section>
+        </motion.div>
+
+        {/* Details */}
+        <motion.div variants={fade}>
+          <Section title="Детали" icon="📌">
+            <div className="flex flex-col divide-y divide-white/5">
+              {contact.where_met && (
+                <DetailRow label="Где познакомились" value={contact.where_met} />
+              )}
+              {contact.met_date && (
+                <DetailRow
+                  label="Дата"
+                  value={new Date(contact.met_date).toLocaleDateString("ru")}
+                />
+              )}
+              {location && <DetailRow label="Город" value={location} />}
+              {contact.met_country && (
+                <DetailRow
+                  label="Где встретились"
+                  value={
+                    <span className="inline-flex items-center gap-1.5">
+                      <span className="text-base leading-none">
+                        {countryCodeToFlag(contact.met_country)}
+                      </span>
+                      <span>{getCountryName(contact.met_country)}</span>
+                    </span>
+                  }
+                />
+              )}
+              {contact.origin_country && (
+                <DetailRow
+                  label="Откуда родом"
+                  value={
+                    <span className="inline-flex items-center gap-1.5">
+                      <span className="text-base leading-none">
+                        {countryCodeToFlag(contact.origin_country)}
+                      </span>
+                      <span>{getCountryName(contact.origin_country)}</span>
+                    </span>
+                  }
+                />
+              )}
+              {contact.relationship_category && (
+                <DetailRow
+                  label="Категория"
+                  value={
+                    <span className="rounded-full bg-white/10 px-2 py-0.5 text-[11px] font-medium text-neutral-200">
+                      {CAT_LABELS[contact.relationship_category] ||
+                        contact.relationship_category}
+                    </span>
+                  }
+                />
+              )}
             </div>
-          )}
-        </Section>
+
+            {/* Social links */}
+            <div className="mt-3">
+              <div className="mb-2 flex items-center justify-between">
+                <p className="text-[11px] font-medium uppercase tracking-widest text-neutral-500">
+                  Соцсети
+                </p>
+                <button
+                  onClick={openSocialLinks}
+                  className="text-[11px] font-medium text-accent transition-colors active:text-accent-hover"
+                >
+                  {contact.social_links && Object.keys(contact.social_links).length > 0
+                    ? "Изменить"
+                    : "+ Добавить"}
+                </button>
+              </div>
+              {contact.social_links && Object.keys(contact.social_links).length > 0 ? (
+                <div className="flex flex-wrap gap-1.5">
+                  {(Object.keys(SOCIAL_META) as (keyof typeof SOCIAL_META)[]).map(
+                    (k) => {
+                      const v = contact.social_links?.[k];
+                      if (!v) return null;
+                      const meta = SOCIAL_META[k];
+                      return (
+                        <span
+                          key={k}
+                          className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-xs font-medium ${meta.bg} ${meta.text}`}
+                        >
+                          <span className="opacity-80">{meta.label}:</span>
+                          <span>{meta.prefix}{v}</span>
+                        </span>
+                      );
+                    }
+                  )}
+                </div>
+              ) : (
+                <p className="text-xs italic text-neutral-600">не указаны</p>
+              )}
+            </div>
+
+            {/* Interests */}
+            {contact.key_interests.length > 0 && (
+              <div className="mt-4">
+                <p className="mb-2 text-[11px] font-medium uppercase tracking-widest text-neutral-500">
+                  Интересы
+                </p>
+                <div className="flex flex-wrap gap-1.5">
+                  {contact.key_interests.map((interest, i) => (
+                    <span
+                      key={i}
+                      className="rounded-full border border-accent/20 bg-accent/10 px-2.5 py-1 text-xs text-accent/90"
+                    >
+                      {interest}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
+          </Section>
+        </motion.div>
 
         {contact.what_impressed_me && (
-          <Section title="Что зацепило">
-            <p className="text-sm text-neutral-300">{contact.what_impressed_me}</p>
-          </Section>
+          <motion.div variants={fade}>
+            <Callout
+              accent="emerald"
+              title="Что зацепило"
+              icon="💡"
+              text={contact.what_impressed_me}
+            />
+          </motion.div>
         )}
 
         {contact.potential_synergies && (
-          <Section title="Потенциал">
-            <p className="text-sm text-neutral-300">{contact.potential_synergies}</p>
-          </Section>
+          <motion.div variants={fade}>
+            <Callout
+              accent="purple"
+              title="Потенциал"
+              icon="🚀"
+              text={contact.potential_synergies}
+            />
+          </motion.div>
         )}
 
         {/* Notes */}
-        <Section title="Заметки">
-          {contact.personality_notes && (
-            <p className="mb-3 text-sm italic text-neutral-400">
-              {contact.personality_notes}
-            </p>
-          )}
-          <textarea
-            value={personalNotes}
-            onChange={(e) => setPersonalNotes(e.target.value)}
-            onBlur={saveNotes}
-            placeholder="Личные заметки..."
-            rows={3}
-            className="w-full resize-none rounded-xl bg-neutral-800 px-3 py-2.5 text-sm text-white placeholder-neutral-500 outline-none ring-1 ring-neutral-700 focus:ring-accent"
-          />
-          {notesSaving && (
-            <p className="mt-1 text-xs text-neutral-500">Сохранение...</p>
-          )}
-        </Section>
+        <motion.div variants={fade}>
+          <Section title="Заметки" icon="✍️">
+            {contact.personality_notes && (
+              <div className="mb-3 rounded-xl border-l-2 border-accent/40 bg-white/[0.03] px-3 py-2 text-sm italic leading-relaxed text-neutral-300">
+                {contact.personality_notes}
+              </div>
+            )}
+            <textarea
+              value={personalNotes}
+              onChange={(e) => setPersonalNotes(e.target.value)}
+              onBlur={saveNotes}
+              placeholder="Личные заметки..."
+              rows={3}
+              className="w-full resize-none rounded-xl border border-white/5 bg-white/[0.03] px-3 py-2.5 text-sm text-white placeholder-neutral-500 outline-none transition-colors focus:border-accent/40"
+            />
+            {notesSaving && (
+              <p className="mt-1 text-xs text-neutral-500">Сохранение...</p>
+            )}
+          </Section>
+        </motion.div>
 
         {/* Interactions */}
         {contact.interactions.length > 0 && (
-          <Section title="История взаимодействий">
-            <div className="flex flex-col gap-2">
-              {contact.interactions.map((inter) => (
-                <div key={inter.id} className="rounded-xl bg-neutral-800 p-3">
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-medium text-accent">
-                      {TYPE_LABELS[inter.type] || inter.type}
-                    </span>
-                    <span className="text-[10px] text-neutral-500">
-                      {timeAgo(inter.created_at)}
-                    </span>
+          <motion.div variants={fade}>
+            <Section title="История" icon="🕐">
+              <div className="flex flex-col gap-2">
+                {contact.interactions.map((inter) => (
+                  <div
+                    key={inter.id}
+                    className="rounded-xl border border-white/5 bg-white/[0.03] p-3"
+                  >
+                    <div className="flex items-center justify-between">
+                      <span className="rounded-full bg-accent/15 px-2 py-0.5 text-[10px] font-semibold text-accent">
+                        {TYPE_LABELS[inter.type] || inter.type}
+                      </span>
+                      <span className="text-[10px] text-neutral-500">
+                        {timeAgo(inter.created_at)}
+                      </span>
+                    </div>
+                    {(inter.ai_summary || inter.content) && (
+                      <p className="mt-2 text-sm leading-relaxed text-neutral-300">
+                        {inter.ai_summary || inter.content}
+                      </p>
+                    )}
                   </div>
-                  {(inter.ai_summary || inter.content) && (
-                    <p className="mt-1 text-sm text-neutral-300">
-                      {inter.ai_summary || inter.content}
-                    </p>
-                  )}
-                </div>
-              ))}
-            </div>
-          </Section>
+                ))}
+              </div>
+            </Section>
+          </motion.div>
         )}
 
         {/* Danger zone */}
-        <Section title="Управление">
-          <div className="flex flex-col gap-2">
-            {contact.warmth_status !== "archived" ? (
-              <button
-                onClick={() => setShowDeleteConfirm(true)}
-                className="w-full rounded-xl bg-neutral-800 py-3 text-sm text-red-400 active:bg-neutral-700"
-              >
-                Архивировать контакт
-              </button>
-            ) : (
-              <button
-                onClick={() => setShowHardDelete(true)}
-                className="w-full rounded-xl bg-red-900/30 py-3 text-sm text-red-400 active:bg-red-900/50"
-              >
-                Удалить навсегда
-              </button>
-            )}
-          </div>
-        </Section>
-      </div>
+        <motion.div variants={fade}>
+          <Section title="Управление" icon="⚙️">
+            <div className="flex flex-col gap-2">
+              {contact.warmth_status !== "archived" ? (
+                <button
+                  onClick={() => setShowDeleteConfirm(true)}
+                  className="w-full rounded-xl border border-white/5 bg-white/[0.03] py-3 text-sm font-medium text-red-400 transition-colors active:bg-red-500/10"
+                >
+                  Архивировать контакт
+                </button>
+              ) : (
+                <button
+                  onClick={() => setShowHardDelete(true)}
+                  className="w-full rounded-xl border border-red-500/20 bg-red-500/10 py-3 text-sm font-medium text-red-400 transition-colors active:bg-red-500/20"
+                >
+                  Удалить навсегда
+                </button>
+              )}
+            </div>
+          </Section>
+        </motion.div>
+      </motion.div>
 
       {/* Floating actions */}
       <div className="fixed bottom-[76px] left-1/2 z-30 flex w-full max-w-[430px] -translate-x-1/2 gap-2 px-4 py-3">
         <button
           onClick={() => setShowRecorder(true)}
-          className="flex-1 rounded-xl bg-accent py-3 text-center text-sm font-medium text-white active:bg-accent-hover"
+          className="flex flex-1 items-center justify-center gap-1.5 rounded-xl bg-gradient-to-br from-accent to-[#4f46e5] py-3 text-sm font-semibold text-white shadow-lg shadow-accent/25 transition-transform active:scale-[0.97]"
         >
+          <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M12 18.75a6 6 0 0 0 6-6v-1.5m-6 7.5a6 6 0 0 1-6-6v-1.5m6 7.5v3.75m-3.75 0h7.5M12 15.75a3 3 0 0 1-3-3V4.5a3 3 0 1 1 6 0v8.25a3 3 0 0 1-3 3Z" />
+          </svg>
           Голосовое
         </button>
         <button
           onClick={() => setShowNoteInput(true)}
-          className="rounded-xl bg-card px-3 py-3 text-sm font-medium text-neutral-300 ring-1 ring-neutral-700 active:bg-neutral-800"
+          className="rounded-xl border border-white/5 bg-card px-3 py-3 text-sm font-medium text-neutral-300 transition-colors active:bg-card-hover"
         >
           Заметка
         </button>
         <button
           onClick={addMeeting}
           disabled={actionBusy}
-          className="rounded-xl bg-card px-3 py-3 text-sm font-medium text-neutral-300 ring-1 ring-neutral-700 active:bg-neutral-800 disabled:opacity-50"
+          className="rounded-xl border border-white/5 bg-card px-3 py-3 text-sm font-medium text-neutral-300 transition-colors active:bg-card-hover disabled:opacity-50"
         >
           Встреча
         </button>
         <button
           onClick={() => setShowStatusSheet(true)}
-          className="rounded-xl bg-card px-3 py-3 text-sm font-medium text-neutral-300 ring-1 ring-neutral-700 active:bg-neutral-800"
+          className="rounded-xl border border-white/5 bg-card px-3 py-3 text-sm font-medium text-neutral-300 transition-colors active:bg-card-hover"
         >
           Статус
         </button>
@@ -912,29 +1152,32 @@ export default function ContactProfile() {
 
       {/* Status bottom sheet */}
       {showStatusSheet && (
-        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/60" onClick={() => setShowStatusSheet(false)}>
+        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/70" onClick={() => setShowStatusSheet(false)}>
           <div
-            className="animate-slide-up w-full max-w-[430px] rounded-t-3xl bg-card px-6 pb-8 pt-6"
+            className="animate-slide-up w-full max-w-[430px] rounded-t-3xl border-t border-white/5 bg-card px-6 pb-8 pt-4"
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="mx-auto mb-4 h-1 w-10 rounded-full bg-neutral-600" />
+            <div className="mx-auto mb-5 h-1 w-10 rounded-full bg-neutral-700" />
             <h3 className="mb-4 text-lg font-semibold text-white">Изменить статус</h3>
             <div className="flex flex-col gap-2">
               {allowedTransitions.map((s) => (
                 <button
                   key={s}
                   onClick={() => updateStatus(s)}
-                  className="flex items-center gap-3 rounded-xl bg-neutral-800 px-4 py-3 text-left text-sm text-neutral-200 active:bg-neutral-700"
+                  className="flex items-center gap-3 rounded-xl border border-white/5 bg-white/[0.03] px-4 py-3 text-left text-sm text-neutral-200 transition-colors active:bg-white/[0.06]"
                 >
                   <div
-                    className="h-3 w-3 rounded-full"
-                    style={{ backgroundColor: getWarmthColor(s) }}
+                    className="h-2.5 w-2.5 rounded-full"
+                    style={{
+                      backgroundColor: getWarmthColor(s),
+                      boxShadow: `0 0 8px ${getWarmthColor(s)}`,
+                    }}
                   />
-                  {WARMTH_LABELS[s] || s}
+                  <span className="font-medium">{WARMTH_LABELS[s] || s}</span>
                 </button>
               ))}
               {allowedTransitions.length === 0 && (
-                <p className="text-center text-sm text-neutral-500">
+                <p className="py-4 text-center text-sm text-neutral-500">
                   Нет доступных переходов
                 </p>
               )}
@@ -947,10 +1190,10 @@ export default function ContactProfile() {
       {showNoteInput && (
         <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/60" onClick={() => setShowNoteInput(false)}>
           <div
-            className="animate-slide-up w-full max-w-[430px] rounded-t-3xl bg-card px-6 pb-8 pt-6"
+            className="animate-slide-up w-full max-w-[430px] rounded-t-3xl border-t border-white/5 bg-card px-6 pb-8 pt-4"
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="mx-auto mb-4 h-1 w-10 rounded-full bg-neutral-600" />
+            <div className="mx-auto mb-5 h-1 w-10 rounded-full bg-neutral-700" />
             <h3 className="mb-4 text-lg font-semibold text-white">Добавить заметку</h3>
             <textarea
               value={noteText}
@@ -958,12 +1201,12 @@ export default function ContactProfile() {
               placeholder="Что произошло?"
               rows={4}
               autoFocus
-              className="mb-3 w-full resize-none rounded-xl bg-neutral-800 px-4 py-3 text-sm text-white placeholder-neutral-500 outline-none ring-1 ring-neutral-700 focus:ring-accent"
+              className="mb-3 w-full resize-none rounded-xl border border-white/5 bg-white/[0.03] px-4 py-3 text-sm text-white placeholder-neutral-500 outline-none transition-colors focus:border-accent/40"
             />
             <button
               onClick={addNote}
               disabled={!noteText.trim()}
-              className="w-full rounded-xl bg-accent py-3 text-sm font-medium text-white active:bg-accent-hover disabled:opacity-50"
+              className="w-full rounded-xl bg-gradient-to-br from-accent to-[#4f46e5] py-3 text-sm font-semibold text-white shadow-lg shadow-accent/20 transition-transform active:scale-[0.98] disabled:opacity-50 disabled:shadow-none"
             >
               Сохранить
             </button>
@@ -975,10 +1218,10 @@ export default function ContactProfile() {
       {showCreateFu && (
         <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/60" onClick={() => setShowCreateFu(false)}>
           <div
-            className="animate-slide-up w-full max-w-[430px] rounded-t-3xl bg-card px-6 pb-8 pt-6"
+            className="animate-slide-up w-full max-w-[430px] rounded-t-3xl border-t border-white/5 bg-card px-6 pb-8 pt-4"
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="mx-auto mb-4 h-1 w-10 rounded-full bg-neutral-600" />
+            <div className="mx-auto mb-5 h-1 w-10 rounded-full bg-neutral-700" />
             <h3 className="mb-4 text-lg font-semibold text-white">Новый follow-up</h3>
             <textarea
               value={fuText}
@@ -986,18 +1229,18 @@ export default function ContactProfile() {
               placeholder="Что нужно сделать?"
               rows={3}
               autoFocus
-              className="mb-3 w-full resize-none rounded-xl bg-neutral-800 px-4 py-3 text-sm text-white placeholder-neutral-500 outline-none ring-1 ring-neutral-700 focus:ring-accent"
+              className="mb-3 w-full resize-none rounded-xl border border-white/5 bg-white/[0.03] px-4 py-3 text-sm text-white placeholder-neutral-500 outline-none transition-colors focus:border-accent/40"
             />
             <input
               type="date"
               value={fuDate}
               onChange={(e) => setFuDate(e.target.value)}
-              className="mb-3 w-full rounded-xl bg-neutral-800 px-4 py-3 text-sm text-white outline-none ring-1 ring-neutral-700 focus:ring-accent"
+              className="mb-3 w-full rounded-xl border border-white/5 bg-white/[0.03] px-4 py-3 text-sm text-white outline-none transition-colors focus:border-accent/40"
             />
             <button
               onClick={createFollowUp}
               disabled={!fuText.trim() || !fuDate}
-              className="w-full rounded-xl bg-accent py-3 text-sm font-medium text-white active:bg-accent-hover disabled:opacity-50"
+              className="w-full rounded-xl bg-gradient-to-br from-accent to-[#4f46e5] py-3 text-sm font-semibold text-white shadow-lg shadow-accent/20 transition-transform active:scale-[0.98] disabled:opacity-50 disabled:shadow-none"
             >
               Создать
             </button>
@@ -1009,7 +1252,7 @@ export default function ContactProfile() {
       {showDeleteConfirm && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60" onClick={() => setShowDeleteConfirm(false)}>
           <div
-            className="animate-fade-in mx-6 w-full max-w-sm rounded-2xl bg-card p-6"
+            className="animate-fade-in mx-6 w-full max-w-sm rounded-2xl border border-white/10 bg-card p-6 shadow-2xl"
             onClick={(e) => e.stopPropagation()}
           >
             <h3 className="mb-2 text-lg font-semibold text-white">
@@ -1021,7 +1264,7 @@ export default function ContactProfile() {
             <div className="flex gap-3">
               <button
                 onClick={() => setShowDeleteConfirm(false)}
-                className="flex-1 rounded-xl bg-neutral-700 py-3 text-sm font-medium text-white active:bg-neutral-600"
+                className="flex-1 rounded-xl border border-white/10 bg-white/5 py-3 text-sm font-medium text-white transition-colors active:bg-white/10"
               >
                 Отмена
               </button>
@@ -1040,7 +1283,7 @@ export default function ContactProfile() {
       {showHardDelete && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60" onClick={() => setShowHardDelete(false)}>
           <div
-            className="animate-fade-in mx-6 w-full max-w-sm rounded-2xl bg-card p-6"
+            className="animate-fade-in mx-6 w-full max-w-sm rounded-2xl border border-white/10 bg-card p-6 shadow-2xl"
             onClick={(e) => e.stopPropagation()}
           >
             <h3 className="mb-2 text-lg font-semibold text-red-400">
@@ -1052,7 +1295,7 @@ export default function ContactProfile() {
             <div className="flex gap-3">
               <button
                 onClick={() => setShowHardDelete(false)}
-                className="flex-1 rounded-xl bg-neutral-700 py-3 text-sm font-medium text-white active:bg-neutral-600"
+                className="flex-1 rounded-xl border border-white/10 bg-white/5 py-3 text-sm font-medium text-white transition-colors active:bg-white/10"
               >
                 Отмена
               </button>
@@ -1071,10 +1314,10 @@ export default function ContactProfile() {
       {showSocialLinks && (
         <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/60" onClick={() => setShowSocialLinks(false)}>
           <div
-            className="animate-slide-up w-full max-w-[430px] rounded-t-3xl bg-card px-6 pb-8 pt-6"
+            className="animate-slide-up w-full max-w-[430px] rounded-t-3xl border-t border-white/5 bg-card px-6 pb-8 pt-4"
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="mx-auto mb-4 h-1 w-10 rounded-full bg-neutral-600" />
+            <div className="mx-auto mb-5 h-1 w-10 rounded-full bg-neutral-700" />
             <h3 className="mb-4 text-lg font-semibold text-white">Соцсети</h3>
             <div className="flex flex-col gap-3">
               <input
@@ -1082,26 +1325,26 @@ export default function ContactProfile() {
                 placeholder="Telegram (username)"
                 value={slTelegram}
                 onChange={(e) => setSlTelegram(e.target.value)}
-                className="w-full rounded-xl bg-neutral-800 px-4 py-3 text-sm text-white placeholder-neutral-500 outline-none ring-1 ring-neutral-700 focus:ring-accent"
+                className="w-full rounded-xl border border-white/5 bg-white/[0.03] px-4 py-3 text-sm text-white placeholder-neutral-500 outline-none transition-colors focus:border-accent/40"
               />
               <input
                 type="text"
                 placeholder="LinkedIn (URL или username)"
                 value={slLinkedin}
                 onChange={(e) => setSlLinkedin(e.target.value)}
-                className="w-full rounded-xl bg-neutral-800 px-4 py-3 text-sm text-white placeholder-neutral-500 outline-none ring-1 ring-neutral-700 focus:ring-accent"
+                className="w-full rounded-xl border border-white/5 bg-white/[0.03] px-4 py-3 text-sm text-white placeholder-neutral-500 outline-none transition-colors focus:border-accent/40"
               />
               <input
                 type="text"
                 placeholder="Instagram (username)"
                 value={slInstagram}
                 onChange={(e) => setSlInstagram(e.target.value)}
-                className="w-full rounded-xl bg-neutral-800 px-4 py-3 text-sm text-white placeholder-neutral-500 outline-none ring-1 ring-neutral-700 focus:ring-accent"
+                className="w-full rounded-xl border border-white/5 bg-white/[0.03] px-4 py-3 text-sm text-white placeholder-neutral-500 outline-none transition-colors focus:border-accent/40"
               />
               <button
                 onClick={saveSocialLinks}
                 disabled={slSaving}
-                className="w-full rounded-xl bg-accent py-3 text-sm font-medium text-white active:bg-accent-hover disabled:opacity-50"
+                className="w-full rounded-xl bg-gradient-to-br from-accent to-[#4f46e5] py-3 text-sm font-semibold text-white shadow-lg shadow-accent/20 transition-transform active:scale-[0.98] disabled:opacity-50 disabled:shadow-none"
               >
                 {slSaving ? "Сохранение..." : "Сохранить"}
               </button>
@@ -1125,26 +1368,96 @@ export default function ContactProfile() {
 
 function Section({
   title,
+  icon,
   children,
 }: {
   title: string;
+  icon?: string;
   children: React.ReactNode;
 }) {
   return (
-    <section className="rounded-2xl bg-card p-4">
-      <h3 className="mb-3 text-xs font-semibold uppercase tracking-wide text-neutral-500">
-        {title}
-      </h3>
+    <section className="rounded-2xl border border-white/5 bg-card p-4">
+      <div className="mb-3 flex items-center gap-2">
+        {icon && (
+          <span className="flex h-5 w-5 items-center justify-center rounded-md bg-white/5 text-[11px] leading-none">
+            {icon}
+          </span>
+        )}
+        <h3 className="text-[11px] font-semibold uppercase tracking-widest text-neutral-500">
+          {title}
+        </h3>
+      </div>
       {children}
     </section>
   );
 }
 
-function Detail({ label, value }: { label: string; value: string }) {
+function DetailRow({
+  label,
+  value,
+}: {
+  label: string;
+  value: React.ReactNode;
+}) {
   return (
-    <div className="mb-2 last:mb-0">
-      <p className="text-xs text-neutral-500">{label}</p>
-      <p className="text-sm text-neutral-200">{value}</p>
+    <div className="flex items-center justify-between gap-3 py-2 first:pt-0 last:pb-0">
+      <span className="text-xs text-neutral-500">{label}</span>
+      <span className="truncate text-right text-sm text-neutral-200">
+        {value}
+      </span>
+    </div>
+  );
+}
+
+function Callout({
+  accent,
+  title,
+  icon,
+  text,
+}: {
+  accent: "emerald" | "purple";
+  title: string;
+  icon: string;
+  text: string;
+}) {
+  const styles =
+    accent === "emerald"
+      ? {
+          border: "border-emerald-500/25",
+          bg: "from-emerald-500/10 via-emerald-500/5 to-transparent",
+          glow: "bg-emerald-500/10",
+          iconBg: "bg-emerald-500/20",
+          label: "text-emerald-400",
+        }
+      : {
+          border: "border-purple-500/25",
+          bg: "from-purple-500/10 via-purple-500/5 to-transparent",
+          glow: "bg-purple-500/10",
+          iconBg: "bg-purple-500/20",
+          label: "text-purple-300",
+        };
+  return (
+    <div
+      className={`relative overflow-hidden rounded-2xl border ${styles.border} bg-gradient-to-br ${styles.bg} p-4`}
+    >
+      <div
+        className={`pointer-events-none absolute -right-10 -top-10 h-32 w-32 rounded-full blur-3xl ${styles.glow}`}
+      />
+      <div className="relative flex items-start gap-2.5">
+        <div
+          className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-sm ${styles.iconBg}`}
+        >
+          {icon}
+        </div>
+        <div className="min-w-0 flex-1">
+          <p
+            className={`mb-1 text-[10px] font-semibold uppercase tracking-widest ${styles.label}`}
+          >
+            {title}
+          </p>
+          <p className="text-sm leading-relaxed text-neutral-200">{text}</p>
+        </div>
+      </div>
     </div>
   );
 }
