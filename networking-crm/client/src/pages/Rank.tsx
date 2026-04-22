@@ -223,20 +223,24 @@ export default function RankPage() {
           Шесть рукопожатий
         </h3>
         <div className="rounded-2xl border border-white/5 bg-card p-4">
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-3 gap-2">
             <div className="rounded-xl bg-white/5 p-3 text-center">
-              <p className="text-2xl font-bold text-white">
+              <p className="text-xl font-bold text-white">
                 {data.handshake_world.countries}
               </p>
-              <p className="mt-0.5 text-[11px] text-neutral-500">
-                стран в сети
-              </p>
+              <p className="mt-0.5 text-[10px] text-neutral-500">стран</p>
             </div>
             <div className="rounded-xl bg-white/5 p-3 text-center">
-              <p className="text-2xl font-bold text-white">
+              <p className="text-xl font-bold text-white">
                 {data.handshake_world.continents}/6
               </p>
-              <p className="mt-0.5 text-[11px] text-neutral-500">континентов</p>
+              <p className="mt-0.5 text-[10px] text-neutral-500">континентов</p>
+            </div>
+            <div className="rounded-xl bg-white/5 p-3 text-center">
+              <p className="text-xl font-bold text-white">
+                {data.handshake_world.cities}
+              </p>
+              <p className="mt-0.5 text-[10px] text-neutral-500">городов</p>
             </div>
           </div>
 
@@ -272,6 +276,65 @@ export default function RankPage() {
                   {CONTINENT_LABEL[c] ?? c}
                 </span>
               ))}
+            </div>
+          )}
+
+          {data.handshake_world.top_cities.length > 0 && (
+            <div className="mt-4">
+              <p className="mb-2 text-[11px] uppercase tracking-widest text-neutral-500">
+                Города
+              </p>
+              <div className="flex flex-wrap gap-1.5">
+                {data.handshake_world.top_cities.map((c) => (
+                  <span
+                    key={c.name}
+                    className="inline-flex items-center gap-1 rounded-full bg-white/5 px-2 py-1 text-[11px] text-neutral-300"
+                  >
+                    {c.name}
+                    {c.count > 1 && (
+                      <span className="text-neutral-500">·{c.count}</span>
+                    )}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {data.handshake_world.top_categories.length > 0 && (
+            <div className="mt-3">
+              <p className="mb-2 text-[11px] uppercase tracking-widest text-neutral-500">
+                Касты
+              </p>
+              <div className="flex flex-wrap gap-1.5">
+                {data.handshake_world.top_categories.map((c) => (
+                  <span
+                    key={c.id}
+                    className="inline-flex items-center gap-1 rounded-full bg-purple-500/10 px-2 py-0.5 text-[11px] text-purple-300"
+                  >
+                    {c.label}
+                    <span className="text-purple-400/70">·{c.count}</span>
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {data.handshake_world.top_industries.length > 0 && (
+            <div className="mt-3">
+              <p className="mb-2 text-[11px] uppercase tracking-widest text-neutral-500">
+                Индустрии
+              </p>
+              <div className="flex flex-wrap gap-1.5">
+                {data.handshake_world.top_industries.map((i) => (
+                  <span
+                    key={i.id}
+                    className="inline-flex items-center gap-1 rounded-full bg-emerald-500/10 px-2 py-0.5 text-[11px] text-emerald-300"
+                  >
+                    {i.label}
+                    <span className="text-emerald-400/70">·{i.count}</span>
+                  </span>
+                ))}
+              </div>
             </div>
           )}
         </div>

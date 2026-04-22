@@ -26,8 +26,12 @@ export interface RankCategory {
 export interface HandshakeWorld {
   countries: number;
   continents: number;
+  cities: number;
   country_codes: string[];
   continent_codes: string[];
+  top_cities: { name: string; count: number }[];
+  top_categories: { id: string; label: string; count: number }[];
+  top_industries: { id: string; label: string; count: number }[];
 }
 
 export interface RankPayload {
@@ -44,6 +48,11 @@ export interface RankPayload {
     streak_days: number;
     warm_or_close_contacts: number;
     avg_warmth: number;
+    unique_countries: number;
+    unique_continents: number;
+    unique_cities: number;
+    unique_castes: number;
+    unique_industries: number;
   };
 }
 

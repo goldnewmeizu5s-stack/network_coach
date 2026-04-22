@@ -3,21 +3,31 @@ import { config } from "../config";
 import prisma from "../lib/prisma";
 import { ExtractedContact, MultiExtractionResult, FollowUpSuggestion, BatchActivityResult, ActivitySegment } from "../types";
 import { logger } from "../lib/logger";
+import { normalizeCountry, normalizeCountryKeepRaw } from "../lib/country-normalize";
 
-async function loadNavigatorPrompt(): Promise<string> {
+async function loadUserContextForExtraction(): Promise<string> {
   try {
     const user = await prisma.user.findFirst();
-    const prefs = (user?.preferences as Record<string, unknown>) || {};
+    if (!user) return "";
+    const prefs = (user.preferences as Record<string, unknown>) || {};
     const navigatorPrompt = prefs.navigator_prompt as string | undefined;
-    return navigatorPrompt ? `--- USER CONTEXT ---\n${navigatorPrompt}` : "";
+    const parts: string[] = [];
+    if (user.current_country) {
+      const iso = normalizeCountry(user.current_country) || user.current_country;
+      parts.push(
+        `The user is currently in ${iso}. When the transcript does not specify where a meeting happened, default met_country to ${iso}.`,
+      );
+    }
+    if (navigatorPrompt) parts.push(`--- USER CONTEXT ---\n${navigatorPrompt}`);
+    return parts.join("\n\n");
   } catch {
     return "";
   }
 }
 
-function buildExtractionTail(navigatorPrompt: string): string {
+function buildExtractionTail(userContext: string): string {
   const todayStr = new Date().toISOString().slice(0, 10);
-  return [`Today is ${todayStr}.`, navigatorPrompt].filter(Boolean).join("\n\n");
+  return [`Today is ${todayStr}.`, userContext].filter(Boolean).join("\n\n");
 }
 
 const SYSTEM_PROMPT = `You are analyzing a voice note or text message where the user describes someone they just met or wants to update information about an existing contact.
@@ -103,8 +113,8 @@ export async function extractContactData(
   const maxRetries = 2;
   const backoff = [2000, 6000];
 
-  const navigatorPrompt = await loadNavigatorPrompt();
-  const system = cachedSystem(SYSTEM_PROMPT, buildExtractionTail(navigatorPrompt));
+  const userContext = await loadUserContextForExtraction();
+  const system = cachedSystem(SYSTEM_PROMPT, buildExtractionTail(userContext));
 
   for (let attempt = 0; attempt < maxRetries; attempt++) {
     try {
@@ -134,9 +144,9 @@ export async function extractContactData(
         occupation: parsed.occupation ?? null,
         company: parsed.company ?? null,
         city: parsed.city ?? null,
-        country: parsed.country ?? null,
-        met_country: parsed.met_country ?? null,
-        origin_country: parsed.origin_country ?? null,
+        country: normalizeCountryKeepRaw(parsed.country),
+        met_country: normalizeCountry(parsed.met_country),
+        origin_country: normalizeCountry(parsed.origin_country),
         key_interests: Array.isArray(parsed.key_interests)
           ? parsed.key_interests
           : [],
@@ -261,8 +271,8 @@ export async function extractMultipleContacts(
   const maxRetries = 2;
   const backoff = [2000, 6000];
 
-  const navigatorPrompt = await loadNavigatorPrompt();
-  const system = cachedSystem(MULTI_PERSON_PROMPT, buildExtractionTail(navigatorPrompt));
+  const userContext = await loadUserContextForExtraction();
+  const system = cachedSystem(MULTI_PERSON_PROMPT, buildExtractionTail(userContext));
 
   for (let attempt = 0; attempt < maxRetries; attempt++) {
     try {
@@ -295,9 +305,9 @@ export async function extractMultipleContacts(
           occupation: (p.occupation as string) ?? null,
           company: (p.company as string) ?? null,
           city: (p.city as string) ?? null,
-          country: (p.country as string) ?? null,
-          met_country: (p.met_country as string) ?? null,
-          origin_country: (p.origin_country as string) ?? null,
+          country: normalizeCountryKeepRaw(p.country),
+          met_country: normalizeCountry(p.met_country),
+          origin_country: normalizeCountry(p.origin_country),
           key_interests: Array.isArray(p.key_interests) ? p.key_interests : [],
           what_impressed_me: (p.what_impressed_me as string) ?? null,
           potential_synergies: (p.potential_synergies as string) ?? null,
@@ -449,11 +459,11 @@ export async function extractBatchActivity(
     )
     .join("\n");
 
-  const navigatorPrompt = await loadNavigatorPrompt();
+  const userContext = await loadUserContextForExtraction();
   const tail = [
     `Today is ${todayStr}.`,
     `EXISTING CONTACTS:\n${contactsList || "(no existing contacts)"}`,
-    navigatorPrompt,
+    userContext,
   ]
     .filter(Boolean)
     .join("\n\n");
@@ -572,9 +582,9 @@ function normalizeContactData(
     occupation: (p.occupation as string) ?? null,
     company: (p.company as string) ?? null,
     city: (p.city as string) ?? null,
-    country: (p.country as string) ?? null,
-    met_country: (p.met_country as string) ?? null,
-    origin_country: (p.origin_country as string) ?? null,
+    country: normalizeCountryKeepRaw(p.country),
+    met_country: normalizeCountry(p.met_country),
+    origin_country: normalizeCountry(p.origin_country),
     key_interests: Array.isArray(p.key_interests) ? p.key_interests : [],
     what_impressed_me: (p.what_impressed_me as string) ?? null,
     potential_synergies: (p.potential_synergies as string) ?? null,

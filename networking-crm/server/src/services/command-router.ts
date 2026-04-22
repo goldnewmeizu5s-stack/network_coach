@@ -2,6 +2,7 @@ import prisma from "../lib/prisma";
 import { anthropic } from "../lib/ai";
 import { config } from "../config";
 import { logger } from "../lib/logger";
+import { normalizeCountry, normalizeCountryKeepRaw } from "../lib/country-normalize";
 import { buildChatContext, buildContactContext } from "./context-builder";
 import {
   recalcAndAutoStatus,
@@ -305,7 +306,18 @@ const TOOLS: Anthropic.Tool[] = [
         },
         country: {
           type: "string",
-          description: "Country (optional)",
+          description:
+            "Country where the contact currently lives (optional). Prefer ISO 3166-1 alpha-2 codes like 'RU', 'AE', 'US'.",
+        },
+        met_country: {
+          type: "string",
+          description:
+            "ISO 3166-1 alpha-2 code of the country where the user met this contact (optional). E.g. 'AE' for Dubai, 'RU' for Russia.",
+        },
+        origin_country: {
+          type: "string",
+          description:
+            "ISO 3166-1 alpha-2 code of the contact's origin / nationality (optional). E.g. 'UA' for Ukrainian.",
         },
         where_met: {
           type: "string",
@@ -946,7 +958,9 @@ async function executeTool(
             occupation: (input.occupation as string) || null,
             company: (input.company as string) || null,
             city: (input.city as string) || null,
-            country: (input.country as string) || null,
+            country: normalizeCountryKeepRaw(input.country),
+            met_country: normalizeCountry(input.met_country),
+            origin_country: normalizeCountry(input.origin_country),
             where_met: (input.where_met as string) || null,
             key_interests: (input.key_interests as string[]) || [],
             what_impressed_me: (input.what_impressed_me as string) || null,
@@ -980,7 +994,13 @@ async function executeTool(
         const updateData: Record<string, unknown> = {};
         for (const field of editableFields) {
           if (input[field] !== undefined) {
-            updateData[field] = input[field] as string;
+            if (field === "met_country" || field === "origin_country") {
+              updateData[field] = normalizeCountry(input[field]);
+            } else if (field === "country") {
+              updateData[field] = normalizeCountryKeepRaw(input[field]);
+            } else {
+              updateData[field] = input[field] as string;
+            }
           }
         }
         if (input.key_interests !== undefined) {
