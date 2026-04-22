@@ -1,4 +1,4 @@
-const CACHE_NAME = "netcrm-v4";
+const CACHE_NAME = "netcrm-v5";
 const STATIC_ASSETS = ["/manifest.json", "/icon-192.svg", "/icon-512.svg"];
 
 // Install: cache only truly static assets (icons, manifest)
@@ -20,6 +20,20 @@ self.addEventListener("activate", (event) => {
   );
   self.clients.claim();
 });
+
+// Returns true when the URL path looks like a JS/CSS asset that
+// must never be served as HTML (SPA-fallback poisoning guard).
+function isScriptLike(pathname) {
+  return /\.(js|mjs|css|map)$/.test(pathname);
+}
+
+// True when response body looks like index.html instead of the
+// expected JS/CSS — happens when the server's SPA fallback returns
+// the shell for a stale chunk URL.
+function isHtmlResponse(response) {
+  const type = response.headers.get("content-type") || "";
+  return type.includes("text/html");
+}
 
 // Fetch strategy
 self.addEventListener("fetch", (event) => {
@@ -69,10 +83,10 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 
-  // Hashed assets (JS/CSS from Vite): cache-first (safe — hash changes on rebuild)
-  // Icons/SVGs/manifest: cache-first
+  // Hashed assets (JS/CSS from Vite) and static media: cache-first, but
+  // NEVER cache an HTML body for a script-like URL (SPA-fallback poison).
   if (
-    url.pathname.match(/\.[a-f0-9]{8,}\.(js|css)$/) ||
+    url.pathname.match(/\.[a-zA-Z0-9]{8,}\.(js|css)$/) ||
     url.pathname.endsWith(".svg") ||
     url.pathname.endsWith(".png") ||
     url.pathname.endsWith(".ico") ||
@@ -83,7 +97,10 @@ self.addEventListener("fetch", (event) => {
         (cached) =>
           cached ||
           fetch(event.request).then((response) => {
-            if (response.ok) {
+            if (
+              response.ok &&
+              !(isScriptLike(url.pathname) && isHtmlResponse(response))
+            ) {
               const clone = response.clone();
               caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone));
             }
@@ -94,11 +111,14 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 
-  // Everything else: network-first with cache fallback
+  // Everything else: network-first with cache fallback.
   event.respondWith(
     fetch(event.request)
       .then((response) => {
-        if (response.ok) {
+        if (
+          response.ok &&
+          !(isScriptLike(url.pathname) && isHtmlResponse(response))
+        ) {
           const clone = response.clone();
           caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone));
         }

@@ -169,8 +169,30 @@ app.post(
 // Serve static files + SPA fallback
 if (config.isProd) {
   const clientDist = path.join(__dirname, "../../client/dist");
-  app.use(express.static(clientDist, { maxAge: "7d" }));
+  app.use(
+    express.static(clientDist, {
+      maxAge: "7d",
+      setHeaders: (res, filePath) => {
+        // Never cache the shell: it references current hashed chunk URLs.
+        if (filePath.endsWith("index.html")) {
+          res.setHeader("Cache-Control", "no-cache");
+        }
+      },
+    }),
+  );
+
+  // Missing static assets must return 404, not the SPA shell. Serving
+  // index.html for a stale /assets/*.js request poisons browser & SW
+  // caches with HTML in place of JavaScript, which breaks lazy imports.
+  app.get(
+    /\.(js|css|map|svg|png|ico|json|woff2?|ttf|eot)$/,
+    (_req, res) => {
+      res.status(404).end();
+    },
+  );
+
   app.get("*", (_req, res) => {
+    res.setHeader("Cache-Control", "no-cache");
     res.sendFile(path.join(clientDist, "index.html"));
   });
 }
