@@ -3,7 +3,12 @@ import { useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
 import RankBadge from "../components/RankBadge";
 import { api } from "../lib/api";
-import { RankDef, RankPayload } from "../lib/rank";
+import {
+  NetworkReach,
+  NetworkReachCluster,
+  RankDef,
+  RankPayload,
+} from "../lib/rank";
 import { countryCodeToFlag, getCountryName } from "../lib/countries";
 
 const CONTINENT_LABEL: Record<string, string> = {
@@ -340,6 +345,14 @@ export default function RankPage() {
         </div>
       </motion.section>
 
+      {/* ── Network reach (small-world model) ── */}
+      <motion.section variants={item}>
+        <h3 className="mb-3 text-xs font-semibold uppercase tracking-widest text-neutral-500">
+          Потенциал сети
+        </h3>
+        <NetworkReachCard reach={data.network_reach} />
+      </motion.section>
+
       {/* ── Totals ── */}
       <motion.section variants={item}>
         <h3 className="mb-3 text-xs font-semibold uppercase tracking-widest text-neutral-500">
@@ -423,5 +436,362 @@ export default function RankPage() {
         </div>
       </motion.section>
     </motion.div>
+  );
+}
+
+// ── Network reach (Six-degrees calculator) ──────────────────────
+// Visualises a small-world projection of the user's network:
+// direct contacts → degrees 2..6, plus per-caste / per-industry
+// clusters with homophily affinity. Pure presentational component —
+// all numbers come from the server `computeNetworkReach`.
+
+function formatCount(n: number): string {
+  if (n < 1000) return n.toLocaleString("ru-RU");
+  if (n < 10_000) return (n / 1000).toFixed(1).replace(/\.0$/, "") + "K";
+  if (n < 1_000_000) return Math.round(n / 1000) + "K";
+  if (n < 10_000_000) return (n / 1_000_000).toFixed(1).replace(/\.0$/, "") + "M";
+  if (n < 1_000_000_000) return Math.round(n / 1_000_000) + "M";
+  return (n / 1_000_000_000).toFixed(1).replace(/\.0$/, "") + "B";
+}
+
+const DEGREE_LABEL: Record<number, string> = {
+  1: "Прямые контакты",
+  2: "Через 1 рукопожатие",
+  3: "Через 2 рукопожатия",
+  4: "Через 3 рукопожатия",
+  5: "Через 4 рукопожатия",
+  6: "Через 5 рукопожатий",
+};
+
+const CLUSTER_COLORS = [
+  "#6366f1", // indigo / accent
+  "#ec4899", // pink
+  "#22c55e", // green
+  "#f59e0b", // amber
+  "#06b6d4", // cyan
+  "#a855f7", // purple
+  "#ef4444", // red
+  "#14b8a6", // teal
+  "#eab308", // yellow
+  "#f97316", // orange
+  "#84cc16", // lime
+  "#8b5cf6", // violet
+];
+
+function colorForIndex(i: number): string {
+  return CLUSTER_COLORS[i % CLUSTER_COLORS.length];
+}
+
+function NetworkReachCard({ reach }: { reach: NetworkReach }) {
+  const { model, degrees, clusters, summary } = reach;
+  const castes = clusters.filter((c) => c.type === "caste");
+  const industries = clusters.filter((c) => c.type === "industry");
+
+  const hasContacts = summary.direct > 0;
+  const maxDegreeCount = Math.max(1, ...degrees.map((d) => d.count));
+  // log-scaled bar width so degree 6 is visible next to degree 1
+  const barPct = (n: number): number => {
+    if (n <= 0) return 0;
+    const ratio = Math.log10(1 + n) / Math.log10(1 + maxDegreeCount);
+    return Math.max(2, Math.min(100, ratio * 100));
+  };
+
+  return (
+    <div className="rounded-2xl border border-white/5 bg-card p-4">
+      {/* Summary tiles */}
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+        <div className="rounded-xl bg-white/5 p-3">
+          <p className="text-lg font-bold text-white">
+            {formatCount(summary.direct)}
+          </p>
+          <p className="mt-0.5 text-[10px] uppercase tracking-wider text-neutral-500">
+            Прямые
+          </p>
+        </div>
+        <div className="rounded-xl bg-accent/10 p-3 ring-1 ring-accent/20">
+          <p className="text-lg font-bold text-accent">
+            {formatCount(summary.potential_d2)}
+          </p>
+          <p className="mt-0.5 text-[10px] uppercase tracking-wider text-accent/70">
+            2° потенциал
+          </p>
+        </div>
+        <div className="rounded-xl bg-purple-500/10 p-3 ring-1 ring-purple-500/20">
+          <p className="text-lg font-bold text-purple-300">
+            {formatCount(summary.potential_d3)}
+          </p>
+          <p className="mt-0.5 text-[10px] uppercase tracking-wider text-purple-300/70">
+            3° потенциал
+          </p>
+        </div>
+        <div className="rounded-xl bg-yellow-500/10 p-3 ring-1 ring-yellow-500/20">
+          <p className="text-lg font-bold text-yellow-300">
+            {formatCount(summary.potential_d6_cumulative)}
+          </p>
+          <p className="mt-0.5 text-[10px] uppercase tracking-wider text-yellow-300/70">
+            6° всего
+          </p>
+        </div>
+      </div>
+
+      {!hasContacts && (
+        <p className="mt-4 rounded-xl bg-white/5 p-3 text-center text-xs text-neutral-400">
+          Добавь первые контакты — и здесь появится проекция твоей сети на 6 уровней глубины.
+        </p>
+      )}
+
+      {/* Degrees funnel */}
+      {hasContacts && (
+        <div className="mt-5">
+          <p className="mb-2 text-[11px] uppercase tracking-widest text-neutral-500">
+            Воронка рукопожатий
+          </p>
+          <div className="flex flex-col gap-1.5">
+            {degrees.map((d) => {
+              const pct = barPct(d.count);
+              const isCurrent = d.degree === 1;
+              return (
+                <div key={d.degree} className="flex items-center gap-2">
+                  <div
+                    className={`w-6 shrink-0 text-center text-[11px] font-semibold ${
+                      isCurrent ? "text-accent" : "text-neutral-500"
+                    }`}
+                  >
+                    {d.degree}°
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2">
+                      <div className="relative h-5 flex-1 overflow-hidden rounded-md bg-white/5">
+                        <motion.div
+                          className={`h-full rounded-md ${
+                            isCurrent
+                              ? "bg-gradient-to-r from-accent to-yellow-400"
+                              : "bg-gradient-to-r from-accent/40 to-purple-400/40"
+                          }`}
+                          initial={{ width: 0 }}
+                          animate={{ width: `${pct}%` }}
+                          transition={{
+                            duration: 0.7,
+                            delay: d.degree * 0.05,
+                            ease: "easeOut",
+                          }}
+                        />
+                        {d.capped && (
+                          <span className="absolute right-1.5 top-1/2 -translate-y-1/2 text-[9px] text-yellow-300">
+                            cap
+                          </span>
+                        )}
+                      </div>
+                      <div className="w-14 shrink-0 text-right text-[12px] font-semibold text-white">
+                        {formatCount(d.count)}
+                      </div>
+                    </div>
+                    <p className="mt-0.5 text-[10px] text-neutral-500">
+                      {DEGREE_LABEL[d.degree]}
+                    </p>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* Formula */}
+      <details className="group mt-5 rounded-xl bg-white/5 p-3">
+        <summary className="flex cursor-pointer items-center justify-between text-[11px] uppercase tracking-widest text-neutral-400 [&::-webkit-details-marker]:hidden">
+          <span>Математика</span>
+          <span className="text-neutral-600 transition-transform group-open:rotate-180">
+            ▾
+          </span>
+        </summary>
+        <div className="mt-3 space-y-2 text-[11px] leading-relaxed text-neutral-400">
+          <p className="rounded-lg bg-black/30 px-2 py-1.5 font-mono text-[11px] text-neutral-300">
+            R(d) = N · (k · (1 − C))^(d − 1)
+          </p>
+          <ul className="ml-4 list-disc space-y-0.5">
+            <li>
+              <span className="text-neutral-300">N = {summary.direct}</span> — прямые контакты
+            </li>
+            <li>
+              <span className="text-neutral-300">k = {model.dunbar_k}</span> — число Данбара (связей на человека)
+            </li>
+            <li>
+              <span className="text-neutral-300">C = {model.clustering_c}</span> — коэф. кластеризации (Уоттс-Строгатц)
+            </li>
+            <li>
+              <span className="text-neutral-300">
+                k · (1 − C) ≈ {model.new_per_hop}
+              </span>{" "}
+              — уникальных на каждом следующем уровне
+            </li>
+            <li>
+              Кастовая проекция: R<sub>касты</sub>(d) = R(d) · доля, с гомофильной премией до{" "}
+              {Math.round(model.homophily_factor * 100)}% (McPherson).
+            </li>
+            <li>Крышка: население Земли ≈ {formatCount(model.reach_cap)}.</li>
+          </ul>
+        </div>
+      </details>
+
+      {/* Clusters */}
+      {hasContacts && (castes.length > 0 || industries.length > 0) && (
+        <div className="mt-5 space-y-4">
+          {castes.length > 0 && (
+            <ClusterBlock
+              title="Касты (роли)"
+              tint="purple"
+              clusters={castes}
+            />
+          )}
+          {industries.length > 0 && (
+            <ClusterBlock
+              title="Индустрии"
+              tint="emerald"
+              clusters={industries}
+            />
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ClusterBlock({
+  title,
+  clusters,
+  tint,
+}: {
+  title: string;
+  clusters: NetworkReachCluster[];
+  tint: "purple" | "emerald";
+}) {
+  if (clusters.length === 0) return null;
+  const maxDirect = Math.max(1, ...clusters.map((c) => c.direct));
+
+  // Bubble packing in a fixed-width SVG; each bubble area ≈ direct count.
+  const width = 360;
+  const height = 120;
+  const totalArea = clusters.reduce((s, c) => s + c.direct, 0) || 1;
+  const maxR = 38;
+  // Scale radii so total area ≈ 55% of svg area
+  const targetAreaTotal = width * height * 0.45;
+  const k = Math.sqrt(targetAreaTotal / (Math.PI * totalArea));
+  let x = 10;
+  const bubbles = clusters.map((c, i) => {
+    const r = Math.max(10, Math.min(maxR, Math.sqrt(c.direct) * k));
+    const cx = Math.min(width - r - 4, x + r);
+    x = cx + r + 6;
+    return { cluster: c, r, cx, cy: height / 2, color: colorForIndex(i) };
+  });
+
+  const textTint = tint === "purple" ? "text-purple-300" : "text-emerald-300";
+  const chipBg =
+    tint === "purple"
+      ? "bg-purple-500/10 text-purple-300"
+      : "bg-emerald-500/10 text-emerald-300";
+
+  return (
+    <div>
+      <div className="mb-2 flex items-center justify-between">
+        <p className="text-[11px] uppercase tracking-widest text-neutral-500">
+          {title}
+        </p>
+        <p className="text-[10px] text-neutral-500">
+          пузырь = размер в сети
+        </p>
+      </div>
+
+      <div className="rounded-xl bg-black/30 p-2">
+        <svg
+          viewBox={`0 0 ${width} ${height}`}
+          className="h-auto w-full"
+          preserveAspectRatio="xMidYMid meet"
+          role="img"
+          aria-label={`Кластеры: ${title}`}
+        >
+          {bubbles.map(({ cluster, r, cx, cy, color }) => {
+            const showLabel = r >= 16;
+            return (
+              <g key={cluster.id}>
+                <circle
+                  cx={cx}
+                  cy={cy}
+                  r={r}
+                  fill={color}
+                  fillOpacity={0.25}
+                  stroke={color}
+                  strokeOpacity={0.7}
+                  strokeWidth={1}
+                />
+                <circle
+                  cx={cx}
+                  cy={cy}
+                  r={Math.max(2, r * 0.35)}
+                  fill={color}
+                  fillOpacity={0.9}
+                />
+                {showLabel && (
+                  <text
+                    x={cx}
+                    y={cy + r + 12}
+                    textAnchor="middle"
+                    fontSize="9"
+                    fill="#a3a3a3"
+                  >
+                    {cluster.label.length > 12
+                      ? cluster.label.slice(0, 11) + "…"
+                      : cluster.label}
+                  </text>
+                )}
+              </g>
+            );
+          })}
+        </svg>
+      </div>
+
+      <div className="mt-2 flex flex-col gap-1.5">
+        {clusters.map((c, i) => {
+          const directPct = (c.direct / maxDirect) * 100;
+          return (
+            <div
+              key={c.id}
+              className="flex items-center gap-2 rounded-lg bg-white/5 px-2 py-1.5"
+            >
+              <span
+                className="h-2.5 w-2.5 shrink-0 rounded-full"
+                style={{ background: colorForIndex(i) }}
+              />
+              <span className="min-w-0 flex-1 truncate text-[12px] text-white">
+                {c.label}
+              </span>
+              <span className={`shrink-0 text-[10px] ${textTint}`}>
+                {c.share_pct}%
+              </span>
+              <div className="hidden sm:flex min-w-0 flex-1 items-center gap-2">
+                <div className="relative h-1.5 flex-1 overflow-hidden rounded-full bg-white/5">
+                  <div
+                    className="h-full rounded-full"
+                    style={{
+                      width: `${directPct}%`,
+                      background: colorForIndex(i),
+                      opacity: 0.5,
+                    }}
+                  />
+                </div>
+              </div>
+              <span
+                className={`shrink-0 rounded-md px-1.5 py-0.5 text-[10px] font-semibold ${chipBg}`}
+                title={`Через 1 рукопожатие — ожидаемо ~${formatCount(
+                  c.potential_d2,
+                )} человек. Гомофилия +${c.homophily_pct}%.`}
+              >
+                2°: {formatCount(c.potential_d2)}
+              </span>
+            </div>
+          );
+        })}
+      </div>
+    </div>
   );
 }
