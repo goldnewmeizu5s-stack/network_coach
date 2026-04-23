@@ -668,21 +668,44 @@ function ClusterBlock({
 }) {
   if (clusters.length === 0) return null;
   const maxDirect = Math.max(1, ...clusters.map((c) => c.direct));
+  const N = clusters.length;
 
-  // Bubble packing in a fixed-width SVG; each bubble area ≈ direct count.
-  const width = 360;
-  const height = 120;
-  const totalArea = clusters.reduce((s, c) => s + c.direct, 0) || 1;
-  const maxR = 38;
-  // Scale radii so total area ≈ 55% of svg area
-  const targetAreaTotal = width * height * 0.45;
-  const k = Math.sqrt(targetAreaTotal / (Math.PI * totalArea));
-  let x = 10;
+  // Radial hub-and-spoke: "Ты" in the middle, clusters on an orbit.
+  // Bubble area scales with √direct; spoke thickness with share.
+  const W = 360;
+  const H = 240;
+  const cx0 = W / 2;
+  const cy0 = H / 2;
+  const orbit = Math.min(W, H) * 0.29;
+  const circumference = 2 * Math.PI * orbit;
+  const gap = circumference / Math.max(N, 1);
+  const maxR = Math.min(34, Math.max(14, (gap - 6) / 2));
+  const minR = 11;
+
   const bubbles = clusters.map((c, i) => {
-    const r = Math.max(10, Math.min(maxR, Math.sqrt(c.direct) * k));
-    const cx = Math.min(width - r - 4, x + r);
-    x = cx + r + 6;
-    return { cluster: c, r, cx, cy: height / 2, color: colorForIndex(i) };
+    // Distribute evenly starting from the top (12 o'clock), clockwise.
+    // For a single cluster place it to the right for a clean "me → X" read.
+    const angle = N === 1 ? 0 : (i / N) * 2 * Math.PI - Math.PI / 2;
+    const sizeRatio = Math.sqrt(c.direct / maxDirect);
+    const r = Math.max(minR, Math.min(maxR, sizeRatio * maxR + 4));
+    const cx = cx0 + Math.cos(angle) * orbit;
+    const cy = cy0 + Math.sin(angle) * orbit;
+    // Label position: push outward along the spoke, past the bubble edge.
+    const dx = cx - cx0;
+    const dy = cy - cy0;
+    const len = Math.sqrt(dx * dx + dy * dy) || 1;
+    const labelX = cx + (dx / len) * (r + 10);
+    const labelY = cy + (dy / len) * (r + 10) + 3;
+    return {
+      cluster: c,
+      r,
+      cx,
+      cy,
+      labelX,
+      labelY,
+      color: colorForIndex(i),
+      spokeWidth: 0.6 + (c.direct / maxDirect) * 1.6,
+    };
   });
 
   const textTint = tint === "purple" ? "text-purple-300" : "text-emerald-300";
@@ -697,53 +720,105 @@ function ClusterBlock({
         <p className="text-[11px] uppercase tracking-widest text-neutral-500">
           {title}
         </p>
-        <p className="text-[10px] text-neutral-500">
-          пузырь = размер в сети
-        </p>
+        <p className="text-[10px] text-neutral-500">ты в центре · клики на орбите</p>
       </div>
 
       <div className="rounded-xl bg-black/30 p-2">
         <svg
-          viewBox={`0 0 ${width} ${height}`}
-          className="h-auto w-full"
+          viewBox={`0 0 ${W} ${H}`}
+          className="h-auto w-full overflow-visible"
           preserveAspectRatio="xMidYMid meet"
           role="img"
           aria-label={`Кластеры: ${title}`}
         >
-          {bubbles.map(({ cluster, r, cx, cy, color }) => {
-            const showLabel = r >= 16;
+          <circle
+            cx={cx0}
+            cy={cy0}
+            r={orbit}
+            fill="none"
+            stroke="rgba(255,255,255,0.05)"
+            strokeDasharray="2 3"
+          />
+          {bubbles.map((b) => (
+            <line
+              key={`s-${b.cluster.id}`}
+              x1={cx0}
+              y1={cy0}
+              x2={b.cx}
+              y2={b.cy}
+              stroke={b.color}
+              strokeOpacity={0.35}
+              strokeWidth={b.spokeWidth}
+            />
+          ))}
+
+          <circle
+            cx={cx0}
+            cy={cy0}
+            r={16}
+            fill="#6366f1"
+            fillOpacity={0.12}
+            stroke="#6366f1"
+            strokeOpacity={0.45}
+          />
+          <circle cx={cx0} cy={cy0} r={6} fill="#e6e8ec" />
+          <text
+            x={cx0}
+            y={cy0}
+            textAnchor="middle"
+            dominantBaseline="middle"
+            fontSize="8"
+            fontWeight="700"
+            fill="#0f0f0f"
+          >
+            Ты
+          </text>
+
+          {bubbles.map((b) => {
+            const label =
+              b.cluster.label.length > 14
+                ? b.cluster.label.slice(0, 13) + "…"
+                : b.cluster.label;
             return (
-              <g key={cluster.id}>
+              <g key={b.cluster.id}>
                 <circle
-                  cx={cx}
-                  cy={cy}
-                  r={r}
-                  fill={color}
-                  fillOpacity={0.25}
-                  stroke={color}
-                  strokeOpacity={0.7}
-                  strokeWidth={1}
+                  cx={b.cx}
+                  cy={b.cy}
+                  r={b.r}
+                  fill={b.color}
+                  fillOpacity={0.22}
+                  stroke={b.color}
+                  strokeOpacity={0.8}
+                  strokeWidth={1.5}
                 />
                 <circle
-                  cx={cx}
-                  cy={cy}
-                  r={Math.max(2, r * 0.35)}
-                  fill={color}
+                  cx={b.cx}
+                  cy={b.cy}
+                  r={Math.max(2, b.r * 0.28)}
+                  fill={b.color}
                   fillOpacity={0.9}
                 />
-                {showLabel && (
-                  <text
-                    x={cx}
-                    y={cy + r + 12}
-                    textAnchor="middle"
-                    fontSize="9"
-                    fill="#a3a3a3"
-                  >
-                    {cluster.label.length > 12
-                      ? cluster.label.slice(0, 11) + "…"
-                      : cluster.label}
-                  </text>
-                )}
+                <text
+                  x={b.cx}
+                  y={b.cy}
+                  textAnchor="middle"
+                  dominantBaseline="middle"
+                  fontSize="9"
+                  fontWeight="700"
+                  fill="#ffffff"
+                  fillOpacity={0.85}
+                >
+                  {b.cluster.direct}
+                </text>
+                <text
+                  x={b.labelX}
+                  y={b.labelY}
+                  textAnchor="middle"
+                  fontSize="9"
+                  fill="#c7c7c7"
+                >
+                  {label}
+                </text>
               </g>
             );
           })}
