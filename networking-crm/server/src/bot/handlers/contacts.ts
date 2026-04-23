@@ -248,9 +248,9 @@ export async function handleSmartMessage(ctx: Context, text: string) {
     const errDetail = err instanceof Error ? { message: err.message, stack: err.stack } : String(err);
     logger.error("Smart message routing error", { error: errDetail });
     await ctx.reply(
-      "❌ Не удалось обработать запрос. Попробуй ещё раз или /menu.",
+      `❌ Не удалось обработать запрос:\n\n<pre>${fmtError(err)}</pre>\n\nПопробуй ещё раз или /menu.`,
       { parse_mode: "HTML" },
-    );
+    ).catch(() => {});
   }
 }
 
