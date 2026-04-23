@@ -34,12 +34,50 @@ export interface HandshakeWorld {
   top_industries: { id: string; label: string; count: number }[];
 }
 
+export interface NetworkReachDegree {
+  degree: number;
+  count: number;
+  cumulative: number;
+  capped: boolean;
+}
+
+export interface NetworkReachCluster {
+  type: "caste" | "industry";
+  id: string;
+  label: string;
+  direct: number;
+  share_pct: number;
+  homophily_pct: number;
+  potential_d2: number;
+  potential_d3: number;
+}
+
+export interface NetworkReach {
+  model: {
+    dunbar_k: number;
+    clustering_c: number;
+    new_per_hop: number;
+    homophily_factor: number;
+    reach_cap: number;
+  };
+  degrees: NetworkReachDegree[];
+  clusters: NetworkReachCluster[];
+  summary: {
+    direct: number;
+    potential_d2: number;
+    potential_d3: number;
+    potential_d6_cumulative: number;
+    capped_at_degree: number | null;
+  };
+}
+
 export interface RankPayload {
   total_xp: number;
   rank: RankDef & { progress_pct: number; xp_to_next: number | null };
   next_rank: RankDef | null;
   categories: RankCategory[];
   handshake_world: HandshakeWorld;
+  network_reach: NetworkReach;
   totals: {
     contacts: number;
     interactions: number;

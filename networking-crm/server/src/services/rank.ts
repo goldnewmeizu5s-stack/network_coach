@@ -169,12 +169,56 @@ export interface HandshakeWorld {
   top_industries: { id: string; label: string; count: number }[];
 }
 
+// ── Network reach: Milgram / Watts-Strogatz small-world model ──
+// R(1) = N (direct contacts)
+// R(d) = R(d-1) * k * (1 - C), capped at world population.
+// k = 150 (Dunbar's number), C = 0.25 (clustering coefficient).
+// Per-cluster projection uses the share of that cluster in the direct
+// network, plus a homophily affinity signal (McPherson, 2001).
+export interface NetworkReachDegree {
+  degree: number;
+  count: number;        // new people reachable at exactly this degree
+  cumulative: number;   // cumulative unique reachable up to this degree
+  capped: boolean;      // world-population cap kicked in
+}
+
+export interface NetworkReachCluster {
+  type: "caste" | "industry";
+  id: string;
+  label: string;
+  direct: number;
+  share_pct: number;    // % of user's direct network
+  homophily_pct: number; // expected over-representation at 2° (McPherson)
+  potential_d2: number;
+  potential_d3: number;
+}
+
+export interface NetworkReach {
+  model: {
+    dunbar_k: number;
+    clustering_c: number;
+    new_per_hop: number;
+    homophily_factor: number;
+    reach_cap: number;
+  };
+  degrees: NetworkReachDegree[];
+  clusters: NetworkReachCluster[];
+  summary: {
+    direct: number;
+    potential_d2: number;
+    potential_d3: number;
+    potential_d6_cumulative: number;
+    capped_at_degree: number | null;
+  };
+}
+
 export interface RankPayload {
   total_xp: number;
   rank: RankDef & { progress_pct: number; xp_to_next: number | null };
   next_rank: RankDef | null;
   categories: RankCategory[];
   handshake_world: HandshakeWorld;
+  network_reach: NetworkReach;
   totals: {
     contacts: number;
     interactions: number;
@@ -188,6 +232,109 @@ export interface RankPayload {
     unique_cities: number;
     unique_castes: number;
     unique_industries: number;
+  };
+}
+
+// ── Six-degrees reach parameters ───────────────────────────────
+const REACH_DUNBAR_K = 150;
+const REACH_CLUSTERING_C = 0.25;
+const REACH_NEW_PER_HOP = REACH_DUNBAR_K * (1 - REACH_CLUSTERING_C); // 112.5
+const REACH_HOMOPHILY = 0.35; // McPherson — same-caste over-representation
+const REACH_CAP = 8_100_000_000; // world population cap (2026)
+
+function computeNetworkReach(
+  directCount: number,
+  castes: Map<string, number>,
+  industries: Map<string, number>,
+): NetworkReach {
+  const degrees: NetworkReachDegree[] = [];
+  let cappedAt: number | null = null;
+
+  if (directCount <= 0) {
+    for (let d = 1; d <= 6; d++) {
+      degrees.push({ degree: d, count: 0, cumulative: 0, capped: false });
+    }
+  } else {
+    let level = directCount;
+    let cumulative = directCount;
+    degrees.push({
+      degree: 1,
+      count: directCount,
+      cumulative: directCount,
+      capped: false,
+    });
+    for (let d = 2; d <= 6; d++) {
+      const raw = level * REACH_NEW_PER_HOP;
+      const remaining = Math.max(0, REACH_CAP - cumulative);
+      const capped = raw > remaining;
+      const count = capped ? remaining : raw;
+      cumulative += count;
+      level = count;
+      if (capped && cappedAt === null) cappedAt = d;
+      degrees.push({
+        degree: d,
+        count: Math.round(count),
+        cumulative: Math.round(cumulative),
+        capped,
+      });
+    }
+  }
+
+  const d2 = degrees[1]?.count ?? 0;
+  const d3 = degrees[2]?.count ?? 0;
+
+  const buildClusters = (
+    counts: Map<string, number>,
+    type: "caste" | "industry",
+    resolveLabel: (id: string) => string,
+  ): NetworkReachCluster[] =>
+    Array.from(counts.entries())
+      .sort((a, b) => b[1] - a[1])
+      .map(([id, direct]) => {
+        const share = directCount > 0 ? direct / directCount : 0;
+        // Base projection (proportional) — sum over all clusters gives R(d).
+        const base_d2 = d2 * share;
+        const base_d3 = d3 * share;
+        return {
+          type,
+          id,
+          label: resolveLabel(id),
+          direct,
+          share_pct: Math.round(share * 1000) / 10,
+          homophily_pct: Math.round(REACH_HOMOPHILY * share * 1000) / 10,
+          potential_d2: Math.round(base_d2),
+          potential_d3: Math.round(base_d3),
+        };
+      });
+
+  const castClusters = buildClusters(
+    castes,
+    "caste",
+    (id) => CATEGORY_LABELS[id] ?? id,
+  );
+  const industryClusters = buildClusters(
+    industries,
+    "industry",
+    (id) => INDUSTRY_PATTERNS.find((p) => p.id === id)?.label ?? id,
+  );
+
+  return {
+    model: {
+      dunbar_k: REACH_DUNBAR_K,
+      clustering_c: REACH_CLUSTERING_C,
+      new_per_hop: REACH_NEW_PER_HOP,
+      homophily_factor: REACH_HOMOPHILY,
+      reach_cap: REACH_CAP,
+    },
+    degrees,
+    clusters: [...castClusters, ...industryClusters],
+    summary: {
+      direct: directCount,
+      potential_d2: d2,
+      potential_d3: d3,
+      potential_d6_cumulative: degrees[5]?.cumulative ?? 0,
+      capped_at_degree: cappedAt,
+    },
   };
 }
 
@@ -459,6 +606,12 @@ export async function computeRank(): Promise<RankPayload> {
     },
   ];
 
+  const networkReach = computeNetworkReach(
+    totalContacts,
+    categoryCounts,
+    industryCounts,
+  );
+
   return {
     total_xp: totalXp,
     rank: {
@@ -478,6 +631,7 @@ export async function computeRank(): Promise<RankPayload> {
       top_categories: topCategories,
       top_industries: topIndustries,
     },
+    network_reach: networkReach,
     totals: {
       contacts: totalContacts,
       interactions: interactionCount,
