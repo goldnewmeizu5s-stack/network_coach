@@ -642,6 +642,8 @@ function NetworkReachCard({ reach }: { reach: NetworkReach }) {
               title="Касты (роли)"
               tint="purple"
               clusters={castes}
+              totalContacts={summary.direct}
+              totalPotentialD2={summary.potential_d2}
             />
           )}
           {industries.length > 0 && (
@@ -649,6 +651,8 @@ function NetworkReachCard({ reach }: { reach: NetworkReach }) {
               title="Индустрии"
               tint="emerald"
               clusters={industries}
+              totalContacts={summary.direct}
+              totalPotentialD2={summary.potential_d2}
             />
           )}
         </div>
@@ -661,52 +665,85 @@ function ClusterBlock({
   title,
   clusters,
   tint,
+  totalContacts,
+  totalPotentialD2,
 }: {
   title: string;
   clusters: NetworkReachCluster[];
   tint: "purple" | "emerald";
+  totalContacts: number;
+  totalPotentialD2: number;
 }) {
   if (clusters.length === 0) return null;
   const maxDirect = Math.max(1, ...clusters.map((c) => c.direct));
-  const N = clusters.length;
 
-  // Radial hub-and-spoke: "Ты" in the middle, clusters on an orbit.
-  // Bubble area scales with √direct; spoke thickness with share.
+  // Double-ring sunburst:
+  //   – inner donut: каст share (angle ∝ direct, uncategorised filler in muted grey)
+  //   – outer petals: 2° potential per каст (radial length ∝ absolute count)
+  //   – centre: total direct contacts
+  //   – below: compact list + summary chip
   const W = 360;
-  const H = 240;
+  const H = 260;
   const cx0 = W / 2;
   const cy0 = H / 2;
-  const orbit = Math.min(W, H) * 0.29;
-  const circumference = 2 * Math.PI * orbit;
-  const gap = circumference / Math.max(N, 1);
-  const maxR = Math.min(34, Math.max(14, (gap - 6) / 2));
-  const minR = 11;
+  const rInner = 52;
+  const rOuter = 88;
+  const rPetalMin = 94;
+  const rPetalMax = 122;
 
-  const bubbles = clusters.map((c, i) => {
-    // Distribute evenly starting from the top (12 o'clock), clockwise.
-    // For a single cluster place it to the right for a clean "me → X" read.
-    const angle = N === 1 ? 0 : (i / N) * 2 * Math.PI - Math.PI / 2;
-    const sizeRatio = Math.sqrt(c.direct / maxDirect);
-    const r = Math.max(minR, Math.min(maxR, sizeRatio * maxR + 4));
-    const cx = cx0 + Math.cos(angle) * orbit;
-    const cy = cy0 + Math.sin(angle) * orbit;
-    // Label position: push outward along the spoke, past the bubble edge.
-    const dx = cx - cx0;
-    const dy = cy - cy0;
-    const len = Math.sqrt(dx * dx + dy * dy) || 1;
-    const labelX = cx + (dx / len) * (r + 10);
-    const labelY = cy + (dy / len) * (r + 10) + 3;
-    return {
-      cluster: c,
-      r,
-      cx,
-      cy,
-      labelX,
-      labelY,
+  const categorised = clusters.reduce((s, c) => s + c.direct, 0);
+  const uncategorised = Math.max(0, totalContacts - categorised);
+  const total = Math.max(1, categorised + uncategorised);
+
+  const maxPotential = Math.max(1, ...clusters.map((c) => c.potential_d2));
+
+  type Slice = {
+    start: number;
+    end: number;
+    color: string;
+    cluster: NetworkReachCluster | null;
+  };
+
+  const slices: Slice[] = [];
+  let cursor = -Math.PI / 2; // start at 12 o'clock
+  clusters.forEach((c, i) => {
+    const sweep = (c.direct / total) * 2 * Math.PI;
+    slices.push({
+      start: cursor,
+      end: cursor + sweep,
       color: colorForIndex(i),
-      spokeWidth: 0.6 + (c.direct / maxDirect) * 1.6,
-    };
+      cluster: c,
+    });
+    cursor += sweep;
   });
+  if (uncategorised > 0) {
+    slices.push({
+      start: cursor,
+      end: cursor + (uncategorised / total) * 2 * Math.PI,
+      color: "rgba(255,255,255,0.06)",
+      cluster: null,
+    });
+  }
+
+  // Build a donut-slice SVG path between two radii and two angles.
+  // For ~full-circle slices fall back to a stroked ring (SVG arc can't draw 2π).
+  const arcPath = (r1: number, r2: number, a1: number, a2: number): string => {
+    const sweep = a2 - a1;
+    // Tiny slice: still render, but trimmed to avoid degenerate paths.
+    const EPS = 0.0005;
+    const clamped = Math.min(sweep, 2 * Math.PI - EPS);
+    const end = a1 + clamped;
+    const x1o = cx0 + r2 * Math.cos(a1);
+    const y1o = cy0 + r2 * Math.sin(a1);
+    const x2o = cx0 + r2 * Math.cos(end);
+    const y2o = cy0 + r2 * Math.sin(end);
+    const x1i = cx0 + r1 * Math.cos(end);
+    const y1i = cy0 + r1 * Math.sin(end);
+    const x2i = cx0 + r1 * Math.cos(a1);
+    const y2i = cy0 + r1 * Math.sin(a1);
+    const large = clamped > Math.PI ? 1 : 0;
+    return `M ${x1o} ${y1o} A ${r2} ${r2} 0 ${large} 1 ${x2o} ${y2o} L ${x1i} ${y1i} A ${r1} ${r1} 0 ${large} 0 ${x2i} ${y2i} Z`;
+  };
 
   const textTint = tint === "purple" ? "text-purple-300" : "text-emerald-300";
   const chipBg =
@@ -714,117 +751,142 @@ function ClusterBlock({
       ? "bg-purple-500/10 text-purple-300"
       : "bg-emerald-500/10 text-emerald-300";
 
+  const sliceTotalPotential = clusters.reduce(
+    (s, c) => s + c.potential_d2,
+    0,
+  );
+  const categorisedPct = totalContacts > 0
+    ? Math.round((categorised / totalContacts) * 100)
+    : 0;
+
   return (
     <div>
       <div className="mb-2 flex items-center justify-between">
         <p className="text-[11px] uppercase tracking-widest text-neutral-500">
           {title}
         </p>
-        <p className="text-[10px] text-neutral-500">ты в центре · клики на орбите</p>
+        <p className="text-[10px] text-neutral-500">
+          кольцо = сеть · лепестки = 2°
+        </p>
       </div>
 
-      <div className="rounded-xl bg-black/30 p-2">
+      <div className="rounded-xl bg-gradient-to-br from-black/40 to-black/20 p-2">
         <svg
           viewBox={`0 0 ${W} ${H}`}
-          className="h-auto w-full overflow-visible"
+          className="h-auto w-full"
           preserveAspectRatio="xMidYMid meet"
           role="img"
           aria-label={`Кластеры: ${title}`}
         >
+          <defs>
+            <radialGradient id={`hub-${tint}`} cx="50%" cy="50%" r="50%">
+              <stop offset="0%" stopColor="#1a1a1a" />
+              <stop offset="100%" stopColor="#0f0f0f" />
+            </radialGradient>
+          </defs>
+
+          {/* Guide ring behind the petals */}
           <circle
             cx={cx0}
             cy={cy0}
-            r={orbit}
+            r={rPetalMax + 3}
             fill="none"
-            stroke="rgba(255,255,255,0.05)"
-            strokeDasharray="2 3"
+            stroke="rgba(255,255,255,0.04)"
+            strokeDasharray="1 4"
           />
-          {bubbles.map((b) => (
-            <line
-              key={`s-${b.cluster.id}`}
-              x1={cx0}
-              y1={cy0}
-              x2={b.cx}
-              y2={b.cy}
-              stroke={b.color}
-              strokeOpacity={0.35}
-              strokeWidth={b.spokeWidth}
+
+          {/* Outer petals — 2° potential per caste, radial length ∝ abs count */}
+          {slices.map((s, i) => {
+            if (!s.cluster) return null;
+            const ratio = s.cluster.potential_d2 / maxPotential;
+            const r = rPetalMin + ratio * (rPetalMax - rPetalMin);
+            return (
+              <path
+                key={`pet-${i}`}
+                d={arcPath(rPetalMin, r, s.start, s.end)}
+                fill={s.color}
+                fillOpacity={0.28}
+              />
+            );
+          })}
+
+          {/* Inner donut slices */}
+          {slices.map((s, i) => (
+            <path
+              key={`sl-${i}`}
+              d={arcPath(rInner, rOuter, s.start, s.end)}
+              fill={s.color}
+              fillOpacity={s.cluster ? 0.9 : 1}
+              stroke="#0f0f0f"
+              strokeWidth={1.5}
             />
           ))}
 
+          {/* Centre hub */}
           <circle
             cx={cx0}
             cy={cy0}
-            r={16}
-            fill="#6366f1"
-            fillOpacity={0.12}
-            stroke="#6366f1"
-            strokeOpacity={0.45}
+            r={rInner - 2}
+            fill={`url(#hub-${tint})`}
+            stroke="rgba(255,255,255,0.06)"
           />
-          <circle cx={cx0} cy={cy0} r={6} fill="#e6e8ec" />
           <text
             x={cx0}
-            y={cy0}
+            y={cy0 - 14}
             textAnchor="middle"
-            dominantBaseline="middle"
-            fontSize="8"
+            fontSize="9"
+            letterSpacing="2"
+            fill="#737373"
             fontWeight="700"
-            fill="#0f0f0f"
           >
-            Ты
+            ТЫ
           </text>
-
-          {bubbles.map((b) => {
-            const label =
-              b.cluster.label.length > 14
-                ? b.cluster.label.slice(0, 13) + "…"
-                : b.cluster.label;
-            return (
-              <g key={b.cluster.id}>
-                <circle
-                  cx={b.cx}
-                  cy={b.cy}
-                  r={b.r}
-                  fill={b.color}
-                  fillOpacity={0.22}
-                  stroke={b.color}
-                  strokeOpacity={0.8}
-                  strokeWidth={1.5}
-                />
-                <circle
-                  cx={b.cx}
-                  cy={b.cy}
-                  r={Math.max(2, b.r * 0.28)}
-                  fill={b.color}
-                  fillOpacity={0.9}
-                />
-                <text
-                  x={b.cx}
-                  y={b.cy}
-                  textAnchor="middle"
-                  dominantBaseline="middle"
-                  fontSize="9"
-                  fontWeight="700"
-                  fill="#ffffff"
-                  fillOpacity={0.85}
-                >
-                  {b.cluster.direct}
-                </text>
-                <text
-                  x={b.labelX}
-                  y={b.labelY}
-                  textAnchor="middle"
-                  fontSize="9"
-                  fill="#c7c7c7"
-                >
-                  {label}
-                </text>
-              </g>
-            );
-          })}
+          <text
+            x={cx0}
+            y={cy0 + 8}
+            textAnchor="middle"
+            fontSize="24"
+            fill="#ffffff"
+            fontWeight="800"
+          >
+            {totalContacts}
+          </text>
+          <text
+            x={cx0}
+            y={cy0 + 24}
+            textAnchor="middle"
+            fontSize="8.5"
+            fill="#737373"
+          >
+            контактов
+          </text>
         </svg>
       </div>
 
+      {/* Summary chip */}
+      <div className="mt-2 flex items-center gap-2 rounded-lg bg-white/5 px-3 py-2">
+        <div className="min-w-0 flex-1">
+          <p className="text-[10px] uppercase tracking-widest text-neutral-500">
+            2° в этом срезе
+          </p>
+          <p className="text-[13px] font-semibold text-white">
+            {formatCount(sliceTotalPotential)}{" "}
+            <span className="text-[10px] font-normal text-neutral-500">
+              из {formatCount(totalPotentialD2)} всего
+            </span>
+          </p>
+        </div>
+        <div className="text-right">
+          <p className="text-[10px] uppercase tracking-widest text-neutral-500">
+            классифицировано
+          </p>
+          <p className={`text-[13px] font-semibold ${textTint}`}>
+            {categorisedPct}%
+          </p>
+        </div>
+      </div>
+
+      {/* Legend */}
       <div className="mt-2 flex flex-col gap-1.5">
         {clusters.map((c, i) => {
           const directPct = (c.direct / maxDirect) * 100;
