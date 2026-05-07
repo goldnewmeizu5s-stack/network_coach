@@ -49,16 +49,24 @@ model Contact {
   urgency_score       Int      @default(5)
   location_status     String?
   last_interaction_at DateTime?
+  interest_tier       String   @default("active")
+  interest_score      Float    @default(50)
+  interest_decayed_at DateTime @default(now())
+  tier_locked         Boolean  @default(false)
+  last_goal_event_at  DateTime?
   created_at          DateTime @default(now())
   updated_at          DateTime @updatedAt
 
-  interactions Interaction[]
-  follow_ups   FollowUp[]
+  interactions   Interaction[]
+  follow_ups     FollowUp[]
+  interest_goals InterestGoal[]
 
   @@index([warmth_status])
   @@index([last_interaction_at])
   @@index([created_at])
   @@index([warmth_status, last_interaction_at])
+  @@index([interest_tier])
+  @@index([interest_tier, last_interaction_at])
 }
 
 model Interaction {
@@ -75,6 +83,22 @@ model Interaction {
 
   @@index([contact_id, created_at])
   @@index([created_at])
+}
+
+model InterestGoal {
+  id                          String    @id @default(uuid())
+  contact_id                  String
+  contact                     Contact   @relation(fields: [contact_id], references: [id], onDelete: Cascade)
+  description                 String
+  status                      String    @default("open")
+  source                      String    @default("ai")
+  created_at                  DateTime  @default(now())
+  satisfied_at                DateTime?
+  satisfied_by_interaction_id String?
+  last_mentioned_at           DateTime  @default(now())
+
+  @@index([contact_id, status])
+  @@index([status, last_mentioned_at])
 }
 
 model AudioFile {

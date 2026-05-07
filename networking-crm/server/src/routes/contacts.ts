@@ -239,6 +239,9 @@ router.get("/:id", async (req, res, next) => {
           where: { status: "pending" },
           orderBy: { due_date: "asc" },
         },
+        interest_goals: {
+          orderBy: [{ status: "asc" }, { last_mentioned_at: "desc" }],
+        },
       },
     });
 

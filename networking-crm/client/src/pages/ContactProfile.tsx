@@ -76,6 +76,17 @@ interface Interaction {
   created_at: string;
 }
 
+interface InterestGoal {
+  id: string;
+  contact_id: string;
+  description: string;
+  status: "open" | "satisfied" | "abandoned";
+  source: string;
+  created_at: string;
+  satisfied_at: string | null;
+  last_mentioned_at: string;
+}
+
 interface Contact {
   id: string;
   full_name: string;
@@ -101,10 +112,26 @@ interface Contact {
   warmth_status: string;
   warmth_score: number;
   urgency_score: number;
+  interest_tier: "active" | "maintenance" | "dormant";
+  interest_score: number;
+  tier_locked: boolean;
   last_interaction_at: string | null;
   created_at: string;
   interactions: Interaction[];
+  interest_goals: InterestGoal[];
 }
+
+const TIER_LABELS: Record<Contact["interest_tier"], string> = {
+  active: "active · weekly",
+  maintenance: "maintenance · monthly",
+  dormant: "dormant · quarterly",
+};
+
+const TIER_BADGE: Record<Contact["interest_tier"], string> = {
+  active: "border-emerald-400/30 bg-emerald-500/10 text-emerald-300",
+  maintenance: "border-amber-400/30 bg-amber-500/10 text-amber-200",
+  dormant: "border-neutral-500/30 bg-neutral-500/10 text-neutral-300",
+};
 
 const VALID_TRANSITIONS: Record<string, string[]> = {
   new: ["warming", "paused", "archived"],
@@ -1020,6 +1047,14 @@ export default function ContactProfile() {
           </Section>
         </motion.div>
 
+        {/* Interest goals + tier */}
+        <motion.div variants={fade}>
+          <InterestSection
+            contact={contact}
+            onChanged={fetchContact}
+          />
+        </motion.div>
+
         {contact.what_impressed_me && (
           <motion.div variants={fade}>
             <Callout
@@ -1459,5 +1494,238 @@ function Callout({
         </div>
       </div>
     </div>
+  );
+}
+
+function InterestSection({
+  contact,
+  onChanged,
+}: {
+  contact: Contact;
+  onChanged: () => Promise<void> | void;
+}) {
+  const [adding, setAdding] = useState(false);
+  const [draft, setDraft] = useState("");
+  const [busy, setBusy] = useState(false);
+  const tier = contact.interest_tier ?? "active";
+  const score = Math.round(contact.interest_score ?? 50);
+
+  const openGoals = (contact.interest_goals ?? []).filter(
+    (g) => g.status === "open",
+  );
+  const closedGoals = (contact.interest_goals ?? []).filter(
+    (g) => g.status !== "open",
+  );
+
+  const setTier = async (next: Contact["interest_tier"]) => {
+    if (next === tier && contact.tier_locked) return;
+    setBusy(true);
+    try {
+      await fetch(`/api/contacts/${contact.id}/interest-tier`, {
+        method: "PATCH",
+        credentials: "same-origin",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ tier: next, lock: true }),
+      });
+      await onChanged();
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const unlock = async () => {
+    setBusy(true);
+    try {
+      await fetch(`/api/contacts/${contact.id}/interest-tier`, {
+        method: "PATCH",
+        credentials: "same-origin",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ tier, lock: false }),
+      });
+      await onChanged();
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const addGoal = async () => {
+    const text = draft.trim();
+    if (!text) return;
+    setBusy(true);
+    try {
+      await fetch(`/api/contacts/${contact.id}/goals`, {
+        method: "POST",
+        credentials: "same-origin",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ description: text }),
+      });
+      setDraft("");
+      setAdding(false);
+      await onChanged();
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const setGoalStatus = async (
+    goalId: string,
+    status: "satisfied" | "abandoned" | "open",
+  ) => {
+    setBusy(true);
+    try {
+      await fetch(`/api/goals/${goalId}`, {
+        method: "PATCH",
+        credentials: "same-origin",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status }),
+      });
+      await onChanged();
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Section title="Что я хочу от этого контакта" icon="🎯">
+      <div className="mb-3 flex flex-wrap items-center gap-2">
+        <span
+          className={`rounded-full border px-2.5 py-1 text-[11px] font-medium ${TIER_BADGE[tier]}`}
+        >
+          {TIER_LABELS[tier]}
+        </span>
+        <span className="text-[11px] text-neutral-500">
+          score {score}
+          {contact.tier_locked ? " · locked" : ""}
+        </span>
+        <div className="ml-auto flex items-center gap-1">
+          {(["active", "maintenance", "dormant"] as const).map((t) => (
+            <button
+              key={t}
+              type="button"
+              onClick={() => setTier(t)}
+              disabled={busy}
+              className={`rounded-full border px-2.5 py-1 text-[11px] transition-colors ${
+                t === tier
+                  ? "border-accent/40 bg-accent/15 text-accent"
+                  : "border-white/10 bg-white/[0.03] text-neutral-400 hover:border-white/20"
+              }`}
+            >
+              {t}
+            </button>
+          ))}
+        </div>
+      </div>
+      {contact.tier_locked && (
+        <button
+          type="button"
+          onClick={unlock}
+          className="mb-3 text-[11px] text-neutral-500 underline-offset-2 hover:text-neutral-300 hover:underline"
+        >
+          Снять блокировку — пусть система сама управляет режимом
+        </button>
+      )}
+
+      {openGoals.length === 0 && closedGoals.length === 0 && !adding && (
+        <p className="mb-3 text-xs italic text-neutral-600">
+          Целей пока нет. Они появляются автоматически из голосовых заметок («хочу
+          узнать у него…», «обещал интро к…»), либо ты можешь добавить вручную.
+        </p>
+      )}
+
+      {openGoals.length > 0 && (
+        <ul className="mb-2 flex flex-col gap-1.5">
+          {openGoals.map((g) => (
+            <li
+              key={g.id}
+              className="flex items-start gap-2 rounded-xl border border-white/5 bg-white/[0.03] px-3 py-2"
+            >
+              <button
+                type="button"
+                onClick={() => setGoalStatus(g.id, "satisfied")}
+                disabled={busy}
+                title="Получил"
+                className="mt-0.5 h-4 w-4 shrink-0 rounded border border-neutral-500 hover:border-emerald-400"
+              />
+              <span className="flex-1 text-sm leading-snug text-neutral-200">
+                {g.description}
+              </span>
+              <button
+                type="button"
+                onClick={() => setGoalStatus(g.id, "abandoned")}
+                disabled={busy}
+                title="Не актуально"
+                className="text-xs text-neutral-500 hover:text-neutral-300"
+              >
+                ✕
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      {closedGoals.length > 0 && (
+        <details className="mb-2">
+          <summary className="cursor-pointer text-[11px] text-neutral-500">
+            Закрытые цели ({closedGoals.length})
+          </summary>
+          <ul className="mt-2 flex flex-col gap-1">
+            {closedGoals.map((g) => (
+              <li
+                key={g.id}
+                className="flex items-center gap-2 rounded-xl border border-white/5 bg-white/[0.02] px-3 py-1.5 text-xs text-neutral-400"
+              >
+                <span className="line-through">{g.description}</span>
+                <span className="ml-auto text-[10px] text-neutral-600">
+                  {g.status === "satisfied" ? "получил" : "забыл"}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setGoalStatus(g.id, "open")}
+                  disabled={busy}
+                  className="text-[10px] text-neutral-500 hover:text-neutral-300"
+                >
+                  вернуть
+                </button>
+              </li>
+            ))}
+          </ul>
+        </details>
+      )}
+
+      {adding ? (
+        <div className="flex items-center gap-2">
+          <input
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") addGoal();
+              if (e.key === "Escape") {
+                setAdding(false);
+                setDraft("");
+              }
+            }}
+            placeholder="что хочу узнать / получить..."
+            autoFocus
+            className="flex-1 rounded-xl border border-white/10 bg-white/[0.03] px-3 py-2 text-sm text-white placeholder-neutral-500 outline-none focus:border-accent/40"
+          />
+          <button
+            type="button"
+            onClick={addGoal}
+            disabled={busy || !draft.trim()}
+            className="rounded-xl bg-accent/20 px-3 py-2 text-sm text-accent disabled:opacity-50"
+          >
+            +
+          </button>
+        </div>
+      ) : (
+        <button
+          type="button"
+          onClick={() => setAdding(true)}
+          className="text-xs text-accent/80 hover:text-accent"
+        >
+          + добавить цель
+        </button>
+      )}
+    </Section>
   );
 }

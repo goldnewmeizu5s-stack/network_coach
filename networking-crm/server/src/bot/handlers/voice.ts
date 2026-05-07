@@ -10,6 +10,7 @@ import { polishTranscript } from "../../services/transcript-polish";
 import { extractContactData } from "../../services/ai-extraction";
 import { correctTranscript } from "../../services/transcript-correction";
 import { createContact } from "../../services/voice-pipeline";
+import { addOrTouchGoal } from "../../services/interest";
 import { recalcAndAutoStatus } from "../../services/warmth";
 import { getState, setState, clearState } from "../state";
 import { handleChatVoice } from "./chat";
@@ -1166,6 +1167,10 @@ async function updateContact(
       last_interaction_at: new Date(),
     },
   });
+
+  for (const goal of extracted.user_goals_for_contact ?? []) {
+    await addOrTouchGoal(contactId, goal, "ai");
+  }
 }
 
 function formatContactMessage(

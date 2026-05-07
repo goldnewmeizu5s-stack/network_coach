@@ -225,10 +225,25 @@ export async function buildContactContext(
           completed_at: true,
         },
       },
+      interest_goals: {
+        orderBy: { last_mentioned_at: "desc" },
+        select: {
+          description: true,
+          status: true,
+          satisfied_at: true,
+        },
+      },
     },
   });
 
   if (!contact) return null;
+
+  const openGoals = contact.interest_goals
+    .filter((g) => g.status === "open")
+    .map((g) => g.description);
+  const satisfiedGoals = contact.interest_goals
+    .filter((g) => g.status === "satisfied")
+    .map((g) => g.description);
 
   const lines = [
     `## DETAILED CONTACT: ${contact.full_name}`,
@@ -242,6 +257,10 @@ export async function buildContactContext(
       `Met date: ${contact.met_date.toLocaleDateString()}`,
     contact.key_interests.length > 0 &&
       `Interests: ${contact.key_interests.join(", ")}`,
+    openGoals.length > 0 &&
+      `Open user goals: ${openGoals.join(" | ")}`,
+    satisfiedGoals.length > 0 &&
+      `Satisfied user goals: ${satisfiedGoals.join(" | ")}`,
     contact.what_impressed_me &&
       `What impressed me: ${contact.what_impressed_me}`,
     contact.potential_synergies &&
@@ -255,6 +274,7 @@ export async function buildContactContext(
     contact.relationship_category &&
       `Category: ${contact.relationship_category}`,
     `Warmth: ${contact.warmth_status} (score: ${contact.warmth_score})`,
+    `Interest: ${contact.interest_tier} (score: ${Math.round(contact.interest_score)})`,
     `Urgency: ${contact.urgency_score}/10`,
     contact.last_interaction_at &&
       `Last interaction: ${contact.last_interaction_at.toLocaleDateString()}`,
