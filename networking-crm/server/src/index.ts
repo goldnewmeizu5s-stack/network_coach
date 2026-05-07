@@ -24,6 +24,7 @@ import statsRoutes from "./routes/stats";
 import rankRoutes from "./routes/rank";
 import exportRoutes from "./routes/export";
 import notesRoutes from "./routes/notes";
+import interestRoutes from "./routes/interest";
 import { startCron, stopCron, runDailyJob, runWeeklyMemoryJob } from "./services/cron";
 import { startBot, stopBot } from "./bot";
 import { alignAllWarmthScores } from "./services/warmth";
@@ -122,6 +123,8 @@ app.use("/api/insights", authMiddleware, aiLimiter, insightsRoutes);
 app.use("/api/stats", authMiddleware, apiLimiter, statsRoutes);
 app.use("/api/rank", authMiddleware, apiLimiter, rankRoutes);
 app.use("/api/notes", authMiddleware, apiLimiter, notesRoutes);
+// Interest routes — mounted at /api so its paths can use both /contacts/:id/goals and /goals/:goalId.
+app.use("/api", authMiddleware, apiLimiter, interestRoutes);
 // Export routes use stricter rate limit (3 per minute) to prevent data scraping
 const exportLimiter = rateLimit({
   windowMs: 60 * 1000,

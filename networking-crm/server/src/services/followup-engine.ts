@@ -18,6 +18,8 @@ export interface ContactWithCounts {
   potential_synergies: string | null;
   last_interaction_at: Date | null;
   created_at: Date;
+  interest_tier: string;
+  open_goals: string[];
   pendingCount: number;
   skippedCount: number;
   doneCount: number;
@@ -34,8 +36,11 @@ function addDays(days: number): Date {
   return d;
 }
 
-/** Build a contextual hook from available contact data for richer action text. */
+/** Build a contextual hook from available contact data for richer action text.
+ *  Open user goals win over the contact's own interests — the user's intent
+ *  is a sharper action prompt than a generic topic. */
 function contextHook(c: ContactWithCounts): string {
+  if (c.open_goals.length > 0) return ` Твоя цель: ${c.open_goals[0]}`;
   if (c.potential_synergies) return ` Идея: ${c.potential_synergies}`;
   if (c.key_interests.length > 0) return ` Тема: ${c.key_interests[0]}`;
   if (c.where_met) return ` Вы познакомились: ${c.where_met}`;
@@ -45,6 +50,9 @@ function contextHook(c: ContactWithCounts): string {
 
 /** Build a topic hint for content-sharing actions. */
 function topicHint(c: ContactWithCounts): string {
+  if (c.open_goals.length > 0) {
+    return ` по теме твоей цели: «${c.open_goals[0]}»`;
+  }
   if (c.key_interests.length > 0) {
     const interest = c.key_interests[
       Math.floor(Math.random() * c.key_interests.length)
@@ -69,6 +77,12 @@ function topicHint(c: ContactWithCounts): string {
 export function generateFollowUps(contact: ContactWithCounts): FollowUpDraft[] {
   // Hard limit: never spam with too many pending follow-ups
   if (contact.pendingCount >= 3) return [];
+
+  // Interest tier gates the warmth-based dispatcher.
+  // - "active" falls through to existing warmth-driven cadence.
+  // - "maintenance"/"dormant" replace the cadence entirely (monthly / quarterly).
+  if (contact.interest_tier === "dormant") return generateDormantFollowUps(contact);
+  if (contact.interest_tier === "maintenance") return generateMaintenanceFollowUps(contact);
 
   switch (contact.warmth_status) {
     case "new":
@@ -309,6 +323,53 @@ function generatePausedFollowUps(contact: ContactWithCounts): FollowUpDraft[] {
 }
 
 /**
+ * Maintenance contacts — user is keeping the line open but no active intent.
+ * One light-touch follow-up roughly every 30 days. Replaces warmth cadence.
+ */
+function generateMaintenanceFollowUps(contact: ContactWithCounts): FollowUpDraft[] {
+  if (contact.pendingCount > 0) return [];
+
+  const drafts: FollowUpDraft[] = [];
+  const daysSince = daysAgo(contact.last_interaction_at);
+  const name = contact.full_name;
+
+  if (daysSince >= 28) {
+    drafts.push({
+      contact_id: contact.id,
+      suggested_action: `Лёгкий привет ${name}${contextHook(contact)}`,
+      due_date: addDays(0),
+      priority: 3,
+    });
+  }
+
+  return drafts;
+}
+
+/**
+ * Dormant contacts — barely-alive connection. One quarterly ping.
+ * Existence ≠ obligation; the prompt explicitly invites archiving.
+ */
+function generateDormantFollowUps(contact: ContactWithCounts): FollowUpDraft[] {
+  if (contact.pendingCount > 0) return [];
+
+  const drafts: FollowUpDraft[] = [];
+  const daysSince = daysAgo(contact.last_interaction_at);
+  const days = Math.round(daysSince);
+  const name = contact.full_name;
+
+  if (daysSince >= 88) {
+    drafts.push({
+      contact_id: contact.id,
+      suggested_action: `Ещё интересен ${name}? Тихо ${days} дн. — закрыть или возобновить?`,
+      due_date: addDays(0),
+      priority: 2,
+    });
+  }
+
+  return drafts;
+}
+
+/**
  * Convenience wrapper: loads contact + counts from DB, then generates drafts.
  * Used by the /api/followups/generate route (single contact).
  */
@@ -327,6 +388,12 @@ export async function generateFollowUpsForContact(
       potential_synergies: true,
       last_interaction_at: true,
       created_at: true,
+      interest_tier: true,
+      interest_goals: {
+        where: { status: "open" },
+        select: { description: true },
+        orderBy: { last_mentioned_at: "desc" },
+      },
     },
   });
   if (!contact) return [];
@@ -344,10 +411,17 @@ export async function generateFollowUpsForContact(
   ]);
 
   return generateFollowUps({
-    ...contact,
+    id: contact.id,
+    full_name: contact.full_name,
+    warmth_status: contact.warmth_status,
+    key_interests: contact.key_interests,
     where_met: contact.where_met ?? null,
     occupation: contact.occupation ?? null,
     potential_synergies: contact.potential_synergies ?? null,
+    last_interaction_at: contact.last_interaction_at,
+    created_at: contact.created_at,
+    interest_tier: contact.interest_tier,
+    open_goals: contact.interest_goals.map((g) => g.description),
     pendingCount,
     skippedCount,
     doneCount,

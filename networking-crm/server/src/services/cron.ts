@@ -2,6 +2,7 @@ import cron from "node-cron";
 import prisma from "../lib/prisma";
 import { logger } from "../lib/logger";
 import { generateFollowUps, ContactWithCounts } from "./followup-engine";
+import { applyInterestDecay, evaluateInterestTiers } from "./interest";
 import { batchPersonalizeFollowUps, BatchPersonalizeItem } from "./message-drafting";
 import {
   generateDailyChallenge,
@@ -34,6 +35,11 @@ export async function runDailyJob(): Promise<void> {
   try {
     // a. Warmth decay — single bulk update + batch insert interaction notes
     await applyWarmthDecay();
+
+    // a2. Interest decay + tier evaluation — runs before follow-up generation
+    //     so the engine sees the right tier for each contact.
+    await applyInterestDecay();
+    await evaluateInterestTiers();
 
     // b. Follow-up generation — smart query + batch AI personalization
     await generateAllFollowUps();
@@ -174,6 +180,7 @@ async function generateAllFollowUps(): Promise<void> {
       potential_synergies: true,
       last_interaction_at: true,
       created_at: true,
+      interest_tier: true,
     },
   });
 
@@ -194,7 +201,7 @@ async function generateAllFollowUps(): Promise<void> {
 
   const filteredIds = filteredCandidates.map((c) => c.id);
 
-  const [pendingCounts, skippedCounts, doneCounts] = await Promise.all([
+  const [pendingCounts, skippedCounts, doneCounts, openGoalRows] = await Promise.all([
     prisma.followUp.groupBy({
       by: ["contact_id"],
       where: { contact_id: { in: filteredIds }, status: "pending" },
@@ -210,11 +217,22 @@ async function generateAllFollowUps(): Promise<void> {
       where: { contact_id: { in: filteredIds }, status: "done" },
       _count: true,
     }),
+    prisma.interestGoal.findMany({
+      where: { contact_id: { in: filteredIds }, status: "open" },
+      select: { contact_id: true, description: true, last_mentioned_at: true },
+      orderBy: { last_mentioned_at: "desc" },
+    }),
   ]);
 
   const pendingMap = new Map(pendingCounts.map((r) => [r.contact_id, r._count]));
   const skippedMap = new Map(skippedCounts.map((r) => [r.contact_id, r._count]));
   const doneMap = new Map(doneCounts.map((r) => [r.contact_id, r._count]));
+  const goalsMap = new Map<string, string[]>();
+  for (const row of openGoalRows) {
+    const arr = goalsMap.get(row.contact_id) ?? [];
+    arr.push(row.description);
+    goalsMap.set(row.contact_id, arr);
+  }
 
   // Generate drafts (pure logic, no DB calls)
   const allDrafts: {
@@ -233,6 +251,8 @@ async function generateAllFollowUps(): Promise<void> {
       potential_synergies: candidate.potential_synergies ?? null,
       last_interaction_at: candidate.last_interaction_at,
       created_at: candidate.created_at,
+      interest_tier: candidate.interest_tier,
+      open_goals: goalsMap.get(candidate.id) ?? [],
       pendingCount: pendingMap.get(candidate.id) ?? 0,
       skippedCount: skippedMap.get(candidate.id) ?? 0,
       doneCount: doneMap.get(candidate.id) ?? 0,

@@ -15,6 +15,7 @@ export interface ExtractedContact {
   met_country: string | null;
   origin_country: string | null;
   key_interests: string[];
+  user_goals_for_contact: string[];
   what_impressed_me: string | null;
   potential_synergies: string | null;
   personality_notes: string | null;
@@ -26,6 +27,13 @@ export interface ExtractedContact {
   met_date: string | null;
   is_update: boolean | null;
   follow_up_questions: string[];
+}
+
+export interface GoalEvent {
+  kind: "satisfied" | "new" | "abandoned";
+  matched_goal_id: string | null;
+  description: string;
+  evidence: string;
 }
 
 export interface MultiExtractionResult {
@@ -63,6 +71,7 @@ export interface ActivitySegment {
   warmth_reason: string;
   memory_hook: string | null;
   memory_notes: string[];
+  goal_events: GoalEvent[];
   // For new contacts only
   contact_data: Partial<ExtractedContact> | null;
 }

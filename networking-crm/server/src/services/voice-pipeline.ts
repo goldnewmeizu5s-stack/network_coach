@@ -2,10 +2,11 @@ import fs from "fs/promises";
 import prisma from "../lib/prisma";
 import { logger } from "../lib/logger";
 import { transcribeAudio } from "./transcription";
-import { extractContactData, extractMultipleContacts, extractBatchActivity, ContactForMatching } from "./ai-extraction";
+import { extractContactData, extractMultipleContacts, extractBatchActivity, ContactForMatching, OpenGoalForMatching } from "./ai-extraction";
 import { recalcAndAutoStatus } from "./warmth";
+import { addOrTouchGoal, setGoalStatus, recalcAndAutoInterestTier } from "./interest";
 import { notifyNewContact } from "../bot/notifications";
-import { BatchProcessingResult } from "../types";
+import { BatchProcessingResult, GoalEvent } from "../types";
 import {
   indexInteractionAsync,
   indexContactMemoryAsync,
@@ -269,10 +270,53 @@ async function createFollowUps(
       },
     });
   }
+
+  // Seed user-side goals from this voice note (deduped against open goals).
+  for (const goal of extracted.user_goals_for_contact ?? []) {
+    await addOrTouchGoal(contactId, goal, "ai");
+  }
+}
+
+/**
+ * Apply goal_events from a batch segment to the database.
+ * - "satisfied"/"abandoned" with a matched_goal_id → flip status.
+ * - "new" → create a goal (deduped against existing open goals).
+ * Falls back to substring lookup when matched_goal_id is missing.
+ */
+async function applyGoalEvents(
+  contactId: string,
+  events: GoalEvent[],
+  interactionId: string,
+  openGoals: OpenGoalForMatching[],
+): Promise<void> {
+  const goalsForContact = openGoals.filter((g) => g.contact_id === contactId);
+  for (const ev of events) {
+    if (ev.kind === "new") {
+      await addOrTouchGoal(contactId, ev.description, "ai");
+      continue;
+    }
+
+    let goalId = ev.matched_goal_id;
+    if (!goalId && ev.description) {
+      const norm = ev.description.toLowerCase();
+      const match = goalsForContact.find((g) => {
+        const a = g.description.toLowerCase();
+        return a === norm || a.includes(norm) || norm.includes(a);
+      });
+      if (match) goalId = match.id;
+    }
+    if (!goalId) continue;
+
+    await setGoalStatus(
+      goalId,
+      ev.kind === "satisfied" ? "satisfied" : "abandoned",
+      ev.kind === "satisfied" ? interactionId : null,
+    );
+  }
 }
 
 export async function createContact(extracted: Awaited<ReturnType<typeof extractContactData>>) {
-  return prisma.contact.create({
+  const contact = await prisma.contact.create({
     data: {
       full_name: extracted.full_name || "Unknown",
       nickname: extracted.nickname,
@@ -296,6 +340,14 @@ export async function createContact(extracted: Awaited<ReturnType<typeof extract
       last_interaction_at: new Date(),
     },
   });
+
+  // Seed initial user-side goals from the voice note. These create open
+  // InterestGoal rows and trigger an initial tier evaluation.
+  for (const goal of extracted.user_goals_for_contact ?? []) {
+    await addOrTouchGoal(contact.id, goal, "ai");
+  }
+
+  return contact;
 }
 
 // --- Batch Voice Activity Processing ---
@@ -343,8 +395,29 @@ export async function processBatchVoiceActivity(
       }
     );
 
+    // d2. Load open goals so the AI can match satisfied/abandoned events.
+    const openGoalRows = await prisma.interestGoal.findMany({
+      where: {
+        status: "open",
+        contact: { warmth_status: { not: "archived" } },
+      },
+      select: {
+        id: true,
+        contact_id: true,
+        description: true,
+        contact: { select: { full_name: true } },
+      },
+      take: 500,
+    });
+    const openGoals: OpenGoalForMatching[] = openGoalRows.map((g) => ({
+      id: g.id,
+      contact_id: g.contact_id,
+      contact_name: g.contact.full_name,
+      description: g.description,
+    }));
+
     // e. Extract batch activity data
-    const result = await extractBatchActivity(transcript, existingContacts);
+    const result = await extractBatchActivity(transcript, existingContacts, openGoals);
 
     if (!result.is_valid || result.segments.length === 0) {
       await prisma.interaction.update({
@@ -382,6 +455,7 @@ export async function processBatchVoiceActivity(
           met_country: segment.contact_data.met_country ?? null,
           origin_country: segment.contact_data.origin_country ?? null,
           key_interests: segment.contact_data.key_interests ?? [],
+          user_goals_for_contact: segment.contact_data.user_goals_for_contact ?? [],
           what_impressed_me: segment.contact_data.what_impressed_me ?? null,
           potential_synergies: segment.contact_data.potential_synergies ?? null,
           personality_notes: segment.contact_data.personality_notes ?? null,
@@ -446,7 +520,7 @@ export async function processBatchVoiceActivity(
       contactIds.push(contactId);
 
       // Create interaction record for this contact
-      await prisma.interaction.create({
+      const segmentInteraction = await prisma.interaction.create({
         data: {
           contact_id: contactId,
           type: segment.interaction_type,
@@ -454,6 +528,9 @@ export async function processBatchVoiceActivity(
           ai_summary: segment.activity_summary,
         },
       });
+
+      // Apply goal events detected in this segment.
+      await applyGoalEvents(contactId, segment.goal_events ?? [], segmentInteraction.id, openGoals);
 
       // Create follow-ups
       let followUpsCreated = 0;
@@ -472,8 +549,9 @@ export async function processBatchVoiceActivity(
       }
       totalFollowUpsCreated += followUpsCreated;
 
-      // Recalculate warmth
+      // Recalculate warmth and interest tier
       await recalcAndAutoStatus(contactId);
+      await recalcAndAutoInterestTier(contactId);
 
       processingResults.push({
         contact_name: segment.contact_name,

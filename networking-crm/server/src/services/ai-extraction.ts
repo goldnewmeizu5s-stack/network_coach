@@ -1,7 +1,7 @@
 import { anthropic, cachedSystem } from "../lib/ai";
 import { config } from "../config";
 import prisma from "../lib/prisma";
-import { ExtractedContact, MultiExtractionResult, FollowUpSuggestion, BatchActivityResult, ActivitySegment } from "../types";
+import { ExtractedContact, MultiExtractionResult, FollowUpSuggestion, BatchActivityResult, ActivitySegment, GoalEvent } from "../types";
 import { logger } from "../lib/logger";
 import { normalizeCountry, normalizeCountryKeepRaw } from "../lib/country-normalize";
 
@@ -44,7 +44,8 @@ Extract the following into structured JSON (use null for unknown fields):
   "country": "string or null",
   "met_country": "ISO 3166-1 alpha-2 country code (e.g. 'AE', 'RU', 'US') — country where the meeting/interaction took place, or null",
   "origin_country": "ISO 3166-1 alpha-2 country code (e.g. 'RU', 'UA', 'DE') — country the person is originally from / their nationality, or null",
-  "key_interests": ["array of interests"],
+  "key_interests": ["array of THE PERSON'S interests/hobbies/topics they care about"],
+  "user_goals_for_contact": ["array of things THE USER wants to learn from / get out of this person — distinct from key_interests above. Examples: 'понять как работает шифр X', 'получить интро к фаундеру Y', 'разобраться в его подходе к найму'. Empty array if none mentioned."],
   "what_impressed_me": "what the user found interesting or null",
   "potential_synergies": "how this person could be valuable and vice versa or null",
   "personality_notes": "vibe, energy, communication style or null",
@@ -62,6 +63,12 @@ Extract the following into structured JSON (use null for unknown fields):
   "is_update": false,
   "follow_up_questions": ["question1", "question2"]
 }
+
+RULES for user_goals_for_contact (IMPORTANT):
+- These are concrete things THE USER wants to learn or extract from this contact, not the contact's own interests.
+- Look for phrases like "хочу узнать у него...", "интересно как у него работает...", "хочу понять...", "обещал интро к...", "надо спросить про...".
+- Each entry is short and specific (one phrase). Don't repeat the contact's own hobbies here.
+- If the transcript has nothing about user-side goals, return [].
 
 STYLE for memory_hook (VERY IMPORTANT):
 - Extract ONE tiny, personal, memorable detail about this person — something most people would forget
@@ -150,6 +157,9 @@ export async function extractContactData(
         key_interests: Array.isArray(parsed.key_interests)
           ? parsed.key_interests
           : [],
+        user_goals_for_contact: Array.isArray(parsed.user_goals_for_contact)
+          ? parsed.user_goals_for_contact.filter((g: unknown): g is string => typeof g === "string" && g.trim().length > 0)
+          : [],
         what_impressed_me: parsed.what_impressed_me ?? null,
         potential_synergies: parsed.potential_synergies ?? null,
         personality_notes: parsed.personality_notes ?? null,
@@ -199,7 +209,8 @@ Return a JSON object with the following structure:
       "country": "string or null",
       "met_country": "ISO 3166-1 alpha-2 country code (e.g. 'AE', 'RU', 'US') — country where the meeting/interaction took place, or null",
       "origin_country": "ISO 3166-1 alpha-2 country code (e.g. 'RU', 'UA', 'DE') — country the person is originally from / their nationality, or null",
-      "key_interests": ["array of interests"],
+      "key_interests": ["array of THE PERSON'S interests/hobbies/topics they care about"],
+      "user_goals_for_contact": ["array of things THE USER wants to learn/get from this person — distinct from their own interests. Empty if none."],
       "what_impressed_me": "what the user found interesting or null",
       "potential_synergies": "how this person could be valuable and vice versa or null",
       "personality_notes": "vibe, energy, communication style or null",
@@ -309,6 +320,9 @@ export async function extractMultipleContacts(
           met_country: normalizeCountry(p.met_country),
           origin_country: normalizeCountry(p.origin_country),
           key_interests: Array.isArray(p.key_interests) ? p.key_interests : [],
+          user_goals_for_contact: Array.isArray(p.user_goals_for_contact)
+            ? (p.user_goals_for_contact as unknown[]).filter((g): g is string => typeof g === "string" && g.trim().length > 0)
+            : [],
           what_impressed_me: (p.what_impressed_me as string) ?? null,
           potential_synergies: (p.potential_synergies as string) ?? null,
           personality_notes: (p.personality_notes as string) ?? null,
@@ -379,10 +393,26 @@ Return a JSON object:
       "warmth_reason": "почему отношения улучшились/ухудшились/стабильны",
       "memory_hook": "одна маленькая личная деталь, которую стоит запомнить, или null",
       "memory_notes": ["факт 1", "факт 2"],
+      "goal_events": [
+        {
+          "kind": "satisfied" | "new" | "abandoned",
+          "matched_goal_id": "uuid существующей открытой цели если kind=satisfied/abandoned, иначе null",
+          "description": "текст цели — для new это новая цель пользователя; для satisfied/abandoned — копия исходной",
+          "evidence": "цитата или пересказ из транскрипта, объясняющий событие"
+        }
+      ],
       "contact_data": null
     }
   ]
 }
+
+RULES for goal_events (CRITICAL — это ядро трекинга интереса):
+- "OPEN GOALS" по каждому контакту перечислены в конце системного промпта вместе с их ID. Используй эти ID при kind=satisfied/abandoned.
+- kind="satisfied": пользователь получил/узнал то, что хотел (например цель «понять как работает шифр X», транскрипт: «он объяснил мне шифр») → matched_goal_id обязателен.
+- kind="new": в транскрипте появился НОВЫЙ user-side intent («хочу попросить интро к Y», «надо узнать про найм у него»). matched_goal_id=null.
+- kind="abandoned": пользователь явно говорит, что цель больше не актуальна («забил, неинтересно») → matched_goal_id обязателен.
+- Если ничего не произошло — пустой массив [].
+- НЕ путай goal_events с key_interests или topics_discussed — это РАЗНЫЕ концепции.
 
 RULES for matching contacts:
 - Match by name similarity: "Ваня" = "Иван", "Саша" = "Александр", "Лёша" = "Алексей", etc.
@@ -444,9 +474,17 @@ export interface ContactForMatching {
   warmth_status: string;
 }
 
+export interface OpenGoalForMatching {
+  id: string;
+  contact_id: string;
+  contact_name: string;
+  description: string;
+}
+
 export async function extractBatchActivity(
   transcript: string,
-  existingContacts: ContactForMatching[]
+  existingContacts: ContactForMatching[],
+  openGoals: OpenGoalForMatching[] = []
 ): Promise<BatchActivityResult> {
   const maxRetries = 2;
   const backoff = [2000, 6000];
@@ -459,10 +497,25 @@ export async function extractBatchActivity(
     )
     .join("\n");
 
+  const goalsByContact = new Map<string, OpenGoalForMatching[]>();
+  for (const g of openGoals) {
+    const arr = goalsByContact.get(g.contact_id) ?? [];
+    arr.push(g);
+    goalsByContact.set(g.contact_id, arr);
+  }
+  const goalsList = Array.from(goalsByContact.values())
+    .map((goals) => {
+      const head = `- ${goals[0].contact_name} (contact id: ${goals[0].contact_id}):`;
+      const lines = goals.map((g) => `    · "${g.description}" (goal id: ${g.id})`);
+      return [head, ...lines].join("\n");
+    })
+    .join("\n");
+
   const userContext = await loadUserContextForExtraction();
   const tail = [
     `Today is ${todayStr}.`,
     `EXISTING CONTACTS:\n${contactsList || "(no existing contacts)"}`,
+    `OPEN USER GOALS:\n${goalsList || "(no open goals)"}`,
     userContext,
   ]
     .filter(Boolean)
@@ -529,6 +582,7 @@ export async function extractBatchActivity(
             memory_notes: Array.isArray(s.memory_notes)
               ? (s.memory_notes as string[])
               : [],
+            goal_events: normalizeGoalEvents(s.goal_events),
             contact_data: s.is_new_contact === true
               ? normalizeContactData(s.contact_data)
               : null,
@@ -570,6 +624,32 @@ function validateWarmthChange(
     : "stable";
 }
 
+function normalizeGoalEvents(raw: unknown): GoalEvent[] {
+  if (!Array.isArray(raw)) return [];
+  const valid: GoalEvent["kind"][] = ["satisfied", "new", "abandoned"];
+  return raw
+    .map((item: unknown) => {
+      if (typeof item !== "object" || item === null) return null;
+      const o = item as Record<string, unknown>;
+      const kind = typeof o.kind === "string" && (valid as string[]).includes(o.kind)
+        ? (o.kind as GoalEvent["kind"])
+        : null;
+      const description = typeof o.description === "string" ? o.description.trim() : "";
+      if (!kind) return null;
+      if (kind === "new" && !description) return null;
+      return {
+        kind,
+        matched_goal_id:
+          typeof o.matched_goal_id === "string" && o.matched_goal_id.length > 0
+            ? o.matched_goal_id
+            : null,
+        description,
+        evidence: typeof o.evidence === "string" ? o.evidence : "",
+      } as GoalEvent;
+    })
+    .filter((g): g is GoalEvent => g !== null);
+}
+
 function normalizeContactData(
   raw: unknown
 ): Partial<ExtractedContact> | null {
@@ -586,6 +666,9 @@ function normalizeContactData(
     met_country: normalizeCountry(p.met_country),
     origin_country: normalizeCountry(p.origin_country),
     key_interests: Array.isArray(p.key_interests) ? p.key_interests : [],
+    user_goals_for_contact: Array.isArray(p.user_goals_for_contact)
+      ? (p.user_goals_for_contact as unknown[]).filter((g): g is string => typeof g === "string" && g.trim().length > 0)
+      : [],
     what_impressed_me: (p.what_impressed_me as string) ?? null,
     potential_synergies: (p.potential_synergies as string) ?? null,
     personality_notes: (p.personality_notes as string) ?? null,

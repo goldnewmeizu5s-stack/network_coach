@@ -4,6 +4,7 @@ import { logger } from "../lib/logger";
 import { aiLimiter } from "../lib/rate-limit";
 import { createFollowUpSchema, updateFollowUpSchema } from "../lib/validators";
 import { recalcAndAutoStatus } from "../services/warmth";
+import { recalcAndAutoInterestTier } from "../services/interest";
 import { generateFollowUpsForContact } from "../services/followup-engine";
 import { draftFollowUpMessage } from "../services/message-drafting";
 const router = Router();
@@ -93,8 +94,10 @@ router.put("/:id", async (req, res, next) => {
         data: { last_interaction_at: new Date() },
       });
 
-      // Recalculate warmth
+      // Recalculate warmth and interest tier (the latter sees the new "done" follow-up
+      // and any goals that were satisfied via this completion).
       await recalcAndAutoStatus(followUp.contact_id);
+      await recalcAndAutoInterestTier(followUp.contact_id);
 
       res.json(updated);
     } else if (status === "snoozed") {
@@ -115,6 +118,8 @@ router.put("/:id", async (req, res, next) => {
         where: { id: req.params.id },
         data: { status: "skipped" },
       });
+      // Skips feed the interest score penalty.
+      await recalcAndAutoInterestTier(followUp.contact_id);
       res.json(updated);
     } else {
       res.status(400).json({
