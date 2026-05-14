@@ -8,7 +8,7 @@ import {
   useNavigate,
 } from "react-router-dom";
 import { AnimatePresence, motion } from "framer-motion";
-import { Home as HomeIcon, Users, Target, MessageCircle, ClipboardList, NotebookText } from "lucide-react";
+import { Home as HomeIcon, Users, Target, MessageCircle, ClipboardList, Swords } from "lucide-react";
 import { ToastProvider, useToast } from "./components/Toast";
 import { SkeletonList } from "./components/Skeleton";
 import Onboarding from "./components/Onboarding";
@@ -23,12 +23,13 @@ const FollowUps = lazy(() => import("./pages/FollowUps"));
 const Challenge = lazy(() => import("./pages/Challenge"));
 const Chat = lazy(() => import("./pages/Chat"));
 const Notes = lazy(() => import("./pages/Notes"));
+const Samurai = lazy(() => import("./pages/Samurai"));
 const Settings = lazy(() => import("./pages/Settings"));
 const Rank = lazy(() => import("./pages/Rank"));
 
 const isTelegramWebApp = !!window.Telegram?.WebApp?.initData;
 
-type Tab = "home" | "people" | "challenge" | "chat" | "followups" | "notes";
+type Tab = "home" | "people" | "challenge" | "chat" | "followups" | "samurai";
 
 const TAB_ICONS = {
   home: HomeIcon,
@@ -36,13 +37,13 @@ const TAB_ICONS = {
   challenge: Target,
   chat: MessageCircle,
   followups: ClipboardList,
-  notes: NotebookText,
+  samurai: Swords,
 };
 
 const tabs: { id: Tab; path: string; label: string }[] = [
   { id: "home", path: "/", label: "Home" },
   { id: "people", path: "/people", label: "People" },
-  { id: "notes", path: "/notes", label: "Memory" },
+  { id: "samurai", path: "/samurai", label: "Path" },
   { id: "followups", path: "/followups", label: "Tasks" },
   { id: "challenge", path: "/challenges", label: "Challenge" },
   { id: "chat", path: "/chat", label: "Chat" },
@@ -262,6 +263,7 @@ function AnimatedRoutes() {
               <Route path="/challenges" element={<Challenge />} />
               <Route path="/chat" element={<Chat />} />
               <Route path="/notes" element={<Notes />} />
+              <Route path="/samurai" element={<Samurai />} />
               <Route path="/settings" element={<Settings />} />
               <Route path="/rank" element={<Rank />} />
               <Route path="*" element={<Navigate to="/" replace />} />
@@ -285,6 +287,7 @@ function TelegramBackButton() {
     const isSubPage =
       !!location.pathname.match(/^\/people\/[^/]+$/) ||
       location.pathname === "/rank" ||
+      location.pathname === "/notes" ||
       location.pathname === "/settings";
     if (isSubPage) {
       tg.BackButton.show();
