@@ -28,16 +28,6 @@ interface AppStats {
   methodologies: number;
 }
 
-interface RefreshProgress {
-  running: boolean;
-  total: number;
-  processed: number;
-  failed: number;
-  growthEdgesBackfilled: number;
-  startedAt: string | null;
-  finishedAt: string | null;
-}
-
 interface CategoryReaction {
   category: string;
   completed: number;
@@ -91,10 +81,6 @@ export default function Settings() {
   const [reactions, setReactions] = useState<ReactionInsights | null>(null);
   const [reactionsLoading, setReactionsLoading] = useState(false);
   const [reactionsRefreshing, setReactionsRefreshing] = useState(false);
-
-  // Full-network refresh
-  const [refresh, setRefresh] = useState<RefreshProgress | null>(null);
-  const refreshTimer = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // PIN
   const [showPinChange, setShowPinChange] = useState(false);
@@ -156,32 +142,6 @@ export default function Settings() {
     }
   }, []);
 
-  const pollRefresh = useCallback(async () => {
-    try {
-      const data = await api.get<RefreshProgress>("/contacts/refresh");
-      setRefresh(data);
-      if (!data.running && refreshTimer.current) {
-        clearInterval(refreshTimer.current);
-        refreshTimer.current = null;
-      }
-    } catch {
-      /* ignore */
-    }
-  }, []);
-
-  const startRefresh = async () => {
-    try {
-      const data = await api.post<RefreshProgress>("/contacts/refresh");
-      setRefresh(data);
-      if (!refreshTimer.current) {
-        refreshTimer.current = setInterval(pollRefresh, 2000);
-      }
-      show("Обновление запущено — можно закрыть экран, оно идёт в фоне");
-    } catch {
-      show("Не удалось запустить обновление");
-    }
-  };
-
   const refreshReactions = async () => {
     setReactionsRefreshing(true);
     try {
@@ -214,30 +174,6 @@ export default function Settings() {
     fetchStats();
     fetchReactions();
   }, [fetchProfile, fetchMethodologies, fetchStats, fetchReactions]);
-
-  // Pick up an in-progress refresh when the screen opens, keep polling it.
-  useEffect(() => {
-    let active = true;
-    api
-      .get<RefreshProgress>("/contacts/refresh")
-      .then((data) => {
-        if (!active) return;
-        setRefresh(data);
-        if (data.running && !refreshTimer.current) {
-          refreshTimer.current = setInterval(pollRefresh, 2000);
-        }
-      })
-      .catch(() => {
-        /* ignore */
-      });
-    return () => {
-      active = false;
-      if (refreshTimer.current) {
-        clearInterval(refreshTimer.current);
-        refreshTimer.current = null;
-      }
-    };
-  }, [pollRefresh]);
 
   const saveProfile = async () => {
     setProfileSaving(true);
@@ -614,47 +550,6 @@ export default function Settings() {
           >
             Обновить follow-ups (cron)
           </button>
-
-          {/* Full-network refresh */}
-          <div className="mt-1 rounded-xl bg-neutral-800/60 p-3">
-            <p className="mb-2 text-xs leading-relaxed text-neutral-500">
-              Проходит по всем контактам и пересчитывает производные данные
-              (теплота, интерес, зона роста) из уже сохранённой истории. Полезно
-              после обновлений приложения — старые контакты получат новые поля.
-              Ничего не сбрасывается, только пересчитывается.
-            </p>
-            <button
-              onClick={startRefresh}
-              disabled={refresh?.running}
-              className="w-full rounded-lg bg-accent/15 py-2.5 text-sm font-medium text-accent active:bg-accent/25 disabled:opacity-60"
-            >
-              {refresh?.running
-                ? `Обновляю... ${refresh.processed}/${refresh.total || "?"}`
-                : "Обновить все контакты"}
-            </button>
-            {refresh?.running && (
-              <div className="mt-2 h-2 overflow-hidden rounded-full bg-neutral-700">
-                <div
-                  className="h-full rounded-full bg-accent transition-all"
-                  style={{
-                    width: `${
-                      refresh.total > 0
-                        ? Math.round((refresh.processed / refresh.total) * 100)
-                        : 0
-                    }%`,
-                  }}
-                />
-              </div>
-            )}
-            {refresh && !refresh.running && refresh.finishedAt && (
-              <p className="mt-2 text-[11px] text-neutral-500">
-                Готово · обновлено {refresh.processed} из {refresh.total}
-                {refresh.growthEdgesBackfilled > 0 &&
-                  ` · зон роста добавлено ${refresh.growthEdgesBackfilled}`}
-                {refresh.failed > 0 && ` · ошибок ${refresh.failed}`}
-              </p>
-            )}
-          </div>
         </div>
       </Section>
 
