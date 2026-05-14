@@ -257,6 +257,75 @@ export async function getTopSenseis(limit = 3): Promise<SenseiSummary[]> {
   }));
 }
 
+export interface SenseiEntry {
+  contact_id: string;
+  full_name: string;
+  occupation: string | null;
+  company: string | null;
+  photo_url: string | null;
+  city: string | null;
+  country: string | null;
+  warmth_status: string;
+  warmth_score: number;
+  last_interaction_at: string | null;
+  headline: string;
+  planes: GrowthPlane[];
+  chess_note: string | null;
+  priority: number;
+  analyzed_at: string;
+}
+
+/**
+ * Every active "sensei" with the contact data the "Самураи пути" page needs,
+ * highest priority first.
+ */
+export async function listSenseis(): Promise<SenseiEntry[]> {
+  const edges = await prisma.growthEdge.findMany({
+    where: {
+      status: "active",
+      verdict: "sensei",
+      contact: { warmth_status: { not: "archived" } },
+    },
+    orderBy: [{ priority: "desc" }, { analyzed_at: "desc" }],
+    include: {
+      contact: {
+        select: {
+          id: true,
+          full_name: true,
+          occupation: true,
+          company: true,
+          photo_url: true,
+          city: true,
+          country: true,
+          warmth_status: true,
+          warmth_score: true,
+          last_interaction_at: true,
+        },
+      },
+    },
+  });
+
+  return edges.map((e) => ({
+    contact_id: e.contact_id,
+    full_name: e.contact.full_name,
+    occupation: e.contact.occupation,
+    company: e.contact.company,
+    photo_url: e.contact.photo_url,
+    city: e.contact.city,
+    country: e.contact.country,
+    warmth_status: e.contact.warmth_status,
+    warmth_score: e.contact.warmth_score,
+    last_interaction_at: e.contact.last_interaction_at
+      ? e.contact.last_interaction_at.toISOString()
+      : null,
+    headline: e.headline,
+    planes: (e.planes as unknown as GrowthPlane[]) ?? [],
+    chess_note: e.chess_note,
+    priority: e.priority,
+    analyzed_at: e.analyzed_at.toISOString(),
+  }));
+}
+
 /** Format senseis for an AI prompt. Returns "" when there are none. */
 export function formatSenseisForPrompt(senseis: SenseiSummary[]): string {
   if (senseis.length === 0) return "";

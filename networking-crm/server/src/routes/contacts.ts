@@ -21,6 +21,7 @@ import { indexContactMemoryAsync } from "../services/memory/memory-indexer";
 import {
   analyzeAndSaveGrowthEdge,
   analyzeGrowthEdgeAsync,
+  listSenseis,
 } from "../services/growth-edge";
 import {
   getRefreshProgress,
@@ -245,6 +246,17 @@ router.post("/refresh", (_req, res) => {
     /* errors are logged inside the job */
   });
   res.status(202).json(getRefreshProgress());
+});
+
+// GET /api/contacts/senseis — active "sensei" growth edges for the
+// "Самураи пути" page. Declared before "/:id" so it isn't read as an id.
+router.get("/senseis", async (_req, res, next) => {
+  try {
+    const senseis = await listSenseis();
+    res.json({ senseis });
+  } catch (err) {
+    next(err);
+  }
 });
 
 // GET /api/contacts/:id
