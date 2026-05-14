@@ -10,6 +10,7 @@ import {
 } from "./challenge-engine";
 import { consolidateAllContacts } from "./memory/consolidation";
 import { refreshReactionInsights } from "./challenge-reactions";
+import { refreshGrowthEdges } from "./growth-edge";
 import {
   sendMorningBriefing,
   sendFollowUpReminders,
@@ -368,6 +369,21 @@ export async function runWeeklyMemoryJob(): Promise<void> {
   }
 }
 
+/**
+ * Weekly growth-edge refresh — (re)analyzes every non-archived contact whose
+ * "зона роста" assessment is missing or stale. Capped per run so a large
+ * network catches up over a few weeks.
+ */
+export async function runGrowthEdgeJob(): Promise<void> {
+  logger.info(`[cron] Running growth-edge job at ${new Date().toISOString()}`);
+  try {
+    const result = await refreshGrowthEdges();
+    logger.info("[cron] Growth edges refreshed", result);
+  } catch (err) {
+    logger.error("[cron] Growth edge refresh failed", { error: String(err) });
+  }
+}
+
 const scheduledJobs: ReturnType<typeof cron.schedule>[] = [];
 
 export function startCron(): void {
@@ -397,8 +413,17 @@ export function startCron(): void {
     }),
   );
 
+  // Weekly growth-edge refresh on Saturdays at 04:00 UTC
+  scheduledJobs.push(
+    cron.schedule("0 4 * * 6", () => {
+      runGrowthEdgeJob().catch((err) =>
+        logger.error("Weekly growth-edge cron error", { error: String(err) }),
+      );
+    }),
+  );
+
   logger.info(
-    "[cron] Scheduled: daily 08:00, reminders 12:00/18:00, weekly Mon 10:00, memory Sun 03:00 UTC",
+    "[cron] Scheduled: daily 08:00, reminders 12:00/18:00, weekly Mon 10:00, memory Sun 03:00, growth-edge Sat 04:00 UTC",
   );
 }
 

@@ -19,6 +19,10 @@ import {
 import { suggestActions } from "../services/message-drafting";
 import { indexContactMemoryAsync } from "../services/memory/memory-indexer";
 import {
+  analyzeAndSaveGrowthEdge,
+  analyzeGrowthEdgeAsync,
+} from "../services/growth-edge";
+import {
   normalizeCountry,
   normalizeCountryKeepRaw,
 } from "../lib/country-normalize";
@@ -242,6 +246,7 @@ router.get("/:id", async (req, res, next) => {
         interest_goals: {
           orderBy: [{ status: "asc" }, { last_mentioned_at: "desc" }],
         },
+        growth_edge: true,
       },
     });
 
@@ -286,6 +291,8 @@ router.post("/", async (req, res, next) => {
         warmth_score: 0,
       },
     });
+
+    analyzeGrowthEdgeAsync(contact.id);
 
     res.status(201).json(contact);
   } catch (err) {
@@ -456,6 +463,64 @@ router.post("/:id/suggest-actions", aiLimiter, async (req, res, next) => {
     }
     const suggestions = await suggestActions(contactId);
     res.json({ suggestions });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// GET /api/contacts/:id/growth-edge — current "зона роста" assessment
+router.get("/:id/growth-edge", async (req, res, next) => {
+  try {
+    const edge = await prisma.growthEdge.findUnique({
+      where: { contact_id: req.params.id },
+    });
+    res.json(edge);
+  } catch (err) {
+    next(err);
+  }
+});
+
+// POST /api/contacts/:id/growth-edge — (re)run the AI analysis
+router.post("/:id/growth-edge", aiLimiter, async (req, res, next) => {
+  try {
+    const contactId = req.params.id as string;
+    const contact = await prisma.contact.findUnique({
+      where: { id: contactId },
+      select: { id: true },
+    });
+    if (!contact) {
+      res.status(404).json({ error: "Contact not found" });
+      return;
+    }
+    const edge = await analyzeAndSaveGrowthEdge(contactId);
+    res.json(edge);
+  } catch (err) {
+    next(err);
+  }
+});
+
+// PATCH /api/contacts/:id/growth-edge — { status: "active" | "dismissed" }
+router.patch("/:id/growth-edge", async (req, res, next) => {
+  try {
+    const status = req.body?.status;
+    if (status !== "active" && status !== "dismissed") {
+      res
+        .status(400)
+        .json({ error: "status must be 'active' or 'dismissed'" });
+      return;
+    }
+    const edge = await prisma.growthEdge.findUnique({
+      where: { contact_id: req.params.id },
+    });
+    if (!edge) {
+      res.status(404).json({ error: "Growth edge not found" });
+      return;
+    }
+    const updated = await prisma.growthEdge.update({
+      where: { contact_id: req.params.id },
+      data: { status },
+    });
+    res.json(updated);
   } catch (err) {
     next(err);
   }

@@ -12,6 +12,7 @@ import {
   indexContactMemoryAsync,
 } from "./memory/memory-indexer";
 import { generateLocationChallenges } from "./location-challenge-engine";
+import { analyzeGrowthEdgeAsync } from "./growth-edge";
 
 export async function processVoiceNote(
   interactionId: string,
@@ -346,6 +347,9 @@ export async function createContact(extracted: Awaited<ReturnType<typeof extract
   for (const goal of extracted.user_goals_for_contact ?? []) {
     await addOrTouchGoal(contact.id, goal, "ai");
   }
+
+  // Kick off the growth-edge ("зона роста") analysis in the background.
+  analyzeGrowthEdgeAsync(contact.id);
 
   return contact;
 }

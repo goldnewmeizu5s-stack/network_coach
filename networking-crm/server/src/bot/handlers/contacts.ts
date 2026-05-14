@@ -9,6 +9,12 @@ import {
   recalcAndAutoStatus,
 } from "../../services/warmth";
 import { suggestActions, Suggestion } from "../../services/message-drafting";
+import {
+  analyzeAndSaveGrowthEdge,
+  verdictLabel,
+  verdictEmoji,
+} from "../../services/growth-edge";
+import { GrowthPlane } from "../../types";
 import { handleReflectionText } from "./challenges";
 import { handleChatMessage } from "./chat";
 import { handleVoiceCorrectionText, handleSocialsText, handleContactAnswerText, handleTextContactCreation } from "./voice";
@@ -55,6 +61,10 @@ export function registerContactHandlers(bot: Telegraf) {
 
   // AI suggest
   bot.action(/^contact_suggest:(.+)$/, handleSuggest);
+
+  // Growth edge ("зона роста")
+  bot.action(/^contact_growth:(.+)$/, handleGrowthEdge);
+  bot.action(/^contact_growth_refresh:(.+)$/, handleGrowthEdgeRefresh);
 
   // Create follow-up from suggestion
   bot.action(/^fu_from_suggest:(.+):(\d+)$/, handleCreateFollowUp);
@@ -533,6 +543,7 @@ async function showContactCard(ctx: Context, contactId: string) {
         Markup.button.callback("📋 Follow-ups", `contact_fups:${contactId}`),
         Markup.button.callback("🤖 Совет", `contact_suggest:${contactId}`),
       ],
+      [Markup.button.callback("🥋 Зона роста", `contact_growth:${contactId}`)],
       [
         Markup.button.callback("← Контакты", "contacts"),
         Markup.button.callback("🏠 Меню", "main_menu"),
@@ -817,6 +828,166 @@ async function handleCreateFollowUp(ctx: Context) {
   } catch (err) {
     logger.error("create followup error", { error: String(err) });
     await ctx.reply(`❌ Не удалось создать follow-up:\n\n<pre>${fmtError(err)}</pre>`, { parse_mode: "HTML" });
+  }
+}
+
+// ── Growth edge ("зона роста") ────────────────────────────
+
+interface GrowthEdgeCard {
+  verdict: string;
+  headline: string;
+  planes: unknown;
+  chess_note: string | null;
+  priority: number;
+}
+
+function renderGrowthEdgeCard(name: string, edge: GrowthEdgeCard): string {
+  const planes = Array.isArray(edge.planes)
+    ? (edge.planes as GrowthPlane[])
+    : [];
+
+  const lines: string[] = [
+    `🥋 <b>Зона роста — ${esc(name)}</b>`,
+    divider(),
+    "",
+    `${verdictEmoji(edge.verdict)} <b>${esc(verdictLabel(edge.verdict))}</b> · приоритет ${edge.priority}/100`,
+    "",
+    esc(edge.headline),
+  ];
+
+  if (edge.chess_note) {
+    lines.push("", `💭 <i>${esc(edge.chess_note)}</i>`);
+  }
+
+  if (planes.length > 0) {
+    lines.push("", thinDivider(), "", "<b>Чему учиться рядом с ним:</b>");
+    for (const p of planes) {
+      lines.push("", `▸ <b>${esc(p.plane)}</b>`);
+      if (p.why) lines.push(`   <i>почему:</i> ${esc(p.why)}`);
+      if (p.how_to_absorb)
+        lines.push(`   <i>как забрать:</i> ${esc(p.how_to_absorb)}`);
+    }
+  }
+
+  return lines.join("\n");
+}
+
+function growthEdgeButtons(contactId: string) {
+  return [
+    [
+      Markup.button.callback(
+        "🔄 Пересчитать",
+        `contact_growth_refresh:${contactId}`,
+      ),
+    ],
+    [Markup.button.callback("← К контакту", `contact_view:${contactId}`)],
+  ];
+}
+
+async function handleGrowthEdge(ctx: Context) {
+  const match = (ctx as any).match as RegExpMatchArray;
+  const contactId = match[1];
+
+  try {
+    await ctx.answerCbQuery();
+
+    const contact = await prisma.contact.findUnique({
+      where: { id: contactId },
+      select: { full_name: true },
+    });
+    if (!contact) {
+      await ctx.reply("❌ Контакт не найден.", { parse_mode: "HTML" });
+      return;
+    }
+
+    const existing = await prisma.growthEdge.findUnique({
+      where: { contact_id: contactId },
+    });
+
+    if (existing) {
+      await editOrReply(
+        ctx,
+        renderGrowthEdgeCard(contact.full_name, existing),
+        growthEdgeButtons(contactId),
+      );
+      return;
+    }
+
+    // No analysis yet — run it now.
+    const statusMsg = await ctx.reply(
+      "🥋 Анализирую, чему ты можешь научиться у этого человека...",
+    );
+    let edge;
+    try {
+      edge = await analyzeAndSaveGrowthEdge(contactId);
+    } catch (err) {
+      logger.error("growth edge analysis failed", { error: String(err) });
+      await ctx.telegram.editMessageText(
+        ctx.chat!.id,
+        statusMsg.message_id,
+        undefined,
+        "❌ Не удалось проанализировать. Попробуй позже.",
+      );
+      return;
+    }
+
+    await ctx.telegram.editMessageText(
+      ctx.chat!.id,
+      statusMsg.message_id,
+      undefined,
+      renderGrowthEdgeCard(contact.full_name, edge),
+      {
+        parse_mode: "HTML",
+        ...Markup.inlineKeyboard(growthEdgeButtons(contactId)),
+      },
+    );
+  } catch (err) {
+    logger.error("growth edge error", { error: String(err) });
+    await ctx
+      .reply(`❌ Ошибка:\n\n<pre>${fmtError(err)}</pre>`, { parse_mode: "HTML" })
+      .catch(() => {});
+  }
+}
+
+async function handleGrowthEdgeRefresh(ctx: Context) {
+  const match = (ctx as any).match as RegExpMatchArray;
+  const contactId = match[1];
+
+  try {
+    await ctx.answerCbQuery("Пересчитываю...");
+
+    const contact = await prisma.contact.findUnique({
+      where: { id: contactId },
+      select: { full_name: true },
+    });
+    if (!contact) {
+      await ctx.reply("❌ Контакт не найден.", { parse_mode: "HTML" });
+      return;
+    }
+
+    await editOrReply(ctx, "🥋 Пересчитываю зону роста...", []);
+
+    let edge;
+    try {
+      edge = await analyzeAndSaveGrowthEdge(contactId);
+    } catch (err) {
+      logger.error("growth edge refresh failed", { error: String(err) });
+      await editOrReply(ctx, "❌ Не удалось пересчитать. Попробуй позже.", [
+        [Markup.button.callback("← К контакту", `contact_view:${contactId}`)],
+      ]);
+      return;
+    }
+
+    await editOrReply(
+      ctx,
+      renderGrowthEdgeCard(contact.full_name, edge),
+      growthEdgeButtons(contactId),
+    );
+  } catch (err) {
+    logger.error("growth edge refresh error", { error: String(err) });
+    await ctx
+      .reply(`❌ Ошибка:\n\n<pre>${fmtError(err)}</pre>`, { parse_mode: "HTML" })
+      .catch(() => {});
   }
 }
 

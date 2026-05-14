@@ -15,6 +15,12 @@ import {
   getRelevantMethodologies,
   formatMethodologiesForPrompt,
 } from "./methodology-retrieval";
+import {
+  analyzeAndSaveGrowthEdge,
+  analyzeGrowthEdgeAsync,
+  verdictLabel,
+} from "./growth-edge";
+import { GrowthPlane } from "../types";
 import type Anthropic from "@anthropic-ai/sdk";
 
 // ── Tool definitions for Claude ────────────────────────────
@@ -253,6 +259,26 @@ const TOOLS: Anthropic.Tool[] = [
         contact_name: {
           type: "string",
           description: "Name of the contact",
+        },
+      },
+      required: ["contact_name"],
+    },
+  },
+  {
+    name: "get_growth_edge",
+    description:
+      "Get the 'growth edge' (зона роста) for a contact: in which specific plane/dimension this person is stronger than the user, what to absorb from them, and how. Use this when the user asks what they can learn from someone, whether a person is worth investing time in, who their 'senseis' are, or to apply the chess-theory filter ('learn only from a stronger opponent, per plane') to a contact. Pass refresh=true to force a fresh analysis.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        contact_name: {
+          type: "string",
+          description: "Name of the contact to assess",
+        },
+        refresh: {
+          type: "boolean",
+          description:
+            "Force a fresh AI analysis instead of returning the cached one (default false)",
         },
       },
       required: ["contact_name"],
@@ -935,6 +961,41 @@ async function executeTool(
           .join("\n");
       }
 
+      case "get_growth_edge": {
+        const contact = await findContactByName(input.contact_name as string);
+        if (!contact) return `Contact "${input.contact_name}" not found.`;
+
+        const refresh = input.refresh === true;
+        let edge = refresh
+          ? null
+          : await prisma.growthEdge.findUnique({
+              where: { contact_id: contact.id },
+            });
+        if (!edge) {
+          edge = await analyzeAndSaveGrowthEdge(contact.id);
+        }
+
+        const planes = (edge.planes as unknown as GrowthPlane[]) ?? [];
+        const lines = [
+          `Growth edge for ${contact.full_name}:`,
+          `Verdict: ${verdictLabel(edge.verdict)} (${edge.verdict}) | priority ${edge.priority}/100`,
+          `Headline: ${edge.headline}`,
+        ];
+        if (edge.chess_note) lines.push(`Chess note: ${edge.chess_note}`);
+        if (planes.length > 0) {
+          lines.push("Planes (where they're ahead of the user):");
+          for (const p of planes) {
+            lines.push(
+              `- ${p.plane}${p.why ? ` — why: ${p.why}` : ""}${p.how_to_absorb ? ` | how to absorb: ${p.how_to_absorb}` : ""}`,
+            );
+          }
+        }
+        lines.push(
+          "Present this to the user conversationally — name the plane(s), why this person is ahead, and the concrete way to learn it. Don't flatter; if verdict is peer/giver, say so plainly.",
+        );
+        return lines.join("\n");
+      }
+
       case "update_profile": {
         const field = input.field as string;
         const value = input.value as string;
@@ -991,6 +1052,7 @@ async function executeTool(
         });
 
         createdContactIds.push(contact.id);
+        analyzeGrowthEdgeAsync(contact.id);
         return `Created new contact: ${contact.full_name} (id: ${contact.id}, status: new). You can now add notes, create follow-ups, and more.`;
       }
 

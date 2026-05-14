@@ -36,6 +36,26 @@ export interface GoalEvent {
   evidence: string;
 }
 
+// --- Growth Edge ("зона роста") ---
+// The chess-theory filter: you only get stronger playing a stronger opponent,
+// but "stronger" is always per-plane. Each plane is a specific dimension where
+// the contact is ahead of the user, plus how to absorb it.
+export type GrowthVerdict = "sensei" | "peer" | "giver" | "unclear";
+
+export interface GrowthPlane {
+  plane: string; // short name of the dimension where the contact is ahead
+  why: string; // why they're ahead of the user here
+  how_to_absorb: string; // a concrete action to learn it from them
+}
+
+export interface GrowthEdgeAnalysis {
+  verdict: GrowthVerdict;
+  headline: string;
+  planes: GrowthPlane[];
+  chess_note: string | null;
+  priority: number; // 0-100
+}
+
 export interface MultiExtractionResult {
   contacts: ExtractedContact[];
   is_voice_note: boolean;

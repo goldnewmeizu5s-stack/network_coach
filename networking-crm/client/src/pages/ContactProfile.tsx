@@ -87,6 +87,26 @@ interface InterestGoal {
   last_mentioned_at: string;
 }
 
+interface GrowthPlane {
+  plane: string;
+  why: string;
+  how_to_absorb: string;
+}
+
+type GrowthVerdict = "sensei" | "peer" | "giver" | "unclear";
+
+interface GrowthEdge {
+  id: string;
+  contact_id: string;
+  verdict: GrowthVerdict;
+  headline: string;
+  planes: GrowthPlane[];
+  chess_note: string | null;
+  priority: number;
+  status: "active" | "dismissed";
+  analyzed_at: string;
+}
+
 interface Contact {
   id: string;
   full_name: string;
@@ -119,6 +139,7 @@ interface Contact {
   created_at: string;
   interactions: Interaction[];
   interest_goals: InterestGoal[];
+  growth_edge: GrowthEdge | null;
 }
 
 const TIER_LABELS: Record<Contact["interest_tier"], string> = {
@@ -1055,6 +1076,11 @@ export default function ContactProfile() {
           />
         </motion.div>
 
+        {/* Growth edge — "зона роста" */}
+        <motion.div variants={fade}>
+          <GrowthEdgeSection contact={contact} onChanged={fetchContact} />
+        </motion.div>
+
         {contact.what_impressed_me && (
           <motion.div variants={fade}>
             <Callout
@@ -1726,6 +1752,207 @@ function InterestSection({
           + добавить цель
         </button>
       )}
+    </Section>
+  );
+}
+
+const GROWTH_VERDICT_META: Record<
+  GrowthVerdict,
+  { label: string; emoji: string; badge: string; hint: string }
+> = {
+  sensei: {
+    label: "Сенсей",
+    emoji: "✅",
+    badge: "border-emerald-400/30 bg-emerald-500/10 text-emerald-300",
+    hint: "Есть конкретная плоскость, где он сильнее тебя — вкладывай время агрессивно.",
+  },
+  peer: {
+    label: "Равный",
+    emoji: "⚠️",
+    badge: "border-amber-400/30 bg-amber-500/10 text-amber-200",
+    hint: "Вы примерно на одном уровне — обмен возможен, но это не приоритет для роста.",
+  },
+  giver: {
+    label: "Ты даёшь больше",
+    emoji: "❌",
+    badge: "border-rose-400/30 bg-rose-500/10 text-rose-300",
+    hint: "Ты можешь дать ему больше, чем он тебе. Дружи, если приятно — но не путай это с развитием.",
+  },
+  unclear: {
+    label: "Недостаточно данных",
+    emoji: "❔",
+    badge: "border-neutral-500/30 bg-neutral-500/10 text-neutral-300",
+    hint: "Мало информации о контакте — добавь деталей и пересчитай.",
+  },
+};
+
+function GrowthEdgeSection({
+  contact,
+  onChanged,
+}: {
+  contact: Contact;
+  onChanged: () => Promise<void> | void;
+}) {
+  const [busy, setBusy] = useState(false);
+  const edge = contact.growth_edge;
+
+  const analyze = async () => {
+    setBusy(true);
+    try {
+      await fetch(`/api/contacts/${contact.id}/growth-edge`, {
+        method: "POST",
+        credentials: "same-origin",
+        headers: { "Content-Type": "application/json" },
+      });
+      await onChanged();
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const setStatus = async (status: "active" | "dismissed") => {
+    setBusy(true);
+    try {
+      await fetch(`/api/contacts/${contact.id}/growth-edge`, {
+        method: "PATCH",
+        credentials: "same-origin",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status }),
+      });
+      await onChanged();
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  // No analysis yet — show the explainer + trigger.
+  if (!edge) {
+    return (
+      <Section title="Зона роста" icon="🥋">
+        <p className="mb-3 text-xs italic leading-relaxed text-neutral-600">
+          Шахматный принцип: расти можно только против более сильного соперника —
+          но «сильнее» всегда в конкретной плоскости. Агент сравнит этого человека
+          с твоим профилем и найдёт, в чём он тебя обгоняет и что у него забрать.
+        </p>
+        <button
+          type="button"
+          onClick={analyze}
+          disabled={busy}
+          className="relative w-full overflow-hidden rounded-xl border border-accent/25 bg-gradient-to-br from-accent/10 via-accent/5 to-transparent py-3.5 text-sm font-semibold text-accent transition-all active:scale-[0.98] disabled:opacity-50"
+        >
+          {busy ? (
+            <span className="flex items-center justify-center gap-2">
+              <span className="h-4 w-4 animate-spin rounded-full border-2 border-accent border-t-transparent" />
+              Анализирую...
+            </span>
+          ) : (
+            <span className="inline-flex items-center gap-1.5">
+              <span>🥋</span>
+              <span>Найти зону роста</span>
+            </span>
+          )}
+        </button>
+      </Section>
+    );
+  }
+
+  const meta = GROWTH_VERDICT_META[edge.verdict] ?? GROWTH_VERDICT_META.unclear;
+  const planes = Array.isArray(edge.planes) ? edge.planes : [];
+  const dismissed = edge.status === "dismissed";
+
+  return (
+    <Section title="Зона роста" icon="🥋">
+      <div className={dismissed ? "opacity-50" : ""}>
+        <div className="mb-3 flex flex-wrap items-center gap-2">
+          <span
+            className={`rounded-full border px-2.5 py-1 text-[11px] font-medium ${meta.badge}`}
+          >
+            {meta.emoji} {meta.label}
+          </span>
+          <span className="text-[11px] text-neutral-500">
+            приоритет {edge.priority}/100
+          </span>
+        </div>
+
+        <p className="text-sm leading-relaxed text-neutral-200">
+          {edge.headline}
+        </p>
+
+        {edge.chess_note && (
+          <p className="mt-2 rounded-xl border-l-2 border-accent/40 bg-white/[0.03] px-3 py-2 text-xs italic leading-relaxed text-neutral-300">
+            ♟ {edge.chess_note}
+          </p>
+        )}
+
+        {planes.length > 0 && (
+          <div className="mt-3 flex flex-col gap-2">
+            <p className="text-[11px] font-medium uppercase tracking-widest text-neutral-500">
+              Чему учиться рядом с ним
+            </p>
+            {planes.map((p, i) => (
+              <div
+                key={i}
+                className="rounded-xl border border-white/5 bg-white/[0.03] p-3"
+              >
+                <p className="text-sm font-semibold text-neutral-100">
+                  {p.plane}
+                </p>
+                {p.why && (
+                  <p className="mt-1 text-xs leading-relaxed text-neutral-400">
+                    <span className="text-neutral-500">почему: </span>
+                    {p.why}
+                  </p>
+                )}
+                {p.how_to_absorb && (
+                  <p className="mt-1 text-xs leading-relaxed text-emerald-300/90">
+                    <span className="text-emerald-400/70">как забрать: </span>
+                    {p.how_to_absorb}
+                  </p>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+
+        {planes.length === 0 && (
+          <p className="mt-2 text-xs italic leading-relaxed text-neutral-500">
+            {meta.hint}
+          </p>
+        )}
+      </div>
+
+      <div className="mt-3 flex items-center gap-3">
+        <button
+          type="button"
+          onClick={analyze}
+          disabled={busy}
+          className="text-xs text-accent/80 transition-colors hover:text-accent disabled:opacity-50"
+        >
+          {busy ? "Пересчитываю..." : "↻ Пересчитать"}
+        </button>
+        {dismissed ? (
+          <button
+            type="button"
+            onClick={() => setStatus("active")}
+            disabled={busy}
+            className="text-xs text-neutral-500 transition-colors hover:text-neutral-300 disabled:opacity-50"
+          >
+            Вернуть
+          </button>
+        ) : (
+          <button
+            type="button"
+            onClick={() => setStatus("dismissed")}
+            disabled={busy}
+            className="text-xs text-neutral-600 transition-colors hover:text-neutral-400 disabled:opacity-50"
+          >
+            Скрыть
+          </button>
+        )}
+        <span className="ml-auto text-[10px] text-neutral-600">
+          {new Date(edge.analyzed_at).toLocaleDateString("ru")}
+        </span>
+      </div>
     </Section>
   );
 }

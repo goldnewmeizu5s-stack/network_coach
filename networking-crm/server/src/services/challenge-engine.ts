@@ -10,6 +10,7 @@ import {
   loadCachedReactionInsights,
   formatReactionInsightsForPrompt,
 } from "./challenge-reactions";
+import { getTopSenseis, formatSenseisForPrompt } from "./growth-edge";
 
 const CATEGORIES = [
   "conversation",
@@ -253,6 +254,9 @@ export async function generateFlexibleChallenges(): Promise<
   const reactionInsights = await loadCachedReactionInsights();
   const reactionBlock = formatReactionInsightsForPrompt(reactionInsights);
 
+  const senseis = await getTopSenseis(3);
+  const senseiBlock = formatSenseisForPrompt(senseis);
+
   const last5Text = stats.last5
     .map(
       (c) =>
@@ -307,7 +311,11 @@ New contacts: ${newCount}
 Cooling contacts: ${coolingContacts.map((c) => c.full_name).join(", ") || "none"}
 Pending follow-ups: ${pendingFu}
 Most neglected: ${neglectedText || "none"}
-
+${
+  senseiBlock
+    ? `\nSENSEI CONTACTS (people the user is stronger BY being around — chess theory: you only level up against a stronger opponent, per plane):\n${senseiBlock}\n`
+    : ""
+}
 RELEVANT METHODOLOGIES:
 ${formatMethodologiesForPrompt(methodologies)}
 
@@ -337,6 +345,7 @@ RULES:
 - Do NOT repeat same categories as last 3 days
 - Reference specific contacts from CRM when relevant
 - Reference methodologies when applicable
+- If SENSEI CONTACTS are listed, make at least ONE challenge about actively absorbing a specific "plane" from one of them — name the person and turn their "как расти рядом" into a concrete action
 - Tone: encouraging coach, NEVER guilt-tripping
 - If user never completed anything, make quick option TRIVIALLY easy (1 min)
 - estimated_time_minutes must be realistic for each tier
@@ -535,6 +544,9 @@ export async function generateDailyChallenge(): Promise<ReturnType<typeof prisma
     })
     .join(", ");
 
+  const senseis = await getTopSenseis(3);
+  const senseiBlock = formatSenseisForPrompt(senseis);
+
   const prompt = `Generate a daily networking challenge for the user.
 
 USER PROFILE:
@@ -553,7 +565,11 @@ New contacts: ${newCount}
 Cooling contacts: ${coolingContacts.map((c) => c.full_name).join(", ") || "none"}
 Pending follow-ups: ${pendingFu}
 Most neglected: ${neglectedText || "none"}
-
+${
+  senseiBlock
+    ? `\nSENSEI CONTACTS (people the user can level up BY being around — chess theory: you only get stronger against a stronger opponent, per plane):\n${senseiBlock}\n`
+    : ""
+}
 RELEVANT METHODOLOGIES:
 ${formatMethodologiesForPrompt(methodologies)}
 
@@ -565,6 +581,7 @@ RULES:
 - Do NOT repeat the same challenge type as the last 3 days
 - If the user fears something specific, periodically include gentle challenges in that area (but not every day)
 - Reference specific contacts from CRM when relevant ("Reach out to [Name]...")
+- If SENSEI CONTACTS are listed, it's often high-value to make the challenge about absorbing a specific "plane" from one of them — name the person and turn their "как расти рядом" into a concrete action
 - Reference the methodology that inspired this challenge
 - Tone: encouraging coach, NEVER guilt-tripping
 - If difficulty < 4: make it easy and fun
