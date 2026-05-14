@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { motion } from "framer-motion";
+import { motion, AnimatePresence } from "framer-motion";
+import { ChevronDown } from "lucide-react";
 import { api } from "../lib/api";
 import { timeAgo } from "../lib/warmth";
 import {
@@ -8,6 +9,8 @@ import {
   SenseiResponse,
   SamuraiGrade,
   SAMURAI_GRADES,
+  GrowthPlane,
+  SamuraiPalette,
   gradeForPriority,
   gradeRange,
   paletteForGrade,
@@ -294,6 +297,101 @@ function HeroStat({
 }
 
 // ── Sensei card ───────────────────────────────────────────────
+// Kanji ordinals dress the patterns list — first, second, third…
+const KANJI_ORDINALS = ["一", "二", "三", "四", "五", "六", "七", "八", "九", "十"];
+function ordinal(i: number): string {
+  return KANJI_ORDINALS[i] ?? String(i + 1);
+}
+
+// One "plane" — a pattern worth absorbing. The title stays visible so the
+// card is scannable; the reasoning + how-to are tucked behind a tap.
+function PlaneRow({
+  plane,
+  index,
+  pal,
+}: {
+  plane: GrowthPlane;
+  index: number;
+  pal: SamuraiPalette;
+}) {
+  const [open, setOpen] = useState(false);
+  const hasDetail = !!(plane.why || plane.how_to_absorb);
+
+  return (
+    <div
+      className="overflow-hidden rounded-xl border transition-colors"
+      style={{
+        borderColor: open ? pal.ring + "55" : "rgba(255,255,255,0.06)",
+        backgroundColor: open ? pal.field + "1f" : "rgba(255,255,255,0.025)",
+      }}
+    >
+      <button
+        type="button"
+        aria-expanded={hasDetail ? open : undefined}
+        onClick={(e) => {
+          if (!hasDetail) return; // let the tap bubble to the card → profile
+          e.stopPropagation();
+          setOpen((v) => !v);
+        }}
+        className="flex w-full items-center gap-3 p-3 text-left"
+      >
+        <span
+          className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-[13px] font-bold leading-none"
+          style={{ backgroundColor: pal.ring + "2e", color: pal.emblem }}
+        >
+          {ordinal(index)}
+        </span>
+        <span className="min-w-0 flex-1 text-[13px] font-semibold leading-snug text-neutral-100">
+          {plane.plane}
+        </span>
+        {hasDetail && (
+          <motion.span
+            animate={{ rotate: open ? 180 : 0 }}
+            transition={{ duration: 0.2 }}
+            className="shrink-0"
+            style={{ color: pal.emblem }}
+            aria-hidden="true"
+          >
+            <ChevronDown size={16} />
+          </motion.span>
+        )}
+      </button>
+
+      <AnimatePresence initial={false}>
+        {open && hasDetail && (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: "auto", opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.25, ease: "easeOut" }}
+            className="overflow-hidden"
+          >
+            <div className="flex flex-col gap-2 pb-3 pl-[52px] pr-3">
+              {plane.why && (
+                <p className="text-[11.5px] leading-relaxed text-neutral-400">
+                  <span className="font-medium text-neutral-500">почему: </span>
+                  {plane.why}
+                </p>
+              )}
+              {plane.how_to_absorb && (
+                <p
+                  className="rounded-lg px-2.5 py-2 text-[11.5px] leading-relaxed"
+                  style={{
+                    backgroundColor: pal.field + "29",
+                    color: pal.emblem,
+                  }}
+                >
+                  → {plane.how_to_absorb}
+                </p>
+              )}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+}
+
 function SamuraiCard({
   sensei,
   onOpen,
@@ -305,6 +403,7 @@ function SamuraiCard({
   const pal = paletteForGrade(grade.index);
   const role = [sensei.occupation, sensei.company].filter(Boolean).join(" · ");
   const warmth = Math.round(sensei.warmth_score);
+  const [noteOpen, setNoteOpen] = useState(false);
 
   return (
     <div
@@ -318,10 +417,10 @@ function SamuraiCard({
         style={{ background: pal.glow }}
       />
 
-      {/* crest + identity */}
+      {/* ── crest + identity ── */}
       <div className="relative flex gap-3.5">
         <div className="shrink-0">
-          <SamuraiCrest grade={grade} size={78} />
+          <SamuraiCrest grade={grade} size={64} />
         </div>
         <div className="min-w-0 flex-1">
           <div className="flex items-start justify-between gap-2">
@@ -330,7 +429,7 @@ function SamuraiCard({
             </p>
             <span
               className="shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold"
-              style={{ background: pal.ring + "33", color: pal.emblem }}
+              style={{ backgroundColor: pal.ring + "33", color: pal.emblem }}
             >
               {grade.kanji} {grade.title}
             </span>
@@ -359,56 +458,90 @@ function SamuraiCard({
         </div>
       </div>
 
-      {/* chess-theory maxim */}
-      {sensei.chess_note && (
-        <p
-          className="relative mt-3.5 rounded-xl border-l-2 px-3 py-2 text-[12.5px] italic leading-relaxed text-neutral-300"
-          style={{ borderColor: pal.ring, background: pal.field + "1f" }}
-        >
-          「{sensei.chess_note}」
+      {/* ── headline — one-line framing ── */}
+      {sensei.headline && (
+        <p className="relative mt-3 text-[13px] leading-snug text-neutral-200">
+          {sensei.headline}
         </p>
       )}
 
-      {/* headline */}
-      <p className="relative mt-3 text-[13px] font-semibold leading-snug text-white">
-        {sensei.headline}
-      </p>
-
-      {/* planes — what to absorb */}
+      {/* ── patterns to absorb — the heart of the card ── */}
       {sensei.planes.length > 0 && (
-        <div className="relative mt-3 flex flex-col gap-2">
-          <p className="text-[10px] font-semibold uppercase tracking-widest text-neutral-500">
-            Чему учиться рядом
-          </p>
-          {sensei.planes.map((pl, i) => (
-            <div
-              key={i}
-              className="rounded-xl border border-white/5 bg-white/[0.03] p-2.5"
+        <div className="relative mt-3.5">
+          <div className="mb-2 flex items-center gap-2">
+            <p className="text-[10px] font-semibold uppercase tracking-widest text-neutral-500">
+              Чему учиться рядом
+            </p>
+            <span
+              className="rounded-full px-1.5 py-px text-[10px] font-semibold leading-none"
+              style={{ backgroundColor: pal.ring + "29", color: pal.emblem }}
             >
-              <p className="text-[12.5px] font-semibold text-neutral-100">
-                {pl.plane}
-              </p>
-              {pl.why && (
-                <p className="mt-1 text-[11.5px] leading-relaxed text-neutral-400">
-                  <span className="text-neutral-500">почему: </span>
-                  {pl.why}
-                </p>
-              )}
-              {pl.how_to_absorb && (
-                <p
-                  className="mt-1 text-[11.5px] leading-relaxed"
-                  style={{ color: pal.emblem }}
-                >
-                  → {pl.how_to_absorb}
-                </p>
-              )}
-            </div>
-          ))}
+              {sensei.planes.length}
+            </span>
+            <div className="h-px flex-1 bg-white/5" />
+          </div>
+          <div className="flex flex-col gap-2">
+            {sensei.planes.map((pl, i) => (
+              <PlaneRow key={i} plane={pl} index={i} pal={pal} />
+            ))}
+          </div>
         </div>
       )}
 
-      {/* footer */}
-      <div className="relative mt-3 flex items-center justify-between text-[10px] text-neutral-500">
+      {/* ── strategic note — folded away by default ── */}
+      {sensei.chess_note && (
+        <div className="relative mt-3">
+          <button
+            type="button"
+            aria-expanded={noteOpen}
+            onClick={(e) => {
+              e.stopPropagation();
+              setNoteOpen((v) => !v);
+            }}
+            className="flex w-full items-center gap-2 text-left"
+          >
+            <span
+              className="text-[10px] font-semibold uppercase tracking-widest"
+              style={{ color: pal.emblem }}
+            >
+              Заметка стратега
+            </span>
+            <motion.span
+              animate={{ rotate: noteOpen ? 180 : 0 }}
+              transition={{ duration: 0.2 }}
+              style={{ color: pal.emblem }}
+              aria-hidden="true"
+            >
+              <ChevronDown size={14} />
+            </motion.span>
+            <div className="h-px flex-1 bg-white/5" />
+          </button>
+          <AnimatePresence initial={false}>
+            {noteOpen && (
+              <motion.div
+                initial={{ height: 0, opacity: 0 }}
+                animate={{ height: "auto", opacity: 1 }}
+                exit={{ height: 0, opacity: 0 }}
+                transition={{ duration: 0.25, ease: "easeOut" }}
+                className="overflow-hidden"
+              >
+                <p
+                  className="mt-2 rounded-xl border-l-2 px-3 py-2 text-[12px] italic leading-relaxed text-neutral-300"
+                  style={{
+                    borderColor: pal.ring,
+                    backgroundColor: pal.field + "1f",
+                  }}
+                >
+                  「{sensei.chess_note}」
+                </p>
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </div>
+      )}
+
+      {/* ── footer ── */}
+      <div className="relative mt-3.5 flex items-center justify-between border-t border-white/5 pt-3 text-[10px] text-neutral-500">
         <span>
           {sensei.last_interaction_at
             ? `последний контакт · ${timeAgo(sensei.last_interaction_at)}`
