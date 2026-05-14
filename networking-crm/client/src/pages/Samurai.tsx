@@ -12,10 +12,12 @@ import {
   GrowthPlane,
   SamuraiPalette,
   gradeForPriority,
-  gradeRange,
   paletteForGrade,
 } from "../lib/samurai";
 import SamuraiCrest from "../components/SamuraiCrest";
+
+// Crimson — the page's house colour, also the path's origin tone.
+const HOUSE = "#9a363f";
 
 const item = {
   hidden: { opacity: 0, y: 16 },
@@ -32,6 +34,12 @@ function pluralMasters(n: number): string {
   if (m10 === 1 && m100 !== 11) return "наставник";
   if (m10 >= 2 && m10 <= 4 && (m100 < 10 || m100 >= 20)) return "наставника";
   return "наставников";
+}
+
+// Kanji ordinals dress the patterns list — first, second, third…
+const KANJI_ORDINALS = ["一", "二", "三", "四", "五", "六", "七", "八", "九", "十"];
+function ordinal(i: number): string {
+  return KANJI_ORDINALS[i] ?? String(i + 1);
 }
 
 export default function Samurai() {
@@ -113,20 +121,15 @@ export default function Samurai() {
             />
           </motion.section>
 
-          {/* ── Senseis ── */}
+          {/* ── The path ── */}
           <motion.section variants={item}>
-            <h3 className="mb-3 text-xs font-semibold uppercase tracking-widest text-neutral-500">
-              Твои наставники
+            <h3 className="mb-4 text-xs font-semibold uppercase tracking-widest text-neutral-500">
+              Твой путь
             </h3>
-            <div className="flex flex-col gap-3">
-              {senseis.map((s) => (
-                <SamuraiCard
-                  key={s.contact_id}
-                  sensei={s}
-                  onOpen={() => navigate(`/people/${s.contact_id}`)}
-                />
-              ))}
-            </div>
+            <WarriorPath
+              senseis={senseis}
+              onOpen={(id) => navigate(`/people/${id}`)}
+            />
           </motion.section>
         </>
       ) : (
@@ -135,59 +138,9 @@ export default function Samurai() {
         </motion.section>
       )}
 
-      {/* ── Grade ladder ── */}
+      {/* ── Mastery track ── */}
       <motion.section variants={item}>
-        <h3 className="mb-3 text-xs font-semibold uppercase tracking-widest text-neutral-500">
-          Путь мастерства
-        </h3>
-        <div className="flex flex-col gap-2">
-          {SAMURAI_GRADES.map((g) => {
-            const held = gradesHeld.has(g.index);
-            const pal = paletteForGrade(g.index);
-            const range = gradeRange(g.index);
-            return (
-              <div
-                key={g.index}
-                className="flex items-center gap-3 rounded-xl border p-2.5"
-                style={{
-                  borderColor: held
-                    ? pal.ring + "66"
-                    : "rgba(255,255,255,0.05)",
-                  background: held
-                    ? pal.field + "26"
-                    : "rgba(255,255,255,0.02)",
-                  opacity: held ? 1 : 0.55,
-                }}
-              >
-                <div className={held ? "" : "grayscale"}>
-                  <SamuraiCrest grade={g} size={48} />
-                </div>
-                <div className="min-w-0 flex-1">
-                  <p className="truncate text-sm font-medium text-white">
-                    <span style={{ color: pal.emblem }}>{g.kanji}</span>{" "}
-                    {g.title}
-                  </p>
-                  <p className="text-[11px] text-neutral-500">
-                    {g.romaji} · приоритет {range.min}–{range.max}
-                  </p>
-                </div>
-                {held && (
-                  <span
-                    className="shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold"
-                    style={{ background: pal.ring + "33", color: pal.emblem }}
-                  >
-                    в строю
-                  </span>
-                )}
-              </div>
-            );
-          })}
-        </div>
-        <p className="mt-3 text-[11px] leading-relaxed text-neutral-600">
-          Грейд наставника растёт с «приоритетом» из Зоны роста — насколько
-          агрессивно стоит у него учиться. Сенсеи появляются, когда агент
-          находит человека, который сильнее тебя в конкретной плоскости.
-        </p>
+        <MasteryTrack gradesHeld={gradesHeld} topGrade={topGrade} />
       </motion.section>
     </motion.div>
   );
@@ -296,11 +249,327 @@ function HeroStat({
   );
 }
 
-// ── Sensei card ───────────────────────────────────────────────
-// Kanji ordinals dress the patterns list — first, second, third…
-const KANJI_ORDINALS = ["一", "二", "三", "四", "五", "六", "七", "八", "九", "十"];
-function ordinal(i: number): string {
-  return KANJI_ORDINALS[i] ?? String(i + 1);
+// ── Warrior path ──────────────────────────────────────────────
+// The senseis rendered as milestone stations on a single vertical
+// trail. One continuous gradient "rail" runs behind the crest nodes;
+// the rail's hues flow through each sensei's grade colour. Each node
+// docks into its skill card on the right.
+function WarriorPath({
+  senseis,
+  onOpen,
+}: {
+  senseis: Sensei[];
+  onOpen: (id: string) => void;
+}) {
+  // Rail gradient: starts at the house colour (you) and flows down
+  // through every sensei's grade tone, top → bottom.
+  const railStops = [
+    HOUSE,
+    ...senseis.map(
+      (s) => paletteForGrade(gradeForPriority(s.priority).index).ring,
+    ),
+  ];
+  const railGradient = `linear-gradient(to bottom, ${railStops.join(", ")})`;
+  const railMask = "linear-gradient(to bottom, #000 78%, transparent)";
+
+  return (
+    <div className="relative">
+      {/* the rail — one continuous flowing line + a soft glow twin */}
+      <div
+        aria-hidden="true"
+        className="pointer-events-none absolute left-[26px] top-6 bottom-0 w-1 rounded-full blur-[5px] opacity-50"
+        style={{
+          background: railGradient,
+          WebkitMaskImage: railMask,
+          maskImage: railMask,
+        }}
+      />
+      <div
+        aria-hidden="true"
+        className="pointer-events-none absolute left-[26px] top-6 bottom-0 w-1 rounded-full"
+        style={{
+          background: railGradient,
+          WebkitMaskImage: railMask,
+          maskImage: railMask,
+        }}
+      />
+
+      <div className="flex flex-col">
+        <OriginNode />
+        {senseis.map((s, i) => (
+          <PathStop
+            key={s.contact_id}
+            sensei={s}
+            index={i}
+            onOpen={() => onOpen(s.contact_id)}
+          />
+        ))}
+        <PathEnd />
+      </div>
+    </div>
+  );
+}
+
+// Start of the path — "you", here and now.
+function OriginNode() {
+  return (
+    <motion.div
+      className="relative flex gap-3 pb-3"
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      transition={{ duration: 0.3 }}
+    >
+      <div className="relative z-10 w-14 shrink-0">
+        <div className="relative mx-auto flex h-12 w-12 items-center justify-center">
+          <div className="absolute h-10 w-10 rounded-full bg-bg" />
+          <div className="relative flex h-9 w-9 items-center justify-center rounded-full border border-[#9a363f]/50 bg-gradient-to-br from-[#5a1f25] to-[#15140f] text-[15px] font-bold text-[#f0c450] shadow-[0_0_14px_rgba(154,54,63,0.45)]">
+            己
+          </div>
+        </div>
+      </div>
+      <div className="flex min-w-0 flex-1 items-center">
+        <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-neutral-500">
+          Здесь начинается путь
+        </p>
+      </div>
+    </motion.div>
+  );
+}
+
+// One milestone on the path: crest node on the rail + skill card.
+function PathStop({
+  sensei,
+  index,
+  onOpen,
+}: {
+  sensei: Sensei;
+  index: number;
+  onOpen: () => void;
+}) {
+  const grade = gradeForPriority(sensei.priority);
+  const pal = paletteForGrade(grade.index);
+
+  return (
+    <motion.div
+      className="relative flex gap-3 pb-3"
+      initial={{ opacity: 0, x: -10 }}
+      whileInView={{ opacity: 1, x: 0 }}
+      viewport={{ once: true, margin: "-40px" }}
+      transition={{
+        duration: 0.3,
+        ease: "easeOut",
+        delay: Math.min(index * 0.04, 0.2),
+      }}
+    >
+      {/* rail column — crest node sits on the rail */}
+      <div className="relative w-14 shrink-0">
+        <div className="relative z-10 mx-auto flex h-12 w-12 items-center justify-center">
+          {/* opaque base so the rail passes cleanly behind the node */}
+          <div
+            className="absolute h-10 w-10 rounded-full border bg-bg"
+            style={{ borderColor: pal.ring + "66" }}
+          />
+          <SamuraiCrest grade={grade} size={46} />
+        </div>
+        {/* connector tick bridging the node to its card */}
+        <div
+          aria-hidden="true"
+          className="absolute h-0.5 w-5 rounded-full"
+          style={{ top: "23px", left: "48px", backgroundColor: pal.ring + "99" }}
+        />
+      </div>
+
+      {/* skill card */}
+      <SkillCard sensei={sensei} grade={grade} pal={pal} onOpen={onOpen} />
+    </motion.div>
+  );
+}
+
+// End of the path — it keeps going beyond what's mapped.
+function PathEnd() {
+  return (
+    <div className="relative flex gap-3">
+      <div className="relative z-10 w-14 shrink-0">
+        <div className="relative mx-auto flex h-11 w-12 items-center justify-center">
+          <div className="absolute h-9 w-9 rounded-full bg-bg" />
+          <div className="relative flex h-7 w-7 items-center justify-center rounded-full border border-dashed border-white/15 text-[11px] text-neutral-600">
+            続
+          </div>
+        </div>
+      </div>
+      <div className="flex min-w-0 flex-1 items-center">
+        <p className="text-[11px] leading-relaxed text-neutral-600">
+          Путь продолжается — новые сенсеи появятся, когда агент найдёт их в
+          твоей сети.
+        </p>
+      </div>
+    </div>
+  );
+}
+
+// ── Skill card ────────────────────────────────────────────────
+// The sensei's content, docked to its path node. The crest lives on
+// the rail, so the card carries identity + the patterns to absorb.
+function SkillCard({
+  sensei,
+  grade,
+  pal,
+  onOpen,
+}: {
+  sensei: Sensei;
+  grade: SamuraiGrade;
+  pal: SamuraiPalette;
+  onOpen: () => void;
+}) {
+  const role = [sensei.occupation, sensei.company].filter(Boolean).join(" · ");
+  const warmth = Math.round(sensei.warmth_score);
+  const [noteOpen, setNoteOpen] = useState(false);
+
+  return (
+    <div
+      onClick={onOpen}
+      className="relative min-w-0 flex-1 cursor-pointer overflow-hidden rounded-2xl border border-l-2 bg-card p-3.5 transition-colors active:bg-card-hover"
+      style={{
+        borderColor: "rgba(255,255,255,0.06)",
+        borderLeftColor: pal.ring + "aa",
+      }}
+    >
+      {/* grade-tinted glow */}
+      <div
+        className="pointer-events-none absolute -right-14 -top-14 h-36 w-36 rounded-full blur-3xl"
+        style={{ background: pal.glow }}
+      />
+
+      {/* ── identity ── */}
+      <div className="relative flex items-start justify-between gap-2">
+        <div className="min-w-0">
+          <p className="truncate text-[15px] font-bold text-white">
+            {sensei.full_name}
+          </p>
+          {role && (
+            <p className="mt-0.5 truncate text-[11.5px] text-neutral-500">
+              {role}
+            </p>
+          )}
+        </div>
+        <span
+          className="shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold"
+          style={{ backgroundColor: pal.ring + "33", color: pal.emblem }}
+        >
+          {grade.kanji} {grade.title}
+        </span>
+      </div>
+
+      {/* ── узы — bond strength (warmth) ── */}
+      <div className="relative mt-2.5">
+        <div className="mb-1 flex items-center justify-between text-[10px] text-neutral-500">
+          <span className="uppercase tracking-widest">Узы</span>
+          <span>{warmth}/100</span>
+        </div>
+        <div className="h-1.5 w-full overflow-hidden rounded-full bg-white/5">
+          <div
+            className="h-full rounded-full"
+            style={{
+              width: `${warmth}%`,
+              background: `linear-gradient(90deg, ${pal.ring}, ${pal.emblem})`,
+            }}
+          />
+        </div>
+      </div>
+
+      {/* ── headline — one-line framing ── */}
+      {sensei.headline && (
+        <p className="relative mt-3 text-[12.5px] leading-snug text-neutral-200">
+          {sensei.headline}
+        </p>
+      )}
+
+      {/* ── patterns to absorb — the heart of the card ── */}
+      {sensei.planes.length > 0 && (
+        <div className="relative mt-3.5">
+          <div className="mb-2 flex items-center gap-2">
+            <p className="text-[10px] font-semibold uppercase tracking-widest text-neutral-500">
+              Чему учиться рядом
+            </p>
+            <span
+              className="rounded-full px-1.5 py-px text-[10px] font-semibold leading-none"
+              style={{ backgroundColor: pal.ring + "29", color: pal.emblem }}
+            >
+              {sensei.planes.length}
+            </span>
+            <div className="h-px flex-1 bg-white/5" />
+          </div>
+          <div className="flex flex-col gap-2">
+            {sensei.planes.map((pl, i) => (
+              <PlaneRow key={i} plane={pl} index={i} pal={pal} />
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* ── strategic note — folded away by default ── */}
+      {sensei.chess_note && (
+        <div className="relative mt-3">
+          <button
+            type="button"
+            aria-expanded={noteOpen}
+            onClick={(e) => {
+              e.stopPropagation();
+              setNoteOpen((v) => !v);
+            }}
+            className="flex w-full items-center gap-2 text-left"
+          >
+            <span
+              className="text-[10px] font-semibold uppercase tracking-widest"
+              style={{ color: pal.emblem }}
+            >
+              Заметка стратега
+            </span>
+            <motion.span
+              animate={{ rotate: noteOpen ? 180 : 0 }}
+              transition={{ duration: 0.2 }}
+              style={{ color: pal.emblem }}
+              aria-hidden="true"
+            >
+              <ChevronDown size={14} />
+            </motion.span>
+            <div className="h-px flex-1 bg-white/5" />
+          </button>
+          <AnimatePresence initial={false}>
+            {noteOpen && (
+              <motion.div
+                initial={{ height: 0, opacity: 0 }}
+                animate={{ height: "auto", opacity: 1 }}
+                exit={{ height: 0, opacity: 0 }}
+                transition={{ duration: 0.25, ease: "easeOut" }}
+                className="overflow-hidden"
+              >
+                <p
+                  className="mt-2 rounded-xl border-l-2 px-3 py-2 text-[12px] italic leading-relaxed text-neutral-300"
+                  style={{
+                    borderColor: pal.ring,
+                    backgroundColor: pal.field + "1f",
+                  }}
+                >
+                  「{sensei.chess_note}」
+                </p>
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </div>
+      )}
+
+      {/* ── footer ── */}
+      <div className="relative mt-3.5 flex items-center justify-between border-t border-white/5 pt-3 text-[10px] text-neutral-500">
+        <span>
+          {sensei.last_interaction_at
+            ? `последний контакт · ${timeAgo(sensei.last_interaction_at)}`
+            : "ещё не общались"}
+        </span>
+        <span>приоритет {sensei.priority}/100</span>
+      </div>
+    </div>
+  );
 }
 
 // One "plane" — a pattern worth absorbing. The title stays visible so the
@@ -392,163 +661,98 @@ function PlaneRow({
   );
 }
 
-function SamuraiCard({
-  sensei,
-  onOpen,
+// ── Mastery track ─────────────────────────────────────────────
+// The five grades as a horizontal trail — a mini-path that echoes the
+// vertical one. Reached grades light up; the rest wait in greyscale.
+function MasteryTrack({
+  gradesHeld,
+  topGrade,
 }: {
-  sensei: Sensei;
-  onOpen: () => void;
+  gradesHeld: Set<number>;
+  topGrade: SamuraiGrade | null;
 }) {
-  const grade = gradeForPriority(sensei.priority);
-  const pal = paletteForGrade(grade.index);
-  const role = [sensei.occupation, sensei.company].filter(Boolean).join(" · ");
-  const warmth = Math.round(sensei.warmth_score);
-  const [noteOpen, setNoteOpen] = useState(false);
+  const maxHeld = topGrade ? topGrade.index : -1;
 
   return (
-    <div
-      onClick={onOpen}
-      className="relative cursor-pointer overflow-hidden rounded-2xl border bg-card p-4 transition-colors active:bg-card-hover"
-      style={{ borderColor: pal.ring + "44" }}
-    >
-      {/* grade-tinted glow */}
-      <div
-        className="pointer-events-none absolute -right-16 -top-16 h-40 w-40 rounded-full blur-3xl"
-        style={{ background: pal.glow }}
-      />
-
-      {/* ── crest + identity ── */}
-      <div className="relative flex gap-3.5">
-        <div className="shrink-0">
-          <SamuraiCrest grade={grade} size={64} />
-        </div>
-        <div className="min-w-0 flex-1">
-          <div className="flex items-start justify-between gap-2">
-            <p className="min-w-0 truncate text-[15px] font-bold text-white">
-              {sensei.full_name}
-            </p>
-            <span
-              className="shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold"
-              style={{ backgroundColor: pal.ring + "33", color: pal.emblem }}
-            >
-              {grade.kanji} {grade.title}
-            </span>
-          </div>
-          {role && (
-            <p className="mt-0.5 truncate text-[12px] text-neutral-500">
-              {role}
-            </p>
-          )}
-          {/* узы — bond strength (warmth) */}
-          <div className="mt-2.5">
-            <div className="mb-1 flex items-center justify-between text-[10px] text-neutral-500">
-              <span className="uppercase tracking-widest">Узы</span>
-              <span>{warmth}/100</span>
-            </div>
-            <div className="h-1.5 w-full overflow-hidden rounded-full bg-white/5">
-              <div
-                className="h-full rounded-full"
-                style={{
-                  width: `${warmth}%`,
-                  background: `linear-gradient(90deg, ${pal.ring}, ${pal.emblem})`,
-                }}
-              />
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* ── headline — one-line framing ── */}
-      {sensei.headline && (
-        <p className="relative mt-3 text-[13px] leading-snug text-neutral-200">
-          {sensei.headline}
-        </p>
-      )}
-
-      {/* ── patterns to absorb — the heart of the card ── */}
-      {sensei.planes.length > 0 && (
-        <div className="relative mt-3.5">
-          <div className="mb-2 flex items-center gap-2">
-            <p className="text-[10px] font-semibold uppercase tracking-widest text-neutral-500">
-              Чему учиться рядом
-            </p>
-            <span
-              className="rounded-full px-1.5 py-px text-[10px] font-semibold leading-none"
-              style={{ backgroundColor: pal.ring + "29", color: pal.emblem }}
-            >
-              {sensei.planes.length}
-            </span>
-            <div className="h-px flex-1 bg-white/5" />
-          </div>
-          <div className="flex flex-col gap-2">
-            {sensei.planes.map((pl, i) => (
-              <PlaneRow key={i} plane={pl} index={i} pal={pal} />
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* ── strategic note — folded away by default ── */}
-      {sensei.chess_note && (
-        <div className="relative mt-3">
-          <button
-            type="button"
-            aria-expanded={noteOpen}
-            onClick={(e) => {
-              e.stopPropagation();
-              setNoteOpen((v) => !v);
+    <div className="rounded-3xl border border-white/5 bg-card p-5">
+      <div className="flex items-center justify-between gap-2">
+        <h3 className="text-xs font-semibold uppercase tracking-widest text-neutral-500">
+          Путь мастерства
+        </h3>
+        {topGrade && (
+          <span
+            className="shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold"
+            style={{
+              backgroundColor: paletteForGrade(topGrade.index).ring + "33",
+              color: paletteForGrade(topGrade.index).emblem,
             }}
-            className="flex w-full items-center gap-2 text-left"
           >
-            <span
-              className="text-[10px] font-semibold uppercase tracking-widest"
-              style={{ color: pal.emblem }}
-            >
-              Заметка стратега
-            </span>
-            <motion.span
-              animate={{ rotate: noteOpen ? 180 : 0 }}
-              transition={{ duration: 0.2 }}
-              style={{ color: pal.emblem }}
-              aria-hidden="true"
-            >
-              <ChevronDown size={14} />
-            </motion.span>
-            <div className="h-px flex-1 bg-white/5" />
-          </button>
-          <AnimatePresence initial={false}>
-            {noteOpen && (
-              <motion.div
-                initial={{ height: 0, opacity: 0 }}
-                animate={{ height: "auto", opacity: 1 }}
-                exit={{ height: 0, opacity: 0 }}
-                transition={{ duration: 0.25, ease: "easeOut" }}
-                className="overflow-hidden"
-              >
-                <p
-                  className="mt-2 rounded-xl border-l-2 px-3 py-2 text-[12px] italic leading-relaxed text-neutral-300"
-                  style={{
-                    borderColor: pal.ring,
-                    backgroundColor: pal.field + "1f",
-                  }}
-                >
-                  「{sensei.chess_note}」
-                </p>
-              </motion.div>
-            )}
-          </AnimatePresence>
-        </div>
-      )}
-
-      {/* ── footer ── */}
-      <div className="relative mt-3.5 flex items-center justify-between border-t border-white/5 pt-3 text-[10px] text-neutral-500">
-        <span>
-          {sensei.last_interaction_at
-            ? `последний контакт · ${timeAgo(sensei.last_interaction_at)}`
-            : "ещё не общались"}
-        </span>
-        <span>приоритет {sensei.priority}/100</span>
+            {topGrade.kanji} {topGrade.title}
+          </span>
+        )}
       </div>
+
+      {/* horizontal trail of crests */}
+      <div className="relative mt-5 flex justify-between">
+        {/* base line + reached progress, threaded through the crest centres */}
+        <div className="absolute left-[10%] right-[10%] top-6 h-0.5 -translate-y-1/2 rounded-full bg-white/[0.08]" />
+        {maxHeld > 0 && (
+          <div
+            className="absolute left-[10%] top-6 h-0.5 -translate-y-1/2 rounded-full"
+            style={{
+              width: `${maxHeld * 20}%`,
+              background: `linear-gradient(90deg, ${paletteForGrade(0).emblem}, ${paletteForGrade(maxHeld).emblem})`,
+            }}
+          />
+        )}
+
+        {SAMURAI_GRADES.map((g) => {
+          const held = gradesHeld.has(g.index);
+          const reached = g.index <= maxHeld;
+          const lit = held || reached;
+          const pal = paletteForGrade(g.index);
+          return (
+            <div
+              key={g.index}
+              className="relative z-10 flex w-[20%] flex-col items-center gap-1.5"
+            >
+              <div
+                className="flex h-12 w-12 items-center justify-center rounded-full bg-bg"
+                style={{
+                  boxShadow: held
+                    ? `0 0 0 1.5px ${pal.ring}, 0 0 12px ${pal.glow}`
+                    : reached
+                      ? `0 0 0 1px ${pal.ring}66`
+                      : "0 0 0 1px rgba(255,255,255,0.06)",
+                }}
+              >
+                <div className={lit ? "" : "opacity-40 grayscale"}>
+                  <SamuraiCrest grade={g} size={44} />
+                </div>
+              </div>
+              <p
+                className="text-center text-[13px] font-bold leading-none"
+                style={{ color: lit ? pal.emblem : "#5b5b5b" }}
+              >
+                {g.kanji}
+              </p>
+              <p
+                className={`text-center text-[9px] leading-tight ${
+                  lit ? "text-neutral-400" : "text-neutral-600"
+                }`}
+              >
+                {g.title}
+              </p>
+            </div>
+          );
+        })}
+      </div>
+
+      <p className="mt-4 text-[11px] leading-relaxed text-neutral-600">
+        Грейд наставника растёт с «приоритетом» из Зоны роста — насколько
+        агрессивно стоит у него учиться. Сенсеи появляются, когда агент находит
+        человека, который сильнее тебя в конкретной плоскости.
+      </p>
     </div>
   );
 }
