@@ -25,7 +25,13 @@ import rankRoutes from "./routes/rank";
 import exportRoutes from "./routes/export";
 import notesRoutes from "./routes/notes";
 import interestRoutes from "./routes/interest";
-import { startCron, stopCron, runDailyJob, runWeeklyMemoryJob } from "./services/cron";
+import {
+  startCron,
+  stopCron,
+  runDailyJob,
+  runWeeklyMemoryJob,
+  runGrowthEdgeJob,
+} from "./services/cron";
 import { startBot, stopBot } from "./bot";
 import { alignAllWarmthScores } from "./services/warmth";
 import { backfillContactCountries } from "./services/rank";
@@ -166,6 +172,31 @@ app.post(
       next(err);
     } finally {
       memoryJobRunning = false;
+    }
+  },
+);
+
+// Manual growth-edge ("зона роста") refresh trigger.
+// aiLimiter + an in-process guard keep the batch Claude run from being
+// triggered concurrently.
+let growthJobRunning = false;
+app.post(
+  "/api/cron/growth-now",
+  authMiddleware,
+  aiLimiter,
+  async (_req, res, next) => {
+    if (growthJobRunning) {
+      res.status(429).json({ error: "Growth edge job already running" });
+      return;
+    }
+    growthJobRunning = true;
+    try {
+      await runGrowthEdgeJob();
+      res.json({ status: "completed" });
+    } catch (err) {
+      next(err);
+    } finally {
+      growthJobRunning = false;
     }
   },
 );

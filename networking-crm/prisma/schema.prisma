@@ -60,6 +60,7 @@ model Contact {
   interactions   Interaction[]
   follow_ups     FollowUp[]
   interest_goals InterestGoal[]
+  growth_edge    GrowthEdge?
 
   @@index([warmth_status])
   @@index([last_interaction_at])
@@ -99,6 +100,28 @@ model InterestGoal {
 
   @@index([contact_id, status])
   @@index([status, last_mentioned_at])
+}
+
+// Per-contact "growth edge" assessment — the chess-theory filter:
+// in which plane is this person stronger than the user, what to absorb,
+// and how aggressively to invest. One row per contact, re-computable.
+model GrowthEdge {
+  id          String   @id @default(uuid())
+  contact_id  String   @unique
+  contact     Contact  @relation(fields: [contact_id], references: [id], onDelete: Cascade)
+  verdict     String   @default("unclear") // "sensei" | "peer" | "giver" | "unclear"
+  headline    String
+  planes      Json     @default("[]") // GrowthPlane[]: { plane, why, how_to_absorb }
+  chess_note  String?
+  priority    Int      @default(0) // 0-100 growth-investment priority
+  status      String   @default("active") // "active" | "dismissed"
+  analyzed_at DateTime @default(now())
+  created_at  DateTime @default(now())
+  updated_at  DateTime @updatedAt
+
+  @@index([status, priority])
+  @@index([verdict])
+  @@index([analyzed_at])
 }
 
 model AudioFile {
