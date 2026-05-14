@@ -34,6 +34,16 @@ interface ContactsResponse {
   hasMore: boolean;
 }
 
+interface RefreshProgress {
+  running: boolean;
+  total: number;
+  processed: number;
+  failed: number;
+  growthEdgesBackfilled: number;
+  startedAt: string | null;
+  finishedAt: string | null;
+}
+
 type SortOption = "last_interaction" | "created_at" | "warmth_score" | "name";
 
 const FILTERS: {
@@ -106,6 +116,10 @@ export default function People() {
   const [showArchived, setShowArchived] = useState(false);
   const [archivedContacts, setArchivedContacts] = useState<ContactListItem[]>([]);
   const [archivedLoading, setArchivedLoading] = useState(false);
+
+  // Full-network refresh
+  const [refresh, setRefresh] = useState<RefreshProgress | null>(null);
+  const refreshTimer = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // Batch selection
   const [selectMode, setSelectMode] = useState(false);
@@ -233,6 +247,57 @@ export default function People() {
       fetchArchived();
     }
     setShowArchived((v) => !v);
+  };
+
+  const pollRefresh = useCallback(async () => {
+    try {
+      const data = await api.get<RefreshProgress>("/contacts/refresh");
+      setRefresh(data);
+      if (!data.running && refreshTimer.current) {
+        clearInterval(refreshTimer.current);
+        refreshTimer.current = null;
+      }
+    } catch {
+      /* ignore */
+    }
+  }, []);
+
+  // Pick up an in-progress refresh when the screen opens, keep polling it.
+  useEffect(() => {
+    let active = true;
+    api
+      .get<RefreshProgress>("/contacts/refresh")
+      .then((data) => {
+        if (!active) return;
+        setRefresh(data);
+        if (data.running && !refreshTimer.current) {
+          refreshTimer.current = setInterval(pollRefresh, 2000);
+        }
+      })
+      .catch(() => {
+        /* ignore */
+      });
+    return () => {
+      active = false;
+      if (refreshTimer.current) {
+        clearInterval(refreshTimer.current);
+        refreshTimer.current = null;
+      }
+    };
+  }, [pollRefresh]);
+
+  const startRefresh = async () => {
+    if (refresh?.running) return;
+    try {
+      const data = await api.post<RefreshProgress>("/contacts/refresh");
+      setRefresh(data);
+      if (!refreshTimer.current) {
+        refreshTimer.current = setInterval(pollRefresh, 2000);
+      }
+      show("Обновление запущено — идёт в фоне");
+    } catch {
+      show("Не удалось запустить обновление");
+    }
   };
 
   const handleArchive = async (id: string) => {
@@ -710,6 +775,71 @@ export default function People() {
                 </AnimatePresence>
               )}
             </div>
+          )}
+        </div>
+      )}
+
+      {/* Full-network refresh — recomputes warmth/interest/growth-edge for all contacts */}
+      {!loadError && (
+        <div className="flex flex-col gap-2 pt-1">
+          <button
+            onClick={startRefresh}
+            disabled={refresh?.running}
+            className="flex w-full items-center gap-2.5 rounded-2xl border border-white/5 bg-card px-4 py-3 text-sm text-neutral-300 transition-colors active:bg-card-hover disabled:opacity-70"
+          >
+            <svg
+              className={`h-4 w-4 shrink-0 text-accent ${refresh?.running ? "animate-spin" : ""}`}
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+              strokeWidth={2}
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99"
+              />
+            </svg>
+            <span className="font-medium">
+              {refresh?.running ? "Обновляю контакты…" : "Обновить все контакты"}
+            </span>
+            {refresh?.running && (
+              <span className="ml-auto text-xs text-neutral-500">
+                {refresh.processed}/{refresh.total || "?"}
+              </span>
+            )}
+          </button>
+
+          {refresh?.running && (
+            <div className="h-1.5 overflow-hidden rounded-full bg-white/5">
+              <div
+                className="h-full rounded-full bg-accent transition-all"
+                style={{
+                  width: `${
+                    refresh.total > 0
+                      ? Math.round((refresh.processed / refresh.total) * 100)
+                      : 0
+                  }%`,
+                }}
+              />
+            </div>
+          )}
+
+          {refresh && !refresh.running && refresh.finishedAt ? (
+            <p className="px-1 text-[11px] text-neutral-500">
+              Готово · обновлено {refresh.processed} из {refresh.total}
+              {refresh.growthEdgesBackfilled > 0 &&
+                ` · зон роста добавлено ${refresh.growthEdgesBackfilled}`}
+              {refresh.failed > 0 && ` · ошибок ${refresh.failed}`}
+            </p>
+          ) : (
+            !refresh?.running && (
+              <p className="px-1 text-[11px] leading-relaxed text-neutral-600">
+                Пересчитывает теплоту, интерес и зону роста по всем контактам из
+                их истории. Полезно после обновлений приложения — старые контакты
+                получат новые поля.
+              </p>
+            )
           )}
         </div>
       )}

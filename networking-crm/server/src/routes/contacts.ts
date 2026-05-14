@@ -23,6 +23,10 @@ import {
   analyzeGrowthEdgeAsync,
 } from "../services/growth-edge";
 import {
+  getRefreshProgress,
+  runFullContactRefresh,
+} from "../services/contact-refresh";
+import {
   normalizeCountry,
   normalizeCountryKeepRaw,
 } from "../lib/country-normalize";
@@ -219,6 +223,28 @@ router.get("/countries", async (_req, res, next) => {
   } catch (err) {
     next(err);
   }
+});
+
+// GET /api/contacts/refresh — progress of the full-network refresh.
+// Declared before "/:id" so "refresh" isn't treated as a contact id.
+router.get("/refresh", (_req, res) => {
+  res.json(getRefreshProgress());
+});
+
+// POST /api/contacts/refresh — kick off a full-network refresh in the
+// background. Recomputes warmth/interest and backfills missing growth edges
+// from each contact's existing history. Progress is polled via GET /refresh.
+router.post("/refresh", (_req, res) => {
+  const current = getRefreshProgress();
+  if (current.running) {
+    res.status(409).json({ error: "Refresh already running", ...current });
+    return;
+  }
+  // Fire-and-forget — the job updates module-level progress as it runs.
+  runFullContactRefresh().catch(() => {
+    /* errors are logged inside the job */
+  });
+  res.status(202).json(getRefreshProgress());
 });
 
 // GET /api/contacts/:id
