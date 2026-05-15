@@ -1,13 +1,13 @@
 import { useId } from "react";
 import { SamuraiGrade, paletteForGrade } from "../lib/samurai";
+import SamuraiFigure from "./SamuraiFigure";
 
 // ──────────────────────────────────────────────────────────────
-// SamuraiCrest — a kamon (家紋) emblem on a crossed-katana mount.
-// The grade drives the art:
-//   - petal count of the kamon flower grows with grade
-//   - higher grades gain a second inner ring
-//   - palette goes steel → indigo → crimson → crimson+gold → black+gold
-// Sibling of RankBadge — same idea, samurai dressing.
+// SamuraiCrest — a kamon-style mount with an actual samurai
+// figure inside. The grade drives the art:
+//   - which warrior figure is drawn (5 distinct silhouettes)
+//   - the palette: steel → indigo → crimson → crimson+gold → black+gold
+//   - crossed katana stay behind the disc as the family crest mount
 // ──────────────────────────────────────────────────────────────
 
 interface Props {
@@ -62,25 +62,13 @@ export default function SamuraiCrest({
   const glowId = `sc-glow-${uid}`;
   const clipId = `sc-clip-${uid}`;
 
-  // Kamon petals — a chrysanthemum whose density rises with the grade.
-  const petalPath =
-    "M 50 23 Q 46.6 28 46.6 33.5 Q 46.6 39.5 50 42 Q 53.4 39.5 53.4 33.5 Q 53.4 28 50 23 Z";
-  const petals = Array.from({ length: grade.petals }, (_, i) => (
-    <path
-      key={i}
-      d={petalPath}
-      fill={p.emblem}
-      transform={`rotate(${(360 / grade.petals) * i} 50 50)`}
-    />
-  ));
-
   return (
     <svg
       width={size}
       height={size}
       viewBox="0 0 100 100"
       className={className}
-      aria-label={`Герб самурая: ${grade.title}`}
+      aria-label={`Самурай: ${grade.title}`}
     >
       <defs>
         <radialGradient id={fieldId} cx="42%" cy="36%" r="72%">
@@ -120,32 +108,9 @@ export default function SamuraiCrest({
       />
       <circle cx={50} cy={50} r={32} fill={`url(#${fieldId})`} />
 
-      {/* kamon emblem */}
+      {/* samurai figure inside the disc */}
       <g clipPath={`url(#${clipId})`}>
-        {petals}
-        {grade.rings >= 1 && (
-          <circle
-            cx={50}
-            cy={50}
-            r={11.5}
-            fill="none"
-            stroke={p.emblem}
-            strokeWidth={1.6}
-          />
-        )}
-        {grade.rings >= 2 && (
-          <circle
-            cx={50}
-            cy={50}
-            r={8}
-            fill="none"
-            stroke={p.emblem}
-            strokeWidth={1.1}
-            opacity={0.85}
-          />
-        )}
-        <circle cx={50} cy={50} r={5.4} fill={p.emblem} />
-        <circle cx={50} cy={50} r={2.3} fill="#0f0f0f" />
+        <SamuraiFigure grade={grade} pal={p} />
 
         {/* sheen */}
         {shine && (
