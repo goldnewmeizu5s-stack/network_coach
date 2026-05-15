@@ -33,25 +33,27 @@ export interface SenseiResponse {
   senseis: Sensei[];
 }
 
-// A samurai mastery grade. The grade a sensei holds is derived purely from
-// their growth-edge `priority` — how aggressively the user should learn
-// from them. `petals` / `rings` drive the kamon crest art.
+// A samurai mastery grade. There are two ways to land in a grade:
+//   - per-sensei: based on their growth-edge `priority` (how aggressive
+//     to learn from them) — used only as a soft hint on the sensei card.
+//   - for the user themselves: based on how much they've actually
+//     absorbed (Pareto steps completed across their dojo) — that's the
+//     real "путь самурая", and what drives the hero + mastery ladder.
 export interface SamuraiGrade {
   index: number;
-  kanji: string;
   title: string; // Russian-facing label
-  romaji: string;
+  subtitle: string; // short human description shown under the title
   priority_min: number;
-  petals: number; // kamon petal count
-  rings: number; // inner ring count (1 or 2)
+  /** % of Pareto steps completed to enter this grade (user progression). */
+  progress_min: number;
 }
 
 export const SAMURAI_GRADES: SamuraiGrade[] = [
-  { index: 0, kanji: "侍", title: "Самурай", romaji: "Bushi", priority_min: 0, petals: 5, rings: 1 },
-  { index: 1, kanji: "剣士", title: "Мечник", romaji: "Kenshi", priority_min: 30, petals: 6, rings: 1 },
-  { index: 2, kanji: "達人", title: "Мастер", romaji: "Tatsujin", priority_min: 50, petals: 8, rings: 2 },
-  { index: 3, kanji: "軍師", title: "Стратег", romaji: "Gunshi", priority_min: 70, petals: 12, rings: 2 },
-  { index: 4, kanji: "剣聖", title: "Святой меча", romaji: "Kensei", priority_min: 87, petals: 16, rings: 2 },
+  { index: 0, title: "Самурай",      subtitle: "Только встал на путь",            priority_min: 0,  progress_min: 0 },
+  { index: 1, title: "Мечник",       subtitle: "Уже подражает мастерам",          priority_min: 30, progress_min: 12 },
+  { index: 2, title: "Мастер",       subtitle: "Усваивает паттерны как свои",     priority_min: 50, progress_min: 30 },
+  { index: 3, title: "Стратег",      subtitle: "Видит игру на несколько шагов",   priority_min: 70, progress_min: 55 },
+  { index: 4, title: "Святой меча",  subtitle: "Сам стал наставником",            priority_min: 87, progress_min: 85 },
 ];
 
 export function gradeForPriority(priority: number): SamuraiGrade {
@@ -63,10 +65,23 @@ export function gradeForPriority(priority: number): SamuraiGrade {
   return grade;
 }
 
-/** Inclusive priority range a grade covers — for the ladder display. */
-export function gradeRange(index: number): { min: number; max: number } {
-  const min = SAMURAI_GRADES[index]?.priority_min ?? 0;
-  const next = SAMURAI_GRADES[index + 1]?.priority_min;
+/** Grade derived from the user's own Pareto-step completion %. */
+export function gradeForProgress(pct: number): SamuraiGrade {
+  let grade = SAMURAI_GRADES[0];
+  for (const g of SAMURAI_GRADES) {
+    if (pct >= g.progress_min) grade = g;
+    else break;
+  }
+  return grade;
+}
+
+/** % range a user grade covers (0..100). For the ladder display. */
+export function gradeProgressRange(index: number): {
+  min: number;
+  max: number;
+} {
+  const min = SAMURAI_GRADES[index]?.progress_min ?? 0;
+  const next = SAMURAI_GRADES[index + 1]?.progress_min;
   return { min, max: next != null ? next - 1 : 100 };
 }
 
