@@ -1,7 +1,7 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
-import { ChevronDown } from "lucide-react";
+import { ChevronDown, Check } from "lucide-react";
 import { api } from "../lib/api";
 import { timeAgo } from "../lib/warmth";
 import {
@@ -13,18 +13,71 @@ import {
   SamuraiPalette,
   gradeForPriority,
   paletteForGrade,
+  gradeRange,
 } from "../lib/samurai";
 import SamuraiCrest from "../components/SamuraiCrest";
 
-// Crimson — the page's house colour, also the path's origin tone.
-const HOUSE = "#9a363f";
+// ── Washi palette ─────────────────────────────────────────────
+// The page is a sheet of warm washi paper. Sumi ink for text,
+// vermilion (朱) for the house accent, gold (金) for mastery.
+const WASHI = {
+  paper: "#faf7f0",
+  card: "#ffffff",
+  border: "#e8e0d0",
+  borderSoft: "#efe7d6",
+  ink: "#1a1410",
+  ink2: "#5e564c",
+  ink3: "#8c8378",
+  vermilion: "#9a363f",
+  gold: "#b48a2a",
+  jade: "#3a7a5c",
+};
+
+// Pareto ladder for a single plane (skill to absorb). Three steps,
+// each capped — the whole point is that mastery is finite. The first
+// step is the Pareto sweet-spot (20% effort → 60% of the value);
+// step 2 hits 85%; step 3 only adds polish.
+interface ParetoStep {
+  kanji: string;
+  name: string; // RU label
+  effort: number; // cumulative effort %
+  value: number; // cumulative value %
+  // Generic action template, blended with the plane's how_to_absorb.
+  action: string;
+}
+
+const PARETO_STEPS: ParetoStep[] = [
+  {
+    kanji: "観",
+    name: "Наблюдай",
+    effort: 20,
+    value: 60,
+    action: "Найди один пример паттерна у наставника. Заметь и запиши.",
+  },
+  {
+    kanji: "真",
+    name: "Подражай",
+    effort: 50,
+    value: 85,
+    action: "Примени паттерн один раз в живом разговоре. Достаточно одного.",
+  },
+  {
+    kanji: "得",
+    name: "Усвой",
+    effort: 100,
+    value: 100,
+    action: "Сделай паттерн своим. Где работает, где нет — отрефлексируй.",
+  },
+];
+
+const PARETO_SWEET_SPOT = 2; // after step 2 you have 85% — stop unless it matters
 
 const item = {
-  hidden: { opacity: 0, y: 16 },
+  hidden: { opacity: 0, y: 14 },
   visible: {
     opacity: 1,
     y: 0,
-    transition: { duration: 0.35, ease: "easeOut" as const },
+    transition: { duration: 0.32, ease: "easeOut" as const },
   },
 };
 
@@ -40,6 +93,29 @@ function pluralMasters(n: number): string {
 const KANJI_ORDINALS = ["一", "二", "三", "四", "五", "六", "七", "八", "九", "十"];
 function ordinal(i: number): string {
   return KANJI_ORDINALS[i] ?? String(i + 1);
+}
+
+// ── Pareto progress store ─────────────────────────────────────
+// Per-plane progression (0..3) is private to this client; the server
+// doesn't (yet) persist it. localStorage is more than enough — losing
+// it just resets the ladder, no real data is destroyed.
+function progressKey(contactId: string, planeIndex: number): string {
+  return `samurai:pareto:${contactId}:${planeIndex}`;
+}
+
+function readProgress(contactId: string, planeIndex: number): number {
+  if (typeof window === "undefined") return 0;
+  const raw = window.localStorage.getItem(progressKey(contactId, planeIndex));
+  const n = raw ? parseInt(raw, 10) : 0;
+  return Number.isFinite(n) ? Math.max(0, Math.min(3, n)) : 0;
+}
+
+function writeProgress(contactId: string, planeIndex: number, n: number): void {
+  if (typeof window === "undefined") return;
+  window.localStorage.setItem(
+    progressKey(contactId, planeIndex),
+    String(Math.max(0, Math.min(3, n))),
+  );
 }
 
 export default function Samurai() {
@@ -63,16 +139,25 @@ export default function Samurai() {
 
   if (loading) {
     return (
-      <div className="flex flex-1 items-center justify-center">
-        <div className="h-8 w-8 animate-spin rounded-full border-2 border-[#9a363f] border-t-transparent" />
+      <div
+        className="flex flex-1 items-center justify-center"
+        style={{ backgroundColor: WASHI.paper }}
+      >
+        <div
+          className="h-8 w-8 animate-spin rounded-full border-2 border-t-transparent"
+          style={{ borderColor: WASHI.vermilion, borderTopColor: "transparent" }}
+        />
       </div>
     );
   }
 
   if (error || !senseis) {
     return (
-      <div className="flex flex-1 flex-col items-center justify-center gap-3 px-6 text-center">
-        <p className="text-sm text-neutral-400">Не удалось загрузить путь</p>
+      <div
+        className="flex flex-1 flex-col items-center justify-center gap-3 px-6 text-center"
+        style={{ backgroundColor: WASHI.paper, color: WASHI.ink2 }}
+      >
+        <p className="text-sm">Не удалось загрузить путь</p>
       </div>
     );
   }
@@ -91,23 +176,33 @@ export default function Samurai() {
   return (
     <motion.div
       className="flex flex-1 flex-col gap-6 px-4 pt-6 pb-10"
+      style={{ backgroundColor: WASHI.paper, color: WASHI.ink }}
       initial="hidden"
       animate="visible"
       variants={{ visible: { transition: { staggerChildren: 0.05 } } }}
     >
       {/* ── Header ── */}
-      <motion.div className="flex items-center gap-3" variants={item}>
-        <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border border-[#9a363f]/30 bg-gradient-to-br from-[#5a1f25] to-[#15140f] text-2xl font-bold text-[#f0c450]">
+      <motion.div
+        className="flex items-center justify-between"
+        variants={item}
+      >
+        <div
+          className="flex h-10 w-10 items-center justify-center rounded-xl border text-xl font-bold"
+          style={{
+            borderColor: WASHI.border,
+            backgroundColor: WASHI.card,
+            color: WASHI.vermilion,
+          }}
+        >
           道
         </div>
-        <div className="min-w-0">
-          <h1 className="text-[20px] font-bold text-white">Самураи пути</h1>
-          <p className="mt-0.5 text-[12px] text-neutral-500">
-            {senseis.length > 0
-              ? `Твоё додзё · ${senseis.length} ${pluralMasters(senseis.length)}`
-              : "Твоё додзё ещё пустует"}
-          </p>
-        </div>
+        <h1
+          className="text-[17px] font-bold tracking-wide"
+          style={{ color: WASHI.ink }}
+        >
+          Путь Самурая
+        </h1>
+        <div className="w-10" />
       </motion.div>
 
       {senseis.length > 0 ? (
@@ -121,15 +216,35 @@ export default function Samurai() {
             />
           </motion.section>
 
-          {/* ── The path ── */}
+          {/* ── Mastery ladder ── */}
           <motion.section variants={item}>
-            <h3 className="mb-4 text-xs font-semibold uppercase tracking-widest text-neutral-500">
-              Твой путь
-            </h3>
-            <WarriorPath
-              senseis={senseis}
-              onOpen={(id) => navigate(`/people/${id}`)}
-            />
+            <SectionLabel>Лестница мастерства</SectionLabel>
+            <MasteryLadder gradesHeld={gradesHeld} topGrade={topGrade} />
+          </motion.section>
+
+          {/* ── Senseis ── */}
+          <motion.section variants={item}>
+            <SectionLabel>
+              Твоё додзё ·{" "}
+              <span style={{ color: WASHI.ink3 }}>
+                {senseis.length} {pluralMasters(senseis.length)}
+              </span>
+            </SectionLabel>
+            <div className="flex flex-col gap-4">
+              {senseis.map((s, i) => (
+                <SenseiCard
+                  key={s.contact_id}
+                  sensei={s}
+                  index={i}
+                  onOpen={() => navigate(`/people/${s.contact_id}`)}
+                />
+              ))}
+            </div>
+          </motion.section>
+
+          {/* ── Pareto manifesto ── */}
+          <motion.section variants={item}>
+            <ParetoManifesto />
           </motion.section>
         </>
       ) : (
@@ -137,49 +252,25 @@ export default function Samurai() {
           <EmptyDojo onGoToPeople={() => navigate("/people")} />
         </motion.section>
       )}
-
-      {/* ── Mastery track ── */}
-      <motion.section variants={item}>
-        <MasteryTrack gradesHeld={gradesHeld} topGrade={topGrade} />
-      </motion.section>
     </motion.div>
   );
 }
 
-// ── Rising-sun backdrop ───────────────────────────────────────
-// A 旭日 sunburst clipped by the card it sits in. Purely decorative.
-function RisingSun() {
-  const cx = 300;
-  const cy = 38;
-  const R = 440;
-  const n = 24;
-  const rays = Array.from({ length: n }, (_, i) => {
-    const a0 = (2 * Math.PI * i) / n;
-    const a1 = a0 + Math.PI / n;
-    const x0 = cx + R * Math.cos(a0);
-    const y0 = cy + R * Math.sin(a0);
-    const x1 = cx + R * Math.cos(a1);
-    const y1 = cy + R * Math.sin(a1);
-    return `M ${cx} ${cy} L ${x0.toFixed(1)} ${y0.toFixed(1)} L ${x1.toFixed(1)} ${y1.toFixed(1)} Z`;
-  });
+// ── Section label — small kanji-flavoured caption ─────────────
+function SectionLabel({ children }: { children: React.ReactNode }) {
   return (
-    <svg
-      className="pointer-events-none absolute inset-0 h-full w-full"
-      viewBox="0 0 360 240"
-      preserveAspectRatio="xMidYMid slice"
-      aria-hidden="true"
+    <h3
+      className="mb-3 text-[11px] font-semibold uppercase tracking-[0.22em]"
+      style={{ color: WASHI.ink3 }}
     >
-      <g opacity={0.1}>
-        {rays.map((d, i) => (
-          <path key={i} d={d} fill={i % 2 === 0 ? "#c8313b" : "#f0c450"} />
-        ))}
-      </g>
-      <circle cx={cx} cy={cy} r={26} fill="#c8313b" opacity={0.2} />
-    </svg>
+      {children}
+    </h3>
   );
 }
 
 // ── Dojo hero ─────────────────────────────────────────────────
+// White washi card. Big crest at centre, grade title, count chips,
+// progress bar to the next grade. Mirrors the Rank page hero feel.
 function DojoHero({
   count,
   planeCount,
@@ -189,155 +280,299 @@ function DojoHero({
   planeCount: number;
   topGrade: SamuraiGrade | null;
 }) {
+  const grade = topGrade ?? SAMURAI_GRADES[0];
+  const pal = paletteForGrade(grade.index);
+
+  // Progress towards next grade — capped at the top grade.
+  const nextGrade =
+    grade.index < SAMURAI_GRADES.length - 1
+      ? SAMURAI_GRADES[grade.index + 1]
+      : null;
+  const progressPct = nextGrade
+    ? Math.min(
+        100,
+        Math.round(((grade.index + 1) / SAMURAI_GRADES.length) * 100),
+      )
+    : 100;
+
   return (
-    <div className="relative overflow-hidden rounded-3xl border border-[#9a363f]/25 bg-gradient-to-br from-[#2a1416] via-[#1a1012] to-[#0f0f0f] p-6">
-      <RisingSun />
-      <div className="pointer-events-none absolute -right-20 -top-24 h-64 w-64 rounded-full bg-[#9a363f]/20 blur-3xl" />
-      <div className="pointer-events-none absolute -left-16 bottom-0 h-44 w-44 rounded-full bg-[#f0c450]/10 blur-3xl" />
+    <div
+      className="relative overflow-hidden rounded-3xl"
+      style={{
+        backgroundColor: WASHI.card,
+        border: `1px solid ${WASHI.border}`,
+        boxShadow:
+          "0 1px 2px rgba(26,20,17,0.04), 0 8px 24px rgba(26,20,17,0.05)",
+      }}
+    >
+      {/* Subtle sunrise wash in the corner — vermilion bleed */}
+      <div
+        aria-hidden="true"
+        className="pointer-events-none absolute -right-24 -top-24 h-64 w-64 rounded-full"
+        style={{
+          background: `radial-gradient(closest-side, ${WASHI.vermilion}1f, transparent)`,
+        }}
+      />
+      <div
+        aria-hidden="true"
+        className="pointer-events-none absolute -left-16 -bottom-16 h-44 w-44 rounded-full"
+        style={{
+          background: `radial-gradient(closest-side, ${WASHI.gold}1c, transparent)`,
+        }}
+      />
+      {/* Kanji watermark */}
+      <div
+        aria-hidden="true"
+        className="pointer-events-none absolute -right-4 -bottom-10 select-none text-[200px] font-black leading-none"
+        style={{ color: WASHI.ink, opacity: 0.025 }}
+      >
+        道
+      </div>
 
-      <div className="relative">
-        <p className="text-[10px] font-semibold uppercase tracking-[0.28em] text-[#f0c450]/80">
-          путь воина
+      <div className="relative flex flex-col items-center px-6 pt-8 pb-7">
+        {/* Big crest */}
+        <div
+          className="relative"
+          style={{
+            filter:
+              "drop-shadow(0 6px 14px rgba(26,20,17,0.10)) drop-shadow(0 2px 4px rgba(26,20,17,0.06))",
+          }}
+        >
+          <SamuraiCrest grade={grade} size={170} shine />
+        </div>
+
+        <p
+          className="mt-4 text-[10px] font-bold uppercase tracking-[0.28em]"
+          style={{ color: WASHI.vermilion }}
+        >
+          Высший грейд
         </p>
-        <p className="mt-2 text-[15px] font-medium leading-relaxed text-neutral-100">
-          «Стать сильнее можно только в схватке с сильнейшим — но сильнее он
-          лишь в своей плоскости.»
-        </p>
-        <p className="mt-1.5 text-[12px] leading-relaxed text-neutral-500">
-          Это твоё додзё: люди, у которых есть чему научиться, и техники,
-          которые стоит у них перенять.
+        <h2
+          className="mt-1 text-center text-[26px] font-bold leading-tight"
+          style={{ color: WASHI.ink }}
+        >
+          {grade.kanji} {grade.title}
+        </h2>
+        <p className="mt-0.5 text-[12px]" style={{ color: WASHI.ink3 }}>
+          {grade.romaji}
         </p>
 
-        <div className="mt-5 grid grid-cols-3 gap-2">
-          <HeroStat kanji="師" value={String(count)} label="сенсеев" />
-          <HeroStat kanji="技" value={String(planeCount)} label="техник" />
-          <HeroStat
-            kanji={topGrade?.kanji ?? "—"}
-            value={topGrade?.title ?? "—"}
-            label="высший грейд"
-            small
+        {/* Stats row */}
+        <div className="mt-5 grid w-full grid-cols-3 gap-2">
+          <HeroChip kanji="師" value={String(count)} label="сенсеев" />
+          <HeroChip kanji="技" value={String(planeCount)} label="техник" />
+          <HeroChip
+            kanji="級"
+            value={`${grade.index + 1}/${SAMURAI_GRADES.length}`}
+            label="ступень"
           />
+        </div>
+
+        {/* Progress to next grade */}
+        <div className="mt-6 w-full">
+          <div
+            className="h-2 w-full overflow-hidden rounded-full"
+            style={{ backgroundColor: WASHI.borderSoft }}
+          >
+            <motion.div
+              className="h-full rounded-full"
+              style={{
+                background: `linear-gradient(90deg, ${pal.ring}, ${pal.emblem})`,
+              }}
+              initial={{ width: 0 }}
+              animate={{ width: `${progressPct}%` }}
+              transition={{ duration: 0.8, ease: "easeOut" }}
+            />
+          </div>
+          <div
+            className="mt-2 flex items-center justify-between text-[11px]"
+            style={{ color: WASHI.ink3 }}
+          >
+            <span>
+              {grade.kanji} {grade.title}
+            </span>
+            <span>
+              {nextGrade
+                ? `→ ${nextGrade.kanji} ${nextGrade.title}`
+                : "Высший достигнут"}
+            </span>
+          </div>
         </div>
       </div>
     </div>
   );
 }
 
-function HeroStat({
+function HeroChip({
   kanji,
   value,
   label,
-  small,
 }: {
   kanji: string;
   value: string;
   label: string;
-  small?: boolean;
 }) {
   return (
-    <div className="rounded-2xl border border-white/5 bg-white/[0.03] p-3 text-center">
-      <p className="text-lg leading-none text-[#f0c450]/70">{kanji}</p>
+    <div
+      className="rounded-2xl px-3 py-2.5 text-center"
+      style={{
+        backgroundColor: WASHI.paper,
+        border: `1px solid ${WASHI.borderSoft}`,
+      }}
+    >
       <p
-        className={`mt-1.5 font-bold text-white ${
-          small ? "text-[13px] leading-tight" : "text-xl"
-        }`}
+        className="text-[15px] leading-none"
+        style={{ color: WASHI.vermilion, opacity: 0.75 }}
+      >
+        {kanji}
+      </p>
+      <p
+        className="mt-1.5 text-[17px] font-bold leading-none"
+        style={{ color: WASHI.ink }}
       >
         {value}
       </p>
-      <p className="mt-0.5 text-[10px] text-neutral-500">{label}</p>
+      <p
+        className="mt-1 text-[10px] leading-none"
+        style={{ color: WASHI.ink3 }}
+      >
+        {label}
+      </p>
     </div>
   );
 }
 
-// ── Warrior path ──────────────────────────────────────────────
-// The senseis rendered as milestone stations on a single vertical
-// trail. One continuous gradient "rail" runs behind the crest nodes;
-// the rail's hues flow through each sensei's grade colour. Each node
-// docks into its skill card on the right.
-function WarriorPath({
-  senseis,
-  onOpen,
+// ── Mastery ladder ────────────────────────────────────────────
+// Vertical step-by-step ladder of all 5 grades. Reached grades are
+// lit; the rest are quiet greyscale. A thin path connects the steps.
+function MasteryLadder({
+  gradesHeld,
+  topGrade,
 }: {
-  senseis: Sensei[];
-  onOpen: (id: string) => void;
+  gradesHeld: Set<number>;
+  topGrade: SamuraiGrade | null;
 }) {
-  // Rail gradient: starts at the house colour (you) and flows down
-  // through every sensei's grade tone, top → bottom.
-  const railStops = [
-    HOUSE,
-    ...senseis.map(
-      (s) => paletteForGrade(gradeForPriority(s.priority).index).ring,
-    ),
-  ];
-  const railGradient = `linear-gradient(to bottom, ${railStops.join(", ")})`;
-  const railMask = "linear-gradient(to bottom, #000 78%, transparent)";
+  const maxHeld = topGrade ? topGrade.index : -1;
 
   return (
-    <div className="relative">
-      {/* the rail — one continuous flowing line + a soft glow twin */}
-      <div
-        aria-hidden="true"
-        className="pointer-events-none absolute left-[26px] top-6 bottom-0 w-1 rounded-full blur-[5px] opacity-50"
-        style={{
-          background: railGradient,
-          WebkitMaskImage: railMask,
-          maskImage: railMask,
-        }}
-      />
-      <div
-        aria-hidden="true"
-        className="pointer-events-none absolute left-[26px] top-6 bottom-0 w-1 rounded-full"
-        style={{
-          background: railGradient,
-          WebkitMaskImage: railMask,
-          maskImage: railMask,
-        }}
-      />
+    <div
+      className="overflow-hidden rounded-3xl"
+      style={{
+        backgroundColor: WASHI.card,
+        border: `1px solid ${WASHI.border}`,
+        boxShadow: "0 1px 2px rgba(26,20,17,0.04)",
+      }}
+    >
+      <ol className="flex flex-col">
+        {SAMURAI_GRADES.map((g, i) => {
+          const held = gradesHeld.has(g.index);
+          const reached = g.index <= maxHeld;
+          const lit = held || reached;
+          const isCurrent = topGrade?.index === g.index;
+          const range = gradeRange(g.index);
+          const pal = paletteForGrade(g.index);
+          const isLast = i === SAMURAI_GRADES.length - 1;
 
-      <div className="flex flex-col">
-        <OriginNode />
-        {senseis.map((s, i) => (
-          <PathStop
-            key={s.contact_id}
-            sensei={s}
-            index={i}
-            onOpen={() => onOpen(s.contact_id)}
-          />
-        ))}
-        <PathEnd />
-      </div>
+          return (
+            <li
+              key={g.index}
+              className="relative flex items-center gap-3 px-4 py-3.5"
+              style={{
+                borderBottom: isLast
+                  ? "none"
+                  : `1px solid ${WASHI.borderSoft}`,
+                backgroundColor: isCurrent
+                  ? `${pal.ring}0d` // very soft tint for the active row
+                  : "transparent",
+              }}
+            >
+              {/* Step number (灯 — lit) */}
+              <div
+                className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-[11px] font-bold"
+                style={{
+                  backgroundColor: lit ? pal.ring : WASHI.borderSoft,
+                  color: lit ? "#fff" : WASHI.ink3,
+                }}
+              >
+                {g.index + 1}
+              </div>
+
+              {/* Crest (greyscale if not reached) */}
+              <div
+                className="shrink-0"
+                style={{ opacity: lit ? 1 : 0.35, filter: lit ? "none" : "grayscale(0.9)" }}
+              >
+                <SamuraiCrest grade={g} size={44} />
+              </div>
+
+              {/* Title + meta */}
+              <div className="min-w-0 flex-1">
+                <div className="flex items-baseline gap-2">
+                  <p
+                    className="truncate text-[14px] font-bold"
+                    style={{ color: lit ? WASHI.ink : WASHI.ink3 }}
+                  >
+                    {g.kanji} {g.title}
+                  </p>
+                  <p
+                    className="shrink-0 text-[10.5px]"
+                    style={{ color: WASHI.ink3 }}
+                  >
+                    {g.romaji}
+                  </p>
+                </div>
+                <p
+                  className="mt-0.5 text-[11px]"
+                  style={{ color: WASHI.ink3 }}
+                >
+                  приоритет {range.min}
+                  {range.max < 100 ? `–${range.max}` : "+"} ·{" "}
+                  {g.petals} лепестков
+                </p>
+              </div>
+
+              {/* Status chip */}
+              <div className="shrink-0">
+                {isCurrent ? (
+                  <span
+                    className="rounded-full px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider"
+                    style={{
+                      backgroundColor: pal.ring,
+                      color: "#fff",
+                    }}
+                  >
+                    Сейчас
+                  </span>
+                ) : reached ? (
+                  <span
+                    className="inline-flex h-6 w-6 items-center justify-center rounded-full"
+                    style={{ backgroundColor: `${WASHI.jade}1f`, color: WASHI.jade }}
+                    aria-label="Достигнут"
+                  >
+                    <Check size={14} strokeWidth={2.5} />
+                  </span>
+                ) : (
+                  <span
+                    className="text-[10px] font-medium uppercase tracking-wider"
+                    style={{ color: WASHI.ink3, opacity: 0.6 }}
+                  >
+                    Заперт
+                  </span>
+                )}
+              </div>
+            </li>
+          );
+        })}
+      </ol>
     </div>
   );
 }
 
-// Start of the path — "you", here and now.
-function OriginNode() {
-  return (
-    <motion.div
-      className="relative flex gap-3 pb-3"
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      transition={{ duration: 0.3 }}
-    >
-      <div className="relative z-10 w-14 shrink-0">
-        <div className="relative mx-auto flex h-12 w-12 items-center justify-center">
-          <div className="absolute h-10 w-10 rounded-full bg-bg" />
-          <div className="relative flex h-9 w-9 items-center justify-center rounded-full border border-[#9a363f]/50 bg-gradient-to-br from-[#5a1f25] to-[#15140f] text-[15px] font-bold text-[#f0c450] shadow-[0_0_14px_rgba(154,54,63,0.45)]">
-            己
-          </div>
-        </div>
-      </div>
-      <div className="flex min-w-0 flex-1 items-center">
-        <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-neutral-500">
-          Здесь начинается путь
-        </p>
-      </div>
-    </motion.div>
-  );
-}
-
-// One milestone on the path: crest node on the rail + skill card.
-function PathStop({
+// ── Sensei card (white) ──────────────────────────────────────
+// One sensei = one beautiful white card. Crest + identity at top,
+// узы (warmth), headline, then the heart: planes as Pareto progress
+// strips, each with its current step / next action.
+function SenseiCard({
   sensei,
   index,
   onOpen,
@@ -348,286 +583,513 @@ function PathStop({
 }) {
   const grade = gradeForPriority(sensei.priority);
   const pal = paletteForGrade(grade.index);
-
-  return (
-    <motion.div
-      className="relative flex gap-3 pb-3"
-      initial={{ opacity: 0, x: -10 }}
-      whileInView={{ opacity: 1, x: 0 }}
-      viewport={{ once: true, margin: "-40px" }}
-      transition={{
-        duration: 0.3,
-        ease: "easeOut",
-        delay: Math.min(index * 0.04, 0.2),
-      }}
-    >
-      {/* rail column — crest node sits on the rail */}
-      <div className="relative w-14 shrink-0">
-        <div className="relative z-10 mx-auto flex h-12 w-12 items-center justify-center">
-          {/* opaque base so the rail passes cleanly behind the node */}
-          <div
-            className="absolute h-10 w-10 rounded-full border bg-bg"
-            style={{ borderColor: pal.ring + "66" }}
-          />
-          <SamuraiCrest grade={grade} size={46} />
-        </div>
-        {/* connector tick bridging the node to its card */}
-        <div
-          aria-hidden="true"
-          className="absolute h-0.5 w-5 rounded-full"
-          style={{ top: "23px", left: "48px", backgroundColor: pal.ring + "99" }}
-        />
-      </div>
-
-      {/* skill card */}
-      <SkillCard sensei={sensei} grade={grade} pal={pal} onOpen={onOpen} />
-    </motion.div>
-  );
-}
-
-// End of the path — it keeps going beyond what's mapped.
-function PathEnd() {
-  return (
-    <div className="relative flex gap-3">
-      <div className="relative z-10 w-14 shrink-0">
-        <div className="relative mx-auto flex h-11 w-12 items-center justify-center">
-          <div className="absolute h-9 w-9 rounded-full bg-bg" />
-          <div className="relative flex h-7 w-7 items-center justify-center rounded-full border border-dashed border-white/15 text-[11px] text-neutral-600">
-            続
-          </div>
-        </div>
-      </div>
-      <div className="flex min-w-0 flex-1 items-center">
-        <p className="text-[11px] leading-relaxed text-neutral-600">
-          Путь продолжается — новые сенсеи появятся, когда агент найдёт их в
-          твоей сети.
-        </p>
-      </div>
-    </div>
-  );
-}
-
-// ── Skill card ────────────────────────────────────────────────
-// The sensei's content, docked to its path node. The crest lives on
-// the rail, so the card carries identity + the patterns to absorb.
-function SkillCard({
-  sensei,
-  grade,
-  pal,
-  onOpen,
-}: {
-  sensei: Sensei;
-  grade: SamuraiGrade;
-  pal: SamuraiPalette;
-  onOpen: () => void;
-}) {
   const role = [sensei.occupation, sensei.company].filter(Boolean).join(" · ");
   const warmth = Math.round(sensei.warmth_score);
   const [noteOpen, setNoteOpen] = useState(false);
 
   return (
-    <div
-      onClick={onOpen}
-      className="relative min-w-0 flex-1 cursor-pointer overflow-hidden rounded-2xl border border-l-2 bg-card p-3.5 transition-colors active:bg-card-hover"
+    <motion.div
+      initial={{ opacity: 0, y: 12 }}
+      whileInView={{ opacity: 1, y: 0 }}
+      viewport={{ once: true, margin: "-40px" }}
+      transition={{
+        duration: 0.32,
+        ease: "easeOut",
+        delay: Math.min(index * 0.04, 0.2),
+      }}
+      className="relative overflow-hidden rounded-3xl"
       style={{
-        borderColor: "rgba(255,255,255,0.06)",
-        borderLeftColor: pal.ring + "aa",
+        backgroundColor: WASHI.card,
+        border: `1px solid ${WASHI.border}`,
+        borderLeft: `4px solid ${pal.ring}`,
+        boxShadow:
+          "0 1px 2px rgba(26,20,17,0.04), 0 6px 18px rgba(26,20,17,0.05)",
       }}
     >
-      {/* grade-tinted glow */}
+      {/* faint grade-tinted corner wash */}
       <div
-        className="pointer-events-none absolute -right-14 -top-14 h-36 w-36 rounded-full blur-3xl"
-        style={{ background: pal.glow }}
+        aria-hidden="true"
+        className="pointer-events-none absolute -right-16 -top-16 h-40 w-40 rounded-full"
+        style={{
+          background: `radial-gradient(closest-side, ${pal.ring}22, transparent)`,
+        }}
       />
 
-      {/* ── identity ── */}
-      <div className="relative flex items-start justify-between gap-2">
-        <div className="min-w-0">
-          <p className="truncate text-[15px] font-bold text-white">
+      {/* ── Identity row (tap → profile) ── */}
+      <button
+        type="button"
+        onClick={onOpen}
+        className="relative flex w-full items-start gap-3 px-4 pt-4 pb-3 text-left"
+      >
+        <div
+          className="shrink-0 rounded-2xl"
+          style={{
+            backgroundColor: WASHI.paper,
+            padding: 4,
+            border: `1px solid ${WASHI.borderSoft}`,
+          }}
+        >
+          <SamuraiCrest grade={grade} size={56} />
+        </div>
+        <div className="min-w-0 flex-1">
+          <p
+            className="truncate text-[16px] font-bold"
+            style={{ color: WASHI.ink }}
+          >
             {sensei.full_name}
           </p>
           {role && (
-            <p className="mt-0.5 truncate text-[11.5px] text-neutral-500">
+            <p
+              className="mt-0.5 truncate text-[12px]"
+              style={{ color: WASHI.ink3 }}
+            >
               {role}
             </p>
           )}
-        </div>
-        <span
-          className="shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold"
-          style={{ backgroundColor: pal.ring + "33", color: pal.emblem }}
-        >
-          {grade.kanji} {grade.title}
-        </span>
-      </div>
-
-      {/* ── узы — bond strength (warmth) ── */}
-      <div className="relative mt-2.5">
-        <div className="mb-1 flex items-center justify-between text-[10px] text-neutral-500">
-          <span className="uppercase tracking-widest">Узы</span>
-          <span>{warmth}/100</span>
-        </div>
-        <div className="h-1.5 w-full overflow-hidden rounded-full bg-white/5">
-          <div
-            className="h-full rounded-full"
-            style={{
-              width: `${warmth}%`,
-              background: `linear-gradient(90deg, ${pal.ring}, ${pal.emblem})`,
-            }}
-          />
-        </div>
-      </div>
-
-      {/* ── headline — one-line framing ── */}
-      {sensei.headline && (
-        <p className="relative mt-3 text-[12.5px] leading-snug text-neutral-200">
-          {sensei.headline}
-        </p>
-      )}
-
-      {/* ── patterns to absorb — the heart of the card ── */}
-      {sensei.planes.length > 0 && (
-        <div className="relative mt-3.5">
-          <div className="mb-2 flex items-center gap-2">
-            <p className="text-[10px] font-semibold uppercase tracking-widest text-neutral-500">
-              Чему учиться рядом
-            </p>
+          <div className="mt-1.5 flex items-center gap-2">
             <span
-              className="rounded-full px-1.5 py-px text-[10px] font-semibold leading-none"
-              style={{ backgroundColor: pal.ring + "29", color: pal.emblem }}
+              className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10.5px] font-bold uppercase tracking-wider"
+              style={{
+                backgroundColor: `${pal.ring}1f`,
+                color: pal.ring,
+              }}
             >
-              {sensei.planes.length}
+              {grade.kanji} {grade.title}
             </span>
-            <div className="h-px flex-1 bg-white/5" />
-          </div>
-          <div className="flex flex-col gap-2">
-            {sensei.planes.map((pl, i) => (
-              <PlaneRow key={i} plane={pl} index={i} pal={pal} />
-            ))}
+            <span
+              className="text-[10px]"
+              style={{ color: WASHI.ink3 }}
+            >
+              приоритет {sensei.priority}/100
+            </span>
           </div>
         </div>
-      )}
+      </button>
 
-      {/* ── strategic note — folded away by default ── */}
-      {sensei.chess_note && (
-        <div className="relative mt-3">
+      <div className="relative px-4 pb-4">
+        {/* ── Узы (warmth) — light-themed bar ── */}
+        <div className="mt-1">
+          <div
+            className="mb-1 flex items-center justify-between text-[10px] uppercase tracking-widest"
+            style={{ color: WASHI.ink3 }}
+          >
+            <span>Узы</span>
+            <span style={{ color: WASHI.ink2 }}>{warmth}/100</span>
+          </div>
+          <div
+            className="h-1.5 w-full overflow-hidden rounded-full"
+            style={{ backgroundColor: WASHI.borderSoft }}
+          >
+            <div
+              className="h-full rounded-full"
+              style={{
+                width: `${warmth}%`,
+                background: `linear-gradient(90deg, ${pal.ring}, ${pal.emblem})`,
+              }}
+            />
+          </div>
+        </div>
+
+        {/* ── Headline ── */}
+        {sensei.headline && (
+          <p
+            className="mt-3.5 text-[13px] leading-snug"
+            style={{ color: WASHI.ink2 }}
+          >
+            {sensei.headline}
+          </p>
+        )}
+
+        {/* ── Patterns (Pareto progression) ── */}
+        {sensei.planes.length > 0 && (
+          <div className="mt-4">
+            <div className="mb-2 flex items-center gap-2">
+              <p
+                className="text-[10px] font-semibold uppercase tracking-widest"
+                style={{ color: WASHI.ink3 }}
+              >
+                Чему учиться рядом
+              </p>
+              <span
+                className="rounded-full px-1.5 py-px text-[10px] font-bold leading-none"
+                style={{
+                  backgroundColor: `${pal.ring}1f`,
+                  color: pal.ring,
+                }}
+              >
+                {sensei.planes.length}
+              </span>
+              <div
+                className="h-px flex-1"
+                style={{ backgroundColor: WASHI.borderSoft }}
+              />
+              <span
+                className="text-[9px] uppercase tracking-wider"
+                style={{ color: WASHI.gold }}
+              >
+                по Парето
+              </span>
+            </div>
+            <div className="flex flex-col gap-2.5">
+              {sensei.planes.map((pl, i) => (
+                <ParetoPlaneCard
+                  key={i}
+                  plane={pl}
+                  index={i}
+                  contactId={sensei.contact_id}
+                  pal={pal}
+                />
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* ── Strategic note ── */}
+        {sensei.chess_note && (
+          <div className="mt-4">
+            <button
+              type="button"
+              aria-expanded={noteOpen}
+              onClick={() => setNoteOpen((v) => !v)}
+              className="flex w-full items-center gap-2 text-left"
+            >
+              <span
+                className="text-[10px] font-bold uppercase tracking-widest"
+                style={{ color: pal.ring }}
+              >
+                Заметка стратега
+              </span>
+              <motion.span
+                animate={{ rotate: noteOpen ? 180 : 0 }}
+                transition={{ duration: 0.2 }}
+                style={{ color: pal.ring }}
+                aria-hidden="true"
+              >
+                <ChevronDown size={14} />
+              </motion.span>
+              <div
+                className="h-px flex-1"
+                style={{ backgroundColor: WASHI.borderSoft }}
+              />
+            </button>
+            <AnimatePresence initial={false}>
+              {noteOpen && (
+                <motion.div
+                  initial={{ height: 0, opacity: 0 }}
+                  animate={{ height: "auto", opacity: 1 }}
+                  exit={{ height: 0, opacity: 0 }}
+                  transition={{ duration: 0.25, ease: "easeOut" }}
+                  className="overflow-hidden"
+                >
+                  <p
+                    className="mt-2 rounded-xl px-3 py-2 text-[12px] italic leading-relaxed"
+                    style={{
+                      borderLeft: `2px solid ${pal.ring}`,
+                      backgroundColor: `${pal.field}0a`,
+                      color: WASHI.ink2,
+                    }}
+                  >
+                    「{sensei.chess_note}」
+                  </p>
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </div>
+        )}
+
+        {/* ── Footer ── */}
+        <div
+          className="mt-4 flex items-center justify-between border-t pt-3 text-[10.5px]"
+          style={{
+            borderColor: WASHI.borderSoft,
+            color: WASHI.ink3,
+          }}
+        >
+          <span>
+            {sensei.last_interaction_at
+              ? `последний контакт · ${timeAgo(sensei.last_interaction_at)}`
+              : "ещё не общались"}
+          </span>
           <button
             type="button"
-            aria-expanded={noteOpen}
-            onClick={(e) => {
-              e.stopPropagation();
-              setNoteOpen((v) => !v);
-            }}
-            className="flex w-full items-center gap-2 text-left"
+            onClick={onOpen}
+            className="font-semibold"
+            style={{ color: pal.ring }}
           >
-            <span
-              className="text-[10px] font-semibold uppercase tracking-widest"
-              style={{ color: pal.emblem }}
-            >
-              Заметка стратега
-            </span>
-            <motion.span
-              animate={{ rotate: noteOpen ? 180 : 0 }}
-              transition={{ duration: 0.2 }}
-              style={{ color: pal.emblem }}
-              aria-hidden="true"
-            >
-              <ChevronDown size={14} />
-            </motion.span>
-            <div className="h-px flex-1 bg-white/5" />
+            открыть →
           </button>
-          <AnimatePresence initial={false}>
-            {noteOpen && (
-              <motion.div
-                initial={{ height: 0, opacity: 0 }}
-                animate={{ height: "auto", opacity: 1 }}
-                exit={{ height: 0, opacity: 0 }}
-                transition={{ duration: 0.25, ease: "easeOut" }}
-                className="overflow-hidden"
-              >
-                <p
-                  className="mt-2 rounded-xl border-l-2 px-3 py-2 text-[12px] italic leading-relaxed text-neutral-300"
-                  style={{
-                    borderColor: pal.ring,
-                    backgroundColor: pal.field + "1f",
-                  }}
-                >
-                  「{sensei.chess_note}」
-                </p>
-              </motion.div>
-            )}
-          </AnimatePresence>
         </div>
-      )}
-
-      {/* ── footer ── */}
-      <div className="relative mt-3.5 flex items-center justify-between border-t border-white/5 pt-3 text-[10px] text-neutral-500">
-        <span>
-          {sensei.last_interaction_at
-            ? `последний контакт · ${timeAgo(sensei.last_interaction_at)}`
-            : "ещё не общались"}
-        </span>
-        <span>приоритет {sensei.priority}/100</span>
       </div>
-    </div>
+    </motion.div>
   );
 }
 
-// One "plane" — a pattern worth absorbing. The title stays visible so the
-// card is scannable; the reasoning + how-to are tucked behind a tap.
-function PlaneRow({
+// ── Pareto progress strip for a single plane ─────────────────
+// One technique = one capped 3-step ladder. The card shows the
+// current step, the next concrete action, and the 20/80 hint.
+// Tapping a dot sets that level. The whole point: it ends.
+function ParetoPlaneCard({
   plane,
   index,
+  contactId,
   pal,
 }: {
   plane: GrowthPlane;
   index: number;
+  contactId: string;
   pal: SamuraiPalette;
 }) {
+  // Persisted progress 0..3 (3 = "впитано")
+  const [level, setLevel] = useState<number>(() => readProgress(contactId, index));
   const [open, setOpen] = useState(false);
-  const hasDetail = !!(plane.why || plane.how_to_absorb);
+
+  const setLvl = (n: number) => {
+    setLevel(n);
+    writeProgress(contactId, index, n);
+  };
+
+  const done = level >= 3;
+  const currentStep = !done ? PARETO_STEPS[level] : null;
+  const prevValue = level > 0 ? PARETO_STEPS[level - 1].value : 0;
+  const nextValue = currentStep ? currentStep.value : 100;
+
+  // Custom action — blend server's how_to_absorb into the current step.
+  const liveAction = useMemo(() => {
+    if (done || !currentStep) return null;
+    if (level === 0) return currentStep.action; // observation is universal
+    // For step 2/3 prefer the plane's actual how_to_absorb when present
+    return plane.how_to_absorb || currentStep.action;
+  }, [done, currentStep, level, plane.how_to_absorb]);
 
   return (
     <div
-      className="overflow-hidden rounded-xl border transition-colors"
+      className="overflow-hidden rounded-2xl transition-colors"
       style={{
-        borderColor: open ? pal.ring + "55" : "rgba(255,255,255,0.06)",
-        backgroundColor: open ? pal.field + "1f" : "rgba(255,255,255,0.025)",
+        backgroundColor: done ? `${WASHI.jade}0d` : WASHI.paper,
+        border: `1px solid ${done ? `${WASHI.jade}55` : WASHI.borderSoft}`,
       }}
     >
-      <button
-        type="button"
-        aria-expanded={hasDetail ? open : undefined}
-        onClick={(e) => {
-          if (!hasDetail) return; // let the tap bubble to the card → profile
-          e.stopPropagation();
-          setOpen((v) => !v);
-        }}
-        className="flex w-full items-center gap-3 p-3 text-left"
-      >
+      {/* Head row — ordinal · title · level chip */}
+      <div className="flex items-center gap-3 px-3 pt-3">
         <span
           className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-[13px] font-bold leading-none"
-          style={{ backgroundColor: pal.ring + "2e", color: pal.emblem }}
+          style={{
+            backgroundColor: done ? `${WASHI.jade}1f` : `${pal.ring}1a`,
+            color: done ? WASHI.jade : pal.ring,
+          }}
         >
           {ordinal(index)}
         </span>
-        <span className="min-w-0 flex-1 text-[13px] font-semibold leading-snug text-neutral-100">
+        <p
+          className="min-w-0 flex-1 text-[13.5px] font-semibold leading-snug"
+          style={{ color: WASHI.ink }}
+        >
           {plane.plane}
-        </span>
-        {hasDetail && (
-          <motion.span
-            animate={{ rotate: open ? 180 : 0 }}
-            transition={{ duration: 0.2 }}
-            className="shrink-0"
-            style={{ color: pal.emblem }}
-            aria-hidden="true"
+        </p>
+        {done ? (
+          <span
+            className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider"
+            style={{ backgroundColor: `${WASHI.jade}1f`, color: WASHI.jade }}
           >
-            <ChevronDown size={16} />
-          </motion.span>
+            <Check size={11} strokeWidth={3} /> впитано
+          </span>
+        ) : (
+          <span
+            className="rounded-full px-2 py-0.5 text-[10px] font-bold leading-none"
+            style={{ backgroundColor: `${pal.ring}14`, color: pal.ring }}
+          >
+            {level}/3
+          </span>
         )}
-      </button>
+      </div>
 
+      {/* Pareto progress dots — tappable */}
+      <div className="px-3 pt-2.5">
+        <div className="flex items-center gap-1.5">
+          {PARETO_STEPS.map((s, i) => {
+            const filled = i < level || done;
+            const isCurrent = i === level && !done;
+            return (
+              <button
+                key={i}
+                type="button"
+                aria-label={`${s.kanji} ${s.name}: ${s.effort}% усилий → ${s.value}% мастерства`}
+                onClick={() => setLvl(i + 1 === level ? i : i + 1)}
+                className="group flex items-center gap-1.5"
+              >
+                <span
+                  className="flex h-7 w-7 items-center justify-center rounded-full text-[11px] font-bold transition-all"
+                  style={{
+                    backgroundColor: filled
+                      ? done
+                        ? WASHI.jade
+                        : pal.ring
+                      : isCurrent
+                        ? "#fff"
+                        : WASHI.borderSoft,
+                    color: filled
+                      ? "#fff"
+                      : isCurrent
+                        ? pal.ring
+                        : WASHI.ink3,
+                    border: isCurrent
+                      ? `1.5px dashed ${pal.ring}`
+                      : `1px solid ${filled ? "transparent" : WASHI.border}`,
+                  }}
+                >
+                  {s.kanji}
+                </span>
+                {i < PARETO_STEPS.length - 1 && (
+                  <span
+                    className="h-px w-3"
+                    aria-hidden="true"
+                    style={{
+                      backgroundColor: i < level - 1 || done
+                        ? pal.ring
+                        : WASHI.border,
+                    }}
+                  />
+                )}
+              </button>
+            );
+          })}
+          <div className="flex-1" />
+          {!done && currentStep && (
+            <span
+              className="text-[10px] font-medium tabular-nums"
+              style={{ color: WASHI.gold }}
+            >
+              {currentStep.effort}% → {currentStep.value}%
+            </span>
+          )}
+        </div>
+
+        {/* The big 20/80 progress arc — visual proof of Pareto */}
+        {!done && (
+          <div className="mt-2.5">
+            <div
+              className="relative h-1.5 w-full overflow-hidden rounded-full"
+              style={{ backgroundColor: WASHI.borderSoft }}
+            >
+              {/* "value so far" filled bar */}
+              <motion.div
+                className="absolute inset-y-0 left-0 rounded-full"
+                style={{
+                  background: `linear-gradient(90deg, ${pal.ring}, ${pal.emblem})`,
+                }}
+                initial={{ width: `${prevValue}%` }}
+                animate={{ width: `${nextValue}%` }}
+                transition={{ duration: 0.5, ease: "easeOut" }}
+              />
+              {/* Sweet-spot marker at 85% (the Pareto knee) */}
+              <div
+                aria-hidden="true"
+                className="absolute top-1/2 h-3 w-0.5 -translate-y-1/2 rounded-full"
+                style={{
+                  left: `${PARETO_STEPS[PARETO_SWEET_SPOT - 1].value}%`,
+                  backgroundColor: WASHI.gold,
+                  opacity: 0.6,
+                }}
+              />
+            </div>
+            <div
+              className="mt-1 flex items-center justify-between text-[9.5px]"
+              style={{ color: WASHI.ink3 }}
+            >
+              <span>0%</span>
+              <span style={{ color: WASHI.gold }}>
+                ↑ Парето-зона (после шага 2)
+              </span>
+              <span>100%</span>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Current step body — the actual move */}
+      {!done && currentStep && liveAction && (
+        <div className="px-3 pt-2.5 pb-3">
+          <p
+            className="text-[10.5px] font-bold uppercase tracking-widest"
+            style={{ color: pal.ring }}
+          >
+            Сейчас · {currentStep.kanji} {currentStep.name}
+          </p>
+          <p
+            className="mt-1 rounded-xl px-3 py-2 text-[12px] leading-relaxed"
+            style={{
+              backgroundColor: WASHI.card,
+              border: `1px solid ${WASHI.borderSoft}`,
+              color: WASHI.ink,
+            }}
+          >
+            → {liveAction}
+          </p>
+          <div className="mt-2 flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setLvl(level + 1)}
+              className="rounded-full px-3 py-1.5 text-[11px] font-semibold transition-colors"
+              style={{
+                backgroundColor: pal.ring,
+                color: "#fff",
+              }}
+            >
+              {level === 2 ? "Закрепить ✓" : "Сделано →"}
+            </button>
+            {level > 0 && (
+              <button
+                type="button"
+                onClick={() => setLvl(level - 1)}
+                className="rounded-full px-2.5 py-1.5 text-[11px]"
+                style={{ color: WASHI.ink3 }}
+              >
+                назад
+              </button>
+            )}
+            <div className="flex-1" />
+            <button
+              type="button"
+              onClick={() => setOpen((v) => !v)}
+              className="flex items-center gap-1 text-[10.5px] font-medium"
+              style={{ color: WASHI.ink3 }}
+            >
+              <span>детали</span>
+              <motion.span
+                animate={{ rotate: open ? 180 : 0 }}
+                transition={{ duration: 0.2 }}
+                aria-hidden="true"
+              >
+                <ChevronDown size={12} />
+              </motion.span>
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Done state — small celebration */}
+      {done && (
+        <div className="flex items-center gap-2 px-3 pb-3 pt-1">
+          <p
+            className="flex-1 text-[12px] leading-relaxed"
+            style={{ color: WASHI.ink2 }}
+          >
+            Паттерн твой. Дальше — только полировка, если захочется.
+          </p>
+          <button
+            type="button"
+            onClick={() => setLvl(0)}
+            className="rounded-full px-2.5 py-1 text-[10.5px]"
+            style={{ color: WASHI.ink3 }}
+          >
+            сбросить
+          </button>
+        </div>
+      )}
+
+      {/* Expandable details — why + 3-step breakdown */}
       <AnimatePresence initial={false}>
-        {open && hasDetail && (
+        {open && (
           <motion.div
             initial={{ height: 0, opacity: 0 }}
             animate={{ height: "auto", opacity: 1 }}
@@ -635,24 +1097,80 @@ function PlaneRow({
             transition={{ duration: 0.25, ease: "easeOut" }}
             className="overflow-hidden"
           >
-            <div className="flex flex-col gap-2 pb-3 pl-[52px] pr-3">
+            <div
+              className="mx-3 mb-3 mt-1 rounded-xl px-3 py-3"
+              style={{
+                backgroundColor: WASHI.card,
+                border: `1px solid ${WASHI.borderSoft}`,
+              }}
+            >
               {plane.why && (
-                <p className="text-[11.5px] leading-relaxed text-neutral-400">
-                  <span className="font-medium text-neutral-500">почему: </span>
+                <p
+                  className="text-[11.5px] leading-relaxed"
+                  style={{ color: WASHI.ink2 }}
+                >
+                  <span
+                    className="font-bold uppercase tracking-widest"
+                    style={{ color: WASHI.ink3, fontSize: 9 }}
+                  >
+                    почему ·{" "}
+                  </span>
                   {plane.why}
                 </p>
               )}
-              {plane.how_to_absorb && (
-                <p
-                  className="rounded-lg px-2.5 py-2 text-[11.5px] leading-relaxed"
-                  style={{
-                    backgroundColor: pal.field + "29",
-                    color: pal.emblem,
-                  }}
-                >
-                  → {plane.how_to_absorb}
-                </p>
-              )}
+              <div className="mt-3 flex flex-col gap-2">
+                {PARETO_STEPS.map((s, i) => {
+                  const isDone = i < level;
+                  const isNow = i === level && !done;
+                  return (
+                    <div
+                      key={i}
+                      className="flex items-start gap-2.5 rounded-lg px-2.5 py-2"
+                      style={{
+                        backgroundColor: isNow
+                          ? `${pal.ring}0d`
+                          : isDone
+                            ? `${WASHI.jade}0a`
+                            : "transparent",
+                      }}
+                    >
+                      <span
+                        className="mt-px flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[10px] font-bold leading-none"
+                        style={{
+                          backgroundColor: isDone
+                            ? WASHI.jade
+                            : isNow
+                              ? pal.ring
+                              : WASHI.borderSoft,
+                          color: isDone || isNow ? "#fff" : WASHI.ink3,
+                        }}
+                      >
+                        {s.kanji}
+                      </span>
+                      <div className="min-w-0 flex-1">
+                        <p
+                          className="text-[11.5px] font-bold"
+                          style={{ color: WASHI.ink }}
+                        >
+                          {s.name}{" "}
+                          <span
+                            className="font-medium"
+                            style={{ color: WASHI.ink3 }}
+                          >
+                            · {s.effort}% усилий → {s.value}% мастерства
+                          </span>
+                        </p>
+                        <p
+                          className="mt-0.5 text-[11px] leading-relaxed"
+                          style={{ color: WASHI.ink2 }}
+                        >
+                          {s.action}
+                        </p>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
             </div>
           </motion.div>
         )}
@@ -661,127 +1179,131 @@ function PlaneRow({
   );
 }
 
-// ── Mastery track ─────────────────────────────────────────────
-// The five grades as a horizontal trail — a mini-path that echoes the
-// vertical one. Reached grades light up; the rest wait in greyscale.
-function MasteryTrack({
-  gradesHeld,
-  topGrade,
-}: {
-  gradesHeld: Set<number>;
-  topGrade: SamuraiGrade | null;
-}) {
-  const maxHeld = topGrade ? topGrade.index : -1;
-
+// ── Pareto manifesto card ────────────────────────────────────
+// Short reminder of the rule that governs the whole page.
+function ParetoManifesto() {
   return (
-    <div className="rounded-3xl border border-white/5 bg-card p-5">
-      <div className="flex items-center justify-between gap-2">
-        <h3 className="text-xs font-semibold uppercase tracking-widest text-neutral-500">
-          Путь мастерства
-        </h3>
-        {topGrade && (
-          <span
-            className="shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold"
+    <div
+      className="relative overflow-hidden rounded-3xl px-5 py-5"
+      style={{
+        backgroundColor: WASHI.card,
+        border: `1px solid ${WASHI.border}`,
+      }}
+    >
+      <div
+        aria-hidden="true"
+        className="pointer-events-none absolute -right-4 -top-6 select-none text-[110px] font-black leading-none"
+        style={{ color: WASHI.gold, opacity: 0.08 }}
+      >
+        八
+      </div>
+      <p
+        className="text-[10px] font-bold uppercase tracking-[0.28em]"
+        style={{ color: WASHI.gold }}
+      >
+        Принцип Парето
+      </p>
+      <p
+        className="mt-2 text-[14px] font-semibold leading-snug"
+        style={{ color: WASHI.ink }}
+      >
+        20% действий — 80% результата.
+      </p>
+      <p
+        className="mt-2 text-[12px] leading-relaxed"
+        style={{ color: WASHI.ink2 }}
+      >
+        Прокачка каждой техники ограничена тремя шагами и завершается. После
+        шага 2 у тебя уже 85% мастерства — это и есть Парето-зона. Третий шаг —
+        полировка, иди в неё только если паттерн правда критичен.
+      </p>
+      <div className="mt-3 grid grid-cols-3 gap-2">
+        {PARETO_STEPS.map((s, i) => (
+          <div
+            key={i}
+            className="rounded-2xl px-2.5 py-2 text-center"
             style={{
-              backgroundColor: paletteForGrade(topGrade.index).ring + "33",
-              color: paletteForGrade(topGrade.index).emblem,
+              backgroundColor: WASHI.paper,
+              border: `1px solid ${WASHI.borderSoft}`,
             }}
           >
-            {topGrade.kanji} {topGrade.title}
-          </span>
-        )}
-      </div>
-
-      {/* horizontal trail of crests */}
-      <div className="relative mt-5 flex justify-between">
-        {/* base line + reached progress, threaded through the crest centres */}
-        <div className="absolute left-[10%] right-[10%] top-6 h-0.5 -translate-y-1/2 rounded-full bg-white/[0.08]" />
-        {maxHeld > 0 && (
-          <div
-            className="absolute left-[10%] top-6 h-0.5 -translate-y-1/2 rounded-full"
-            style={{
-              width: `${maxHeld * 20}%`,
-              background: `linear-gradient(90deg, ${paletteForGrade(0).emblem}, ${paletteForGrade(maxHeld).emblem})`,
-            }}
-          />
-        )}
-
-        {SAMURAI_GRADES.map((g) => {
-          const held = gradesHeld.has(g.index);
-          const reached = g.index <= maxHeld;
-          const lit = held || reached;
-          const pal = paletteForGrade(g.index);
-          return (
-            <div
-              key={g.index}
-              className="relative z-10 flex w-[20%] flex-col items-center gap-1.5"
+            <p
+              className="text-[16px] font-bold leading-none"
+              style={{ color: WASHI.vermilion }}
             >
-              <div
-                className="flex h-12 w-12 items-center justify-center rounded-full bg-bg"
-                style={{
-                  boxShadow: held
-                    ? `0 0 0 1.5px ${pal.ring}, 0 0 12px ${pal.glow}`
-                    : reached
-                      ? `0 0 0 1px ${pal.ring}66`
-                      : "0 0 0 1px rgba(255,255,255,0.06)",
-                }}
-              >
-                <div className={lit ? "" : "opacity-40 grayscale"}>
-                  <SamuraiCrest grade={g} size={44} />
-                </div>
-              </div>
-              <p
-                className="text-center text-[13px] font-bold leading-none"
-                style={{ color: lit ? pal.emblem : "#5b5b5b" }}
-              >
-                {g.kanji}
-              </p>
-              <p
-                className={`text-center text-[9px] leading-tight ${
-                  lit ? "text-neutral-400" : "text-neutral-600"
-                }`}
-              >
-                {g.title}
-              </p>
-            </div>
-          );
-        })}
+              {s.kanji}
+            </p>
+            <p
+              className="mt-1 text-[11px] font-bold leading-none"
+              style={{ color: WASHI.ink }}
+            >
+              {s.name}
+            </p>
+            <p
+              className="mt-1 text-[9.5px] leading-tight tabular-nums"
+              style={{ color: WASHI.ink3 }}
+            >
+              {s.effort}% → {s.value}%
+            </p>
+          </div>
+        ))}
       </div>
-
-      <p className="mt-4 text-[11px] leading-relaxed text-neutral-600">
-        Грейд наставника растёт с «приоритетом» из Зоны роста — насколько
-        агрессивно стоит у него учиться. Сенсеи появляются, когда агент находит
-        человека, который сильнее тебя в конкретной плоскости.
-      </p>
     </div>
   );
 }
 
-// ── Empty dojo ────────────────────────────────────────────────
+// ── Empty dojo (white-themed) ────────────────────────────────
 function EmptyDojo({ onGoToPeople }: { onGoToPeople: () => void }) {
   return (
-    <div className="relative overflow-hidden rounded-3xl border border-[#9a363f]/25 bg-gradient-to-br from-[#2a1416] via-[#1a1012] to-[#0f0f0f] p-8 text-center">
-      <RisingSun />
-      <div className="relative">
-        <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-2xl border border-[#9a363f]/30 bg-[#15140f] text-3xl text-[#f0c450]">
-          侍
-        </div>
-        <h2 className="text-base font-semibold text-white">
-          На твоём пути ещё нет сенсеев
-        </h2>
-        <p className="mx-auto mt-2 max-w-[300px] text-[12.5px] leading-relaxed text-neutral-400">
-          Сенсеи появляются, когда агент находит контакт, который сильнее тебя
-          в конкретной плоскости. Открой контакт и запусти «Зону роста» — или
-          обнови все контакты сразу со страницы People.
-        </p>
-        <button
-          onClick={onGoToPeople}
-          className="mt-5 inline-flex items-center gap-1.5 rounded-xl border border-[#9a363f]/40 bg-[#9a363f]/15 px-4 py-2.5 text-sm font-medium text-[#e88c94] transition-colors active:bg-[#9a363f]/25"
-        >
-          К контактам
-          <span aria-hidden="true">→</span>
-        </button>
+    <div
+      className="relative overflow-hidden rounded-3xl px-6 py-10 text-center"
+      style={{
+        backgroundColor: WASHI.card,
+        border: `1px solid ${WASHI.border}`,
+        boxShadow: "0 1px 2px rgba(26,20,17,0.04)",
+      }}
+    >
+      <div
+        aria-hidden="true"
+        className="pointer-events-none absolute -right-10 -top-10 h-48 w-48 rounded-full"
+        style={{
+          background: `radial-gradient(closest-side, ${WASHI.vermilion}1a, transparent)`,
+        }}
+      />
+      <div className="relative mx-auto mb-4 inline-flex h-16 w-16 items-center justify-center rounded-2xl text-[34px]"
+        style={{
+          backgroundColor: WASHI.paper,
+          color: WASHI.vermilion,
+          border: `1px solid ${WASHI.border}`,
+        }}
+      >
+        侍
       </div>
+      <h2
+        className="text-[16px] font-bold"
+        style={{ color: WASHI.ink }}
+      >
+        На твоём пути ещё нет сенсеев
+      </h2>
+      <p
+        className="mx-auto mt-2 max-w-[300px] text-[12.5px] leading-relaxed"
+        style={{ color: WASHI.ink2 }}
+      >
+        Сенсей появляется, когда агент находит человека, который сильнее тебя в
+        конкретной плоскости. Открой контакт и запусти «Зону роста» — или
+        обнови все контакты сразу со страницы People.
+      </p>
+      <button
+        onClick={onGoToPeople}
+        className="mt-5 inline-flex items-center gap-1.5 rounded-xl px-4 py-2.5 text-sm font-semibold"
+        style={{
+          backgroundColor: WASHI.vermilion,
+          color: "#fff",
+        }}
+      >
+        К контактам
+        <span aria-hidden="true">→</span>
+      </button>
     </div>
   );
 }
