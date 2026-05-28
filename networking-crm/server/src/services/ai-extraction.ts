@@ -61,6 +61,7 @@ Extract the following into structured JSON (use null for unknown fields):
   "memory_summary": "short portrait of this person",
   "memory_hook": "one tiny personal detail to remember — the kind of thing that makes you 'their person'",
   "is_update": false,
+  "warmth_change": "improved|stable|declined — how this interaction changed the relationship (see rules below)",
   "follow_up_questions": ["question1", "question2"]
 }
 
@@ -93,9 +94,16 @@ RULES for suggested_next_steps:
 - NEVER suggest something the user already plans to do. If they say "we're meeting tomorrow" or "going hiking together" — that meeting is ALREADY happening, don't create a follow-up for it
 - Instead, think about what should happen AFTER the planned event
 - due_days should be SMART: if a meeting is tomorrow, the follow-up should be in 2-3 days (after the meeting). If no meeting planned, follow up in 1-2 days while the connection is fresh
-- Generate 1-3 follow-ups. Each should be a DIFFERENT type of action
+- Usually generate JUST 1 follow-up — the single most important next step. Add a 2nd (rarely a 3rd) ONLY if it's genuinely distinct and necessary. Do NOT pad with extra tasks — fewer, sharper follow-ups are better.
+- If the person deferred/postponed ("давай потом", "уезжаю", "спишемся позже") — create AT MOST one follow-up for the right future time and nothing else.
 - Each step is an ACTION, not a thought. Not "понять его", but "сходить на хайкинг и расспросить про крипто-проект"
 - Write steps short and concrete. No generic "stay in touch" or "get to know better"
+
+RULES for warmth_change (single update):
+- "improved" — a real positive interaction happened (met, good conversation, helped each other)
+- "stable" — light/neutral touch, brief exchange, nothing significant changed
+- "declined" — a deferral, rebuff, or being ignored: "давай потом", "сейчас не могу", "уезжаю на две недели", ghosted, or the user expressed doubt. A postponement is NOT a meeting and must NOT be treated as a warm interaction.
+- If this is a brand-new contact (not an update), use "improved".
 
 RULES for follow_up_questions:
 - If the description is missing CRITICAL information, generate 1-3 short direct questions to ask the user
@@ -173,6 +181,12 @@ export async function extractContactData(
         memory_hook: parsed.memory_hook ?? null,
         met_date: typeof parsed.met_date === "string" ? parsed.met_date : null,
         is_update: parsed.is_update ?? null,
+        warmth_change:
+          parsed.warmth_change === "improved" ||
+          parsed.warmth_change === "declined" ||
+          parsed.warmth_change === "stable"
+            ? parsed.warmth_change
+            : undefined,
         follow_up_questions: Array.isArray(parsed.follow_up_questions)
           ? parsed.follow_up_questions.filter((q: unknown) => typeof q === "string")
           : [],
@@ -261,7 +275,7 @@ RULES for suggested_next_steps:
 - NEVER suggest something the user already plans to do. If they say "we're meeting tomorrow" or "going hiking together" — that meeting is ALREADY happening, don't create a follow-up for it
 - Instead, think about what should happen AFTER the planned event
 - due_days should be SMART: if a meeting is tomorrow, the follow-up should be in 2-3 days (after the meeting). If no meeting planned, follow up in 1-2 days while the connection is fresh
-- Generate 1-3 follow-ups per person. Each should be a DIFFERENT type of action
+- Usually generate JUST 1 follow-up per person — the single most important next step. Add a 2nd (rarely a 3rd) ONLY if genuinely distinct and necessary. Do NOT pad.
 - Each step is an ACTION, not a thought. Not "понять его", but "сходить на хайкинг и расспросить про крипто-проект"
 - Write steps short and concrete. No generic "stay in touch" or "get to know better"
 
@@ -427,10 +441,10 @@ RULES for contact_data (only for NEW contacts):
 - For met_date, calculate from relative dates. Today's date is provided at the end of this system prompt.
 
 RULES for interaction_type:
-- "meeting" — if they met in person (кофе, обед, мероприятие, встреча)
-- "message" — if they communicated via text (написал, переписывались, отправил)
+- "meeting" — ONLY if they actually met in person (кофе, обед, мероприятие, встреча). A planned-but-deferred meeting is NOT a meeting.
+- "message" — if they had a real two-way text exchange (написал, переписывались, отправил)
 - "follow_up" — if user completed a planned follow-up action
-- "note" — general update, thinking about the person, plans
+- "note" — general update/plans, OR a deferral/rebuff: the user reached out but the person postponed or ignored ("давай потом", "уезжаю", "не сейчас", не ответил). Use "note" for these so it is NOT counted as a warm interaction.
 
 RULES for activity_summary:
 - Write dense, factual, 2-4 sentences
@@ -439,15 +453,16 @@ RULES for activity_summary:
 - Write in the same language as the input
 
 RULES for suggested_next_steps:
-- 0-3 per person
+- Usually 0 or 1 per person — only the single most important next step. Use 2-3 ONLY if genuinely distinct and necessary. Do NOT pad with extra tasks.
 - ONLY suggest what the user HASN'T already done or planned
+- If the person deferred ("давай потом", "уезжаю") — at most ONE follow-up for the right future time (e.g. due_days=14), and nothing else
 - due_days should be smart: urgent stuff = 1-2 days, regular follow-ups = 3-7 days, low priority = 7-14 days
 - Each step is concrete and actionable
 
 RULES for warmth_change:
 - "improved" — meaningful positive interaction happened (met, had good conversation, helped each other)
 - "stable" — light touch, brief exchange, no significant change
-- "declined" — negative signal (ignored, conflict, ghosted, user expressed doubt)
+- "declined" — negative or non-progressing signal: ignored, conflict, ghosted, user expressed doubt, OR the person deferred/postponed ("давай потом", "уезжаю на две недели", "сейчас не могу"). A postponement counts as "declined", NOT "improved" — it must not warm the contact.
 
 RULES for memory_hook:
 - ONE tiny personal detail worth remembering

@@ -7,6 +7,7 @@ import {
   getAllowedTransitions,
   isValidTransition,
   recalcAndAutoStatus,
+  applyManualStatusChange,
 } from "../../services/warmth";
 import { suggestActions, Suggestion } from "../../services/message-drafting";
 import {
@@ -625,11 +626,6 @@ async function handleSetStatus(ctx: Context) {
       return;
     }
 
-    await prisma.contact.update({
-      where: { id: contactId },
-      data: { warmth_status: newStatus },
-    });
-
     await prisma.interaction.create({
       data: {
         contact_id: contactId,
@@ -638,7 +634,9 @@ async function handleSetStatus(ctx: Context) {
       },
     });
 
-    await recalcAndAutoStatus(contactId);
+    // Centralized status change: aligns warmth score + re-evaluates follow-ups
+    // (archive cancels them, other changes rebuild a fresh one).
+    await applyManualStatusChange(contactId, newStatus);
 
     const emoji = STATUS_EMOJI[newStatus] || "⚪";
     const label = STATUS_LABEL[newStatus] || newStatus;
@@ -1030,11 +1028,6 @@ async function handleArchiveYes(ctx: Context) {
   try {
     await ctx.answerCbQuery();
 
-    await prisma.contact.update({
-      where: { id: contactId },
-      data: { warmth_status: "archived" },
-    });
-
     await prisma.interaction.create({
       data: {
         contact_id: contactId,
@@ -1042,6 +1035,9 @@ async function handleArchiveYes(ctx: Context) {
         content: "Contact archived via Telegram",
       },
     });
+
+    // Archiving cancels all open follow-ups so a parked contact goes silent.
+    await applyManualStatusChange(contactId, "archived");
 
     await editOrReply(ctx, "✅ Контакт архивирован.", [
       [Markup.button.callback("← К контактам", "contacts")],

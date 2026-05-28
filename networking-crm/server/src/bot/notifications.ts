@@ -96,6 +96,7 @@ export async function sendMorningBriefing(): Promise<void> {
         }),
         prisma.followUp.findMany({
           where: {
+            contact: { warmth_status: { not: "archived" } },
             OR: [
               { status: "pending" },
               { status: "snoozed", snoozed_until: { lte: now } },
@@ -106,10 +107,15 @@ export async function sendMorningBriefing(): Promise<void> {
           take: 3,
         }),
         prisma.followUp.count({
-          where: { status: "pending", due_date: { lt: todayStart } },
+          where: {
+            contact: { warmth_status: { not: "archived" } },
+            status: "pending",
+            due_date: { lt: todayStart },
+          },
         }),
         prisma.followUp.findFirst({
           where: {
+            contact: { warmth_status: { not: "archived" } },
             status: "pending",
             due_date: { lt: todayStart },
           },
@@ -250,6 +256,7 @@ export async function sendFollowUpReminders(): Promise<void> {
     // Get the single most urgent follow-up with contact details
     const mostUrgent = await prisma.followUp.findFirst({
       where: {
+        contact: { warmth_status: { not: "archived" } },
         OR: [
           { status: "pending", due_date: { lt: todayStart } },
           { status: "pending", due_date: { gte: todayStart, lt: new Date(todayStart.getTime() + 86400000) } },
@@ -309,6 +316,7 @@ export async function sendFollowUpReminders(): Promise<void> {
     // Count remaining to create mild urgency
     const totalPending = await prisma.followUp.count({
       where: {
+        contact: { warmth_status: { not: "archived" } },
         OR: [
           { status: "pending" },
           { status: "snoozed", snoozed_until: { lte: new Date() } },

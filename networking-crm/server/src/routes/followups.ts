@@ -27,9 +27,14 @@ router.get("/", async (req, res, next) => {
           }
         : { status };
 
-    const where = contactId
-      ? { AND: [statusFilter, { contact_id: contactId }] }
-      : statusFilter;
+    // Never surface follow-ups for archived contacts in the active list.
+    const where = {
+      AND: [
+        statusFilter,
+        { contact: { warmth_status: { not: "archived" } } },
+        ...(contactId ? [{ contact_id: contactId }] : []),
+      ],
+    };
 
     const followUps = await prisma.followUp.findMany({
       where,
@@ -110,6 +115,8 @@ router.put("/:id", async (req, res, next) => {
         data: {
           status: "snoozed",
           snoozed_until: new Date(snoozed_until),
+          // Snoozing is an explicit "keep this" signal — protect from auto-cancel.
+          source: "user",
         },
       });
       res.json(updated);
@@ -147,6 +154,7 @@ router.post("/", async (req, res, next) => {
         suggested_action,
         due_date: new Date(due_date),
         priority: priority || 5,
+        source: "user",
       },
     });
 

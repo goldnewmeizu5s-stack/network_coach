@@ -4,6 +4,7 @@ import { logger } from "../lib/logger";
 import { transcribeAudio } from "./transcription";
 import { extractContactData, extractMultipleContacts, extractBatchActivity, ContactForMatching, OpenGoalForMatching } from "./ai-extraction";
 import { recalcAndAutoStatus } from "./warmth";
+import { cancelOpenFollowUps, insertFollowUps } from "./followup-lifecycle";
 import { addOrTouchGoal, setGoalStatus, recalcAndAutoInterestTier } from "./interest";
 import { notifyNewContact } from "../bot/notifications";
 import { BatchProcessingResult, GoalEvent } from "../types";
@@ -63,10 +64,19 @@ export async function processVoiceNote(
 
       const contactId = existingInteraction.contact_id;
       await updateExistingContact(contactId, extracted);
+      // A deferral/rebuff ("давай потом / уезжаю") must not warm the contact:
+      // log the voice note as a non-scoring "note" so warmth/status don't jump.
+      const declined = extracted.warmth_change === "declined";
       await prisma.interaction.update({
         where: { id: interactionId },
-        data: { contact_id: contactId, ai_summary: extracted.memory_summary },
+        data: {
+          contact_id: contactId,
+          ai_summary: extracted.memory_summary,
+          ...(declined ? { type: "note" } : {}),
+        },
       });
+      // The situation changed — drop stale auto follow-ups before queuing fresh.
+      await cancelOpenFollowUps(contactId, { onlyAuto: true });
       await createFollowUps(contactId, extracted);
       await recalcAndAutoStatus(contactId);
       indexInteractionAsync(interactionId);
@@ -116,6 +126,8 @@ export async function processVoiceNote(
           if (existing) {
             contactId = existing.id;
             await updateExistingContact(contactId, extracted);
+            // Situation changed — drop stale auto follow-ups before queuing fresh.
+            await cancelOpenFollowUps(contactId, { onlyAuto: true });
           } else {
             const contact = await createContact(extracted);
             contactId = contact.id;
@@ -259,18 +271,18 @@ async function createFollowUps(
   contactId: string,
   extracted: Awaited<ReturnType<typeof extractContactData>>
 ) {
-  for (const step of extracted.suggested_next_steps) {
+  // Dedup against already-open follow-ups and cap the open count so a single
+  // voice note can't bury the contact under a pile of tasks.
+  const drafts = extracted.suggested_next_steps.map((step) => {
     const dueDate = new Date();
     dueDate.setDate(dueDate.getDate() + step.due_days);
-    await prisma.followUp.create({
-      data: {
-        contact_id: contactId,
-        suggested_action: step.action,
-        due_date: dueDate,
-        priority: extracted.urgency_score,
-      },
-    });
-  }
+    return {
+      suggested_action: step.action,
+      due_date: dueDate,
+      priority: extracted.urgency_score,
+    };
+  });
+  await insertFollowUps(contactId, drafts, "auto");
 
   // Seed user-side goals from this voice note (deduped against open goals).
   for (const goal of extracted.user_goals_for_contact ?? []) {
@@ -523,11 +535,16 @@ export async function processBatchVoiceActivity(
 
       contactIds.push(contactId);
 
+      // A deferral/rebuff must not warm the contact — log it as a non-scoring
+      // "note" so warmth/status don't jump on "давай потом / уезжаю / не сейчас".
+      const declined = segment.warmth_change === "declined";
+      const interactionType = declined ? "note" : segment.interaction_type;
+
       // Create interaction record for this contact
       const segmentInteraction = await prisma.interaction.create({
         data: {
           contact_id: contactId,
-          type: segment.interaction_type,
+          type: interactionType,
           content: segment.activity_summary,
           ai_summary: segment.activity_summary,
         },
@@ -536,21 +553,23 @@ export async function processBatchVoiceActivity(
       // Apply goal events detected in this segment.
       await applyGoalEvents(contactId, segment.goal_events ?? [], segmentInteraction.id, openGoals);
 
-      // Create follow-ups
-      let followUpsCreated = 0;
-      for (const step of segment.suggested_next_steps) {
+      // For existing contacts the situation just changed — drop stale auto
+      // follow-ups before queuing fresh ones.
+      if (!isNew) {
+        await cancelOpenFollowUps(contactId, { onlyAuto: true });
+      }
+
+      // Create follow-ups (deduped + capped at MAX_OPEN_FOLLOWUPS).
+      const drafts = segment.suggested_next_steps.map((step) => {
         const dueDate = new Date();
         dueDate.setDate(dueDate.getDate() + step.due_days);
-        await prisma.followUp.create({
-          data: {
-            contact_id: contactId,
-            suggested_action: step.action,
-            due_date: dueDate,
-            priority: segment.urgency_score,
-          },
-        });
-        followUpsCreated++;
-      }
+        return {
+          suggested_action: step.action,
+          due_date: dueDate,
+          priority: segment.urgency_score,
+        };
+      });
+      const followUpsCreated = await insertFollowUps(contactId, drafts, "auto");
       totalFollowUpsCreated += followUpsCreated;
 
       // Recalculate warmth and interest tier
