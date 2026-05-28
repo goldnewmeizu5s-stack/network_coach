@@ -48,6 +48,7 @@ async function loadPendingFollowups() {
   const now = new Date();
   return prisma.followUp.findMany({
     where: {
+      contact: { warmth_status: { not: "archived" } },
       OR: [
         { status: "pending" },
         { status: "snoozed", snoozed_until: { lte: now } },
@@ -216,7 +217,8 @@ async function handleSnooze(ctx: Context) {
 
     await prisma.followUp.update({
       where: { id: fuId },
-      data: { status: "snoozed", snoozed_until: snoozedUntil },
+      // Snoozing is an explicit "keep this" signal — protect from auto-cancel.
+      data: { status: "snoozed", snoozed_until: snoozedUntil, source: "user" },
     });
 
     await ctx.answerCbQuery(`⏰ Отложено до ${fmtDateShort(snoozedUntil)}`);
@@ -491,6 +493,7 @@ async function handleSetDate(ctx: Context) {
         suggested_action: fuText,
         due_date: dueDate,
         priority: 5,
+        source: "user",
       },
     });
 

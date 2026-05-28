@@ -349,12 +349,20 @@ router.post("/batch", async (req, res, next) => {
     const { action, ids } = parsed.data;
 
     const newStatus = action === "archive" ? "archived" : "paused";
-    const result = await prisma.contact.updateMany({
-      where: { id: { in: ids } },
-      data: { warmth_status: newStatus },
-    });
+    // Route each contact through applyManualStatusChange so follow-ups are
+    // re-evaluated (archive cancels them; other changes rebuild them).
+    let updated = 0;
+    for (const id of ids) {
+      const current = await prisma.contact.findUnique({
+        where: { id },
+        select: { warmth_status: true },
+      });
+      if (!current || current.warmth_status === newStatus) continue;
+      await applyManualStatusChange(id, newStatus);
+      updated++;
+    }
 
-    res.json({ updated: result.count });
+    res.json({ updated });
   } catch (err) {
     next(err);
   }

@@ -22,6 +22,9 @@ export const FOLLOWUP_STATUSES = [
   "done",
   "snoozed",
   "skipped",
+  // System-only: set when a stale/archived follow-up is auto-cancelled.
+  // Not accepted from user input (see updateFollowUpSchema).
+  "cancelled",
 ] as const;
 
 export const INTERACTION_TYPES = [

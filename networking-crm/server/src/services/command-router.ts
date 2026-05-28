@@ -11,6 +11,7 @@ import {
 } from "./warmth";
 import { suggestActions } from "./message-drafting";
 import { draftFollowUpMessage } from "./message-drafting";
+import { cancelOpenFollowUps } from "./followup-lifecycle";
 import {
   getRelevantMethodologies,
   formatMethodologiesForPrompt,
@@ -611,6 +612,10 @@ async function executeTool(
             content: input.note as string,
           },
         });
+        // The situation just changed — drop stale auto follow-ups that were
+        // queued ahead of time. The daily cron will rebuild a fresh, relevant
+        // one. User-created follow-ups are preserved.
+        await cancelOpenFollowUps(contact.id, { onlyAuto: true });
         await recalcAndAutoStatus(contact.id);
         return `Note added to ${contact.full_name}: "${input.note}"`;
       }
@@ -620,6 +625,7 @@ async function executeTool(
         const limit = (input.limit as number) || 10;
 
         let whereClause: Record<string, unknown> = {
+          contact: { warmth_status: { not: "archived" } },
           OR: [
             { status: "pending" },
             { status: "snoozed", snoozed_until: { lte: now } },
@@ -747,7 +753,8 @@ async function executeTool(
 
         await prisma.followUp.update({
           where: { id: fu.id },
-          data: { status: "snoozed", snoozed_until: snoozedUntil },
+          // Snoozing is an explicit "keep this" signal — protect from auto-cancel.
+          data: { status: "snoozed", snoozed_until: snoozedUntil, source: "user" },
         });
 
         return `Snoozed follow-up for ${contact.full_name} by ${days} days: "${fu.suggested_action}"`;
@@ -768,6 +775,8 @@ async function executeTool(
             suggested_action: input.action as string,
             due_date: dueDate,
             priority,
+            // User explicitly asked for this — protect it from auto-cancel.
+            source: "user",
           },
         });
 

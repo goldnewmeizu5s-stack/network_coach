@@ -1,4 +1,5 @@
 import prisma from "../lib/prisma";
+import { cancelOpenFollowUps, supersedeAndRegenerate } from "./followup-lifecycle";
 
 const VALID_TRANSITIONS: Record<string, string[]> = {
   new: ["warming", "paused", "archived"],
@@ -187,6 +188,16 @@ export async function applyManualStatusChange(
     where: { id: contactId },
     data: { warmth_status: newStatus, warmth_score: aligned },
   });
+
+  // The situation just changed — re-evaluate this contact's follow-ups.
+  if (newStatus === "archived") {
+    // Archived contacts must go silent: cancel everything, even user-created.
+    await cancelOpenFollowUps(contactId, { onlyAuto: false });
+  } else {
+    // Any other transition: drop stale auto follow-ups and rebuild a fresh,
+    // status-appropriate set. User-created follow-ups are preserved.
+    await supersedeAndRegenerate(contactId);
+  }
 }
 
 /** One-shot pass that fixes existing rows whose stored score doesn't

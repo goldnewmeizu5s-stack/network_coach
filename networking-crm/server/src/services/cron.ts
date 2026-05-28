@@ -42,6 +42,10 @@ export async function runDailyJob(): Promise<void> {
     await applyInterestDecay();
     await evaluateInterestTiers();
 
+    // a3. Silence archived contacts — cancel any leftover open follow-ups
+    //     (covers contacts archived before this safeguard existed).
+    await cancelArchivedContactsFollowUps();
+
     // b. Follow-up generation — smart query + batch AI personalization
     await generateAllFollowUps();
 
@@ -300,6 +304,32 @@ async function generateAllFollowUps(): Promise<void> {
   logger.info(
     `[cron] Generated ${followUpData.length} follow-ups (${personalizedCount} AI-personalized) from ${filteredCandidates.length} candidates`
   );
+}
+
+/**
+ * Cancel any open (pending/snoozed) follow-ups belonging to archived contacts.
+ * New code already prevents these, but this cleans up rows created before the
+ * safeguard and anything that slipped through. Two-step (find ids, then
+ * updateMany) because updateMany can't filter on relation fields.
+ */
+async function cancelArchivedContactsFollowUps(): Promise<void> {
+  const archived = await prisma.contact.findMany({
+    where: { warmth_status: "archived" },
+    select: { id: true },
+  });
+  if (archived.length === 0) return;
+
+  const result = await prisma.followUp.updateMany({
+    where: {
+      contact_id: { in: archived.map((c) => c.id) },
+      status: { in: ["pending", "snoozed"] },
+    },
+    data: { status: "cancelled" },
+  });
+
+  if (result.count > 0) {
+    logger.info(`[cron] Cancelled ${result.count} follow-ups on archived contacts`);
+  }
 }
 
 /**

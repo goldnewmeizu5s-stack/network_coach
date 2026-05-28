@@ -26,6 +26,9 @@ export interface ExtractedContact {
   memory_hook: string | null;
   met_date: string | null;
   is_update: boolean | null;
+  // How this interaction changed the relationship. Used so a deferral/rebuff
+  // ("давай потом") is logged neutrally and doesn't inflate warmth/status.
+  warmth_change?: "improved" | "stable" | "declined";
   follow_up_questions: string[];
 }
 
