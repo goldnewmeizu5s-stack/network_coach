@@ -10,6 +10,12 @@ import {
   dailyVariant,
 } from "./ui";
 
+// Don't push the same follow-up as a reminder more than once per ~day. With
+// notifications at 08:00 (briefing), 12:00 and 18:00, a 12h gap means a given
+// follow-up is surfaced at most once a day, and the 12:00/18:00 reminders
+// rotate to a different person instead of nagging about the same one.
+const RENOTIFY_AFTER_HOURS = 12;
+
 // ── Core send function ────────────────────────────────────
 
 export async function sendTelegramNotification(
@@ -87,6 +93,7 @@ export async function sendMorningBriefing(): Promise<void> {
     const todayEnd = new Date(todayStart.getTime() + 86400000);
 
     const now = new Date();
+    const renotifyCutoff = new Date(now.getTime() - RENOTIFY_AFTER_HOURS * 3600000);
     const [challenge, pendingFups, overdueCount, urgent, streak] =
       await Promise.all([
         prisma.challenge.findFirst({
@@ -118,6 +125,10 @@ export async function sendMorningBriefing(): Promise<void> {
             contact: { warmth_status: { not: "archived" } },
             status: "pending",
             due_date: { lt: todayStart },
+            OR: [
+              { last_notified_at: null },
+              { last_notified_at: { lt: renotifyCutoff } },
+            ],
           },
           orderBy: { due_date: "asc" },
           include: { contact: { select: { full_name: true } } },
@@ -129,9 +140,13 @@ export async function sendMorningBriefing(): Promise<void> {
     const variant = dailyVariant(4);
     let text: string;
     let keyboard: ReturnType<typeof Markup.inlineKeyboard>;
+    // If we nag about a specific follow-up below, stamp it so the 12:00/18:00
+    // reminders don't repeat the same one the same day.
+    let notifiedFollowUpId: string | null = null;
 
     if (variant === 0 && urgent?.contact) {
       // VARIANT 0: "The urgent person" — loss framing, one person
+      notifiedFollowUpId = urgent.id;
       const name = esc(urgent.contact.full_name);
       const days = Math.floor(
         (Date.now() - urgent.due_date.getTime()) / 86400000,
@@ -232,6 +247,12 @@ export async function sendMorningBriefing(): Promise<void> {
     }
 
     await sendTelegramNotification(chatId, text, keyboard);
+    if (notifiedFollowUpId) {
+      await prisma.followUp.update({
+        where: { id: notifiedFollowUpId },
+        data: { last_notified_at: new Date() },
+      });
+    }
     logger.info("[notifications] Morning briefing sent (variant " + variant + ")");
   } catch (err) {
     logger.error("Morning briefing failed", { error: String(err) });
@@ -252,14 +273,19 @@ export async function sendFollowUpReminders(): Promise<void> {
   try {
     const todayStart = new Date();
     todayStart.setHours(0, 0, 0, 0);
+    const renotifyCutoff = new Date(Date.now() - RENOTIFY_AFTER_HOURS * 3600000);
 
-    // Get the single most urgent follow-up with contact details
+    // Get the single most urgent follow-up (overdue or due today) that we
+    // haven't already nagged about recently — so reminders rotate across people
+    // instead of repeating the same one 2-3 times a day.
     const mostUrgent = await prisma.followUp.findFirst({
       where: {
         contact: { warmth_status: { not: "archived" } },
+        status: "pending",
+        due_date: { lt: new Date(todayStart.getTime() + 86400000) },
         OR: [
-          { status: "pending", due_date: { lt: todayStart } },
-          { status: "pending", due_date: { gte: todayStart, lt: new Date(todayStart.getTime() + 86400000) } },
+          { last_notified_at: null },
+          { last_notified_at: { lt: renotifyCutoff } },
         ],
       },
       include: {
@@ -340,6 +366,11 @@ export async function sendFollowUpReminders(): Promise<void> {
     ]);
 
     await sendTelegramNotification(chatId, text, keyboard);
+    // Stamp so the next reminder/briefing skips this one for ~a day and rotates.
+    await prisma.followUp.update({
+      where: { id: mostUrgent.id },
+      data: { last_notified_at: new Date() },
+    });
     logger.info("[notifications] Follow-up reminder sent", {
       contact: mostUrgent.contact?.full_name,
       isOverdue,

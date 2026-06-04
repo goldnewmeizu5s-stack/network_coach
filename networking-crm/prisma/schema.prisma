@@ -149,6 +149,9 @@ model FollowUp {
   priority         Int       @default(5)
   snoozed_until    DateTime?
   completed_at     DateTime?
+  // Last time this follow-up was pushed as a reminder. Used to avoid nagging
+  // about the same follow-up more than once a day across notification channels.
+  last_notified_at DateTime?
   created_at       DateTime  @default(now())
 
   @@index([status, due_date])
